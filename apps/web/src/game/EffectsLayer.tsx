@@ -58,7 +58,7 @@ export default function EffectsLayer({ gs }: { gs: GameState }) {
     }
   }, [gs]);
 
-  return <div ref={hostRef} className="absolute inset-4 w-[calc(100%-2rem)] h-[calc(100%-2rem)] pointer-events-none overflow-hidden" />;
+  return <div ref={hostRef} className="absolute inset-0 pointer-events-none overflow-hidden" />;
 }
 
 function beam(app: Application, a: { x: number; y: number }, b: { x: number; y: number }) {

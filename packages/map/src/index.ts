@@ -1,4 +1,5 @@
 import manifestJson from "../data/manifest.json" with { type: "json" };
+import territoryPathJson from "../data/territory-paths.json" with { type: "json" };
 
 export interface TerritoryDef {
   id: string;
@@ -16,9 +17,14 @@ export interface MapManifest {
 }
 
 export const manifest = manifestJson as unknown as MapManifest;
+const territoryPathData = territoryPathJson as unknown as {
+  territories: Record<string, { anchor: readonly [number, number] }>;
+};
 
 /** Pixel anchor for a territory in board viewBox coordinates. */
 export function anchor(t: TerritoryDef): { x: number; y: number } {
+  const artAnchor = territoryPathData.territories[t.id]?.anchor;
+  if (artAnchor) return { x: artAnchor[0], y: artAnchor[1] };
   return { x: 48 + t.grid[0] * 58, y: 46 + t.grid[1] * 62 };
 }
 

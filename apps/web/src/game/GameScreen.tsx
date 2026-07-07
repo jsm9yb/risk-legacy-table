@@ -171,14 +171,16 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
       </header>
 
       <div className="grid grid-cols-[1fr_340px] min-h-0">
-        <div className="relative min-h-0 p-4">
-          <Board gs={gs} playerFaction={playerFaction} highlights={highlights} onTerritoryClick={onTerritoryClick} />
-          <EffectsLayer gs={gs} />
-          {shownError && (
-            <div role="alert" className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-panel border border-danger text-danger font-mono text-xs px-4 py-2 rounded-sm">
-              {shownError}
-            </div>
-          )}
+        <div className="relative min-h-0 p-4 overflow-auto">
+          <div className="relative w-full max-h-full aspect-[749.819/519.068]">
+            <Board gs={gs} playerFaction={playerFaction} highlights={highlights} onTerritoryClick={onTerritoryClick} />
+            <EffectsLayer gs={gs} />
+            {shownError && (
+              <div role="alert" className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-panel border border-danger text-danger font-mono text-xs px-4 py-2 rounded-sm">
+                {shownError}
+              </div>
+            )}
+          </div>
         </div>
         <aside className="border-l border-line bg-panel min-h-0 grid grid-rows-[1fr_220px]">
           <div className="overflow-y-auto">

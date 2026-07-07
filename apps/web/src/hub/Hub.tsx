@@ -73,10 +73,9 @@ export default function Hub({ onStart, onLan }: { onStart: (cfg: LocalConfig) =>
             </button>{/* new (1-web-a) */}
           </div>
           <div className="bg-panel border border-line rounded-sm p-5">
-            <h3 className="font-display font-bold tracking-wide mb-1">BOARD ASSET</h3>
+            <h3 className="font-display font-bold tracking-wide mb-1">TACTICAL BOARD</h3>
             <p className="text-sm text-muted">
-              Rendering the generated placeholder board. Drop <code className="font-mono text-xs">risk_board_modern_web.svg</code> into{" "}
-              <code className="font-mono text-xs">packages/map/assets/</code> to swap in the real map.
+              Original campaign board art is active with clickable territories, live highlights, and troop/HQ/city overlays.
             </p>
           </div>
         </aside>

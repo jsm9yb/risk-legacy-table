@@ -126,13 +126,61 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Scope:** swap the canvas `EffectsLayer` for PixiJS at the existing stable seam; non-blocking, low priority.
 - **Acceptance:** effects render at the seam with no game-component changes; build green (+ TEST-web smoke if present).
 
+### UI-1 - Human-readable setup labels
+- **Status:** todo
+- **Depends on:** TEST-web · **Blocked by:** —
+- **Scope:** replace raw faction-power ids and other snake_case labels in the web UI with player-facing names/descriptions from the content pack. Setup faction buttons should show readable power names, sideboard/card labels should use title-cased territory names, and the ledger should avoid internal ids where a readable label exists.
+- **Non-goals:** changing content-pack ids, rules behavior, or sealed-content text.
+- **Acceptance:** faction setup no longer displays strings like `fortified_hq` / `defensive_stand`; the setup smoke/component test covers the readable labels; verify loop green.
+
+### UI-2 - Action-first side panel
+- **Status:** todo
+- **Depends on:** UI-1 · **Blocked by:** —
+- **Scope:** restructure the in-game right rail so the current required player action is always the first visible section, with Quick Look, Sideboard, and Ledger moved into compact tabs or collapsible areas. The acting player should not need to scroll past status summaries to choose a faction, pick a power, recruit, attack, maneuver, draw, or resolve rewards.
+- **Non-goals:** mobile layout, board art, or new rules.
+- **Acceptance:** setup, recruit, combat, maneuver, and end-turn controls render at the top of the rail in their phases; existing game-screen tests updated/added for at least setup and recruit; verify loop green.
+
+### UI-3 - Territory inspector and move preview
+- **Status:** todo
+- **Depends on:** UI-2 · **Blocked by:** —
+- **Scope:** add a selected-territory inspector that shows owner, troops, HQ/city/scar markers, adjacent legal targets, and the action that the next click will take in the current phase. During attack/maneuver, selecting a source territory should make the target choices and consequences explicit before the player commits.
+- **Non-goals:** undo, confirmation modals for every action, or rule-engine changes.
+- **Acceptance:** selecting a territory in setup/attack/maneuver updates the inspector; illegal targets explain why they are unavailable when practical; tests cover at least attack-source selection and setup placement guidance; verify loop green.
+
+### UI-4 - Board legibility pass
+- **Status:** todo
+- **Depends on:** UI-1 · **Blocked by:** —
+- **Scope:** improve the current generated board's readability while it remains the active board: larger territory labels, clearer route lines, stronger owner/troop/HQ/city markers, and more distinguishable selected/legal/attack/move states. Keep the manifest-driven SVG renderer and existing click behavior.
+- **Non-goals:** replacing the board with final art; changing territory anchors or adjacency.
+- **Acceptance:** at 1280x720 all troop counts and major state markers are readable without zoom; legal setup and attack highlights are visually distinct; component smoke still asserts 42 territory shapes; verify loop green.
+
+### UI-5 - Responsive play layout
+- **Status:** todo
+- **Depends on:** UI-2, UI-4 · **Blocked by:** —
+- **Scope:** replace the fixed desktop-only game grid with a responsive layout. Desktop keeps board + rail; tablet/phone uses a board-first layout with a bottom drawer or tabbed panel for actions/status/logs, and the phase strip must remain usable without horizontal clipping.
+- **Non-goals:** native app gestures, offline support, or a separate mobile game mode.
+- **Acceptance:** no horizontal overflow at 390x844, 768x1024, and 1280x720; the current action remains reachable without page zoom; add the strongest automated coverage available plus a documented browser screenshot check; verify loop green.
+
+### UI-6 - Game-first hub polish
+- **Status:** todo
+- **Depends on:** UI-1 · **Blocked by:** —
+- **Scope:** remove project-status and implementation-copy from the hub, make the first screen feel like the game table, and keep the local hot-seat and LAN entry points obvious. Replace text like `1-web-b` / file-drop instructions with player-facing language and a compact board/campaign visual signal.
+- **Non-goals:** new campaign features, server behavior, or real board-art integration.
+- **Acceptance:** hub contains no internal task ids or asset-drop instructions; local start and LAN connect flows still work in tests; verify loop green.
+
+### UI-7 - Real board art integration
+- **Status:** done
+- **Depends on:** — · **Blocked by:** —
+- **Scope:** swap the manifest-generated placeholder board for the final board SVG while preserving territory ids, click handlers, highlights, owner/troop/HQ/city overlays, and tests. The implementation should continue to use the map manifest as the source of truth for game state and adjacency.
+- **Non-goals:** redesigning the map data model or changing Risk Legacy rules.
+- **Acceptance:** final board art renders in the game screen; all 42 territories remain clickable and test-addressable; overlays align with territories at desktop and tablet sizes; verify loop green.
+
 ---
 
 ## Ready right now (no decision needed)
-**The backlog is complete** — every task above is `done` (engine/legacy: `8b`, `city`, `9`, `10a`, `10b`, `11`, `12`; web/infra: `BUG-1`, `TEST-web`, `1-web-a`, `1-web-b`, `13`).
+**The original engine/network backlog is complete.** The next ready pickup batch is UI polish from the 2026-07-07 UI review: start with `UI-1`, then `UI-2`, then `UI-3`/`UI-4`, then `UI-5`/`UI-6`. `UI-7` is done with the in-repo board SVG asset.
 
 What starts the next backlog cycle (add tasks here when they become real):
 - **Module mechanics from host-entered text** — the import wizard stores `content_required` card text; the gameplay that consumes it (Pack 1 advanced-draft turns, Pack 2 comeback-power effects, Pack 3 missions/homelands play, Pack 4 lead faction/private missions, Pocket 1 nuclear resolution, Pocket 2 Alien Island) begins when the group actually unlocks a module and supplies real card text.
-- **Real board art** — drop `risk_board_modern_web.svg` at `packages/map/assets/board.svg` (contract already in place).
 - **Networked-play niceties** — reconnection UX, optimistic updates, spectator polish, Ledger render perf on long games.
 - **True socket/Postgres e2e** — the in-test session covers engine+filter+protocol; a scripted 2-laptop LAN checklist would close the loop.

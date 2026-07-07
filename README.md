@@ -17,7 +17,7 @@ tools/simulator     seeded full-game CLI harness through the real action API
 
 ```bash
 npm install
-npm test                 # 92 tests (engine, campaign, unlocks, content, map, server via pg-mem, web via jsdom)
+npm test                 # 100 tests (engine, campaign, unlocks, content, map, server via pg-mem, web via jsdom)
 npm run lint             # tsc typecheck, all projects
 npm run validate:content # blocks on errors; prints verify-pending warnings
 npm run sim -- 1234 4    # full seeded 4-player game in the terminal
@@ -35,9 +35,9 @@ npm run dev:web          # hot-seat sandbox at http://localhost:5173
    ```
 2. Backups: completed games auto-write campaign export JSON to `BACKUP_DIR`. Add a nightly `pg_dump` cron on the host for the second backup direction.
 
-## Swapping in the real board art
+## Board SVG contract
 
-The repo renders a generated placeholder with the **same contract** as `risk_board_modern_web.svg`: root id `risk-board-modern`, viewBox `0 0 749.819 519.068`, and 42 `path.territory-border` elements whose ids are the canonical territory ids. Drop the real file at `packages/map/assets/board.svg`; the web `Board` component marks the swap point (load the asset, bind clicks by those ids) — no rules/server changes needed.
+The repo renders `packages/map/assets/board.svg` as the web board art. It is generated from normalized territory paths plus the map manifest and keeps the runtime contract stable: root id `risk-board-modern`, viewBox `0 0 749.819 519.068`, and 42 `path.territory-border` elements whose ids are the canonical territory ids. The web `Board` component binds clicks and highlights to those paths, while the map manifest remains the source of truth for adjacency and game rules.
 
 ## Confirmed core rules
 
@@ -63,4 +63,4 @@ Already enforced: 4 Red Stars to win with immediate board lock, defender wins ti
 
 Live task status, dependencies, and what to build next live in **[BACKLOG.md](BACKLOG.md)**; dated history is in [PROGRESS.md](PROGRESS.md); design intent in [SPEC.md](SPEC.md).
 
-High level: the **base single game is complete and playable hot-seat** with **all ten faction powers**, **placeable starter scars**, **in-engine end-game rewards/signatures**, **cross-game campaign persistence** (engine `CampaignState` + server `campaigns.state`), and the **unlock-module engine** (Pack 1 + Pack 2 trigger/reveal live; Mercenary wired; sealed content pauses on host-entered text). The simulator chains two campaign games end-to-end — a game-1 elimination unlocks Pack 2 and game 2 deals Mercenary scars from the folded campaign. The rule decisions D1–D5 are all resolved (SPEC §5–§10). **Networked play is reachable through the browser**: hub → CONNECT → register/login → campaigns/invites → lobby (with the **sealed-content import wizard** for `content_required` unlocks) → the networked game screen on the per-viewer filtered Socket.IO protocol (`game:join`, `game:action`, `game:state`), sharing the same `GameScreen` as the hot-seat sandbox. Effects render via **PixiJS** at the `EffectsLayer` seam (graceful fallback without WebGL). The original backlog is complete; what's next (module mechanics from host-entered card text, real board art) is queued in BACKLOG.
+High level: the **base single game is complete and playable hot-seat** with **all ten faction powers**, **placeable starter scars**, **in-engine end-game rewards/signatures**, **cross-game campaign persistence** (engine `CampaignState` + server `campaigns.state`), and the **unlock-module engine** (Pack 1 + Pack 2 trigger/reveal live; Mercenary wired; sealed content pauses on host-entered text). The simulator chains two campaign games end-to-end — a game-1 elimination unlocks Pack 2 and game 2 deals Mercenary scars from the folded campaign. The rule decisions D1–D5 are all resolved (SPEC §5–§10). **Networked play is reachable through the browser**: hub → CONNECT → register/login → campaigns/invites → lobby (with the **sealed-content import wizard** for `content_required` unlocks) → the networked game screen on the per-viewer filtered Socket.IO protocol (`game:join`, `game:action`, `game:state`), sharing the same `GameScreen` as the hot-seat sandbox. Effects render via **PixiJS** at the `EffectsLayer` seam (graceful fallback without WebGL). The tactical SVG board art is active; remaining future work is queued in BACKLOG.

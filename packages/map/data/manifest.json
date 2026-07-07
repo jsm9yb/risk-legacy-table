@@ -2,7 +2,7 @@
   "version": "map-v1",
   "boardSvg": "assets/board.svg",
   "viewBox": "0 0 749.819 519.068",
-  "note": "Placeholder board generated from anchors. Swap in risk_board_modern_web.svg (same territory-border ids, same viewBox) and re-run validation.",
+  "note": "Original web board art generated from manifest anchors. Preserve the same territory-border ids and viewBox when regenerating or replacing the asset.",
   "continents": [
     { "id": "north_america", "name": "North America", "baseBonus": 5 },
     { "id": "south_america", "name": "South America", "baseBonus": 2 },
