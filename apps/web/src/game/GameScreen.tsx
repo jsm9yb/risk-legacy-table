@@ -60,7 +60,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
       return h;
     }
     if (gs.phase === "setup" && ui.pickedFaction) {
-      for (const t of manifest.territories) if (isLegalStart(gs, t.id, true, ui.pickedFaction)) h[t.id] = "highlight-start";
+      for (const t of manifest.territories) if (isLegalStart(gs, t.id, true, ui.pickedFaction, actor)) h[t.id] = "highlight-start";
     }
     if (gs.phase === "join_or_recruit") {
       const owned = Object.values(gs.territories).some((t) => t.controller === actor);

@@ -117,4 +117,26 @@ describe("event store (pg-mem smoke)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].path).toBe("pack_2_comeback_mercenaries.powers");
   });
+
+  it("prevents a campaign from having two active sessions", async () => {
+    const mem = newDb();
+    const { Pool } = mem.adapters.createPg();
+    const pool = new Pool();
+    await runMigrations(pool as any);
+    const db = createDbFromPool(pool as any);
+
+    await db.insertInto("users").values({ id: "u1", username: "ada", display_name: "Ada", password_hash: "x:y" }).execute();
+    await db.insertInto("campaigns").values({ id: "c1", owner_id: "u1", world_name: "Terra", invite_code: "ff00aa33" }).execute();
+    await db.insertInto("game_sessions").values({ id: "s1", campaign_id: "c1", game_number: 1, seed: "42" }).execute();
+
+    await expect(
+      db.insertInto("game_sessions").values({ id: "s2", campaign_id: "c1", game_number: 2, seed: "43" }).execute()
+    ).rejects.toThrow();
+
+    await db.updateTable("game_sessions").set({ status: "completed" }).where("id", "=", "s1").execute();
+    await db.insertInto("game_sessions").values({ id: "s2", campaign_id: "c1", game_number: 2, seed: "43" }).execute();
+    const active = await db.selectFrom("game_sessions").selectAll()
+      .where("campaign_id", "=", "c1").where("status", "=", "active").execute();
+    expect(active.map((s) => s.id)).toEqual(["s2"]);
+  });
 });

@@ -13,9 +13,11 @@ import { join } from "node:path";
 import { createDb } from "./db/connect.ts";
 import { createGame, applyAction, RuleViolation, initialCampaign, applyGameToCampaign, supplyModuleContent, filterStateFor, type GameState, type Action, type CampaignState } from "@risk/rules"; // new (10b, 1-web-b, 12)
 import { contentPack, validateContentPack } from "@risk/content";
+import { corsOriginFor, parseCorsOrigins } from "./http.ts";
+import { legacyDone, prepareSessionState } from "./session.ts";
 
 const PORT = Number(process.env.PORT ?? 8787);
-const ORIGINS = (process.env.CORS_ORIGINS ?? "http://localhost:5173").split(",");
+const ORIGINS = parseCorsOrigins(process.env.CORS_ORIGINS ?? "http://localhost:5173");
 const BACKUP_DIR = process.env.BACKUP_DIR ?? "./backups";
 mkdirSync(BACKUP_DIR, { recursive: true });
 
@@ -31,7 +33,9 @@ const db = createDb();
 const app = express();
 app.use(express.json());
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", ORIGINS[0] === "*" ? "*" : ORIGINS.join(","));
+  const origin = corsOriginFor(ORIGINS, req.headers.origin);
+  if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+  if (origin && origin !== "*") res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS"); // new (1-web-a)
   if (req.method === "OPTIONS") return res.sendStatus(204); // new (1-web-a): answer preflights — browser POSTs with JSON/Authorization were 404ing
@@ -265,18 +269,36 @@ io.on("connection", (socket) => {
     const players = [...(lobby?.values() ?? [])].filter((m) => m.role !== "spectator" && m.ready);
     if (players.length < 3) return ack?.({ error: "need 3+ ready players (starter rules: 3-5)" }); // new (BUG-1): matches the engine's createGame minimum — a 2p session would crash on replay
     if (players.length > 5) return ack?.({ error: "max 5 players" });
+    const active = await db.selectFrom("game_sessions").select("id")
+      .where("campaign_id", "=", campaignId).where("status", "=", "active").executeTakeFirst();
+    if (active) return ack?.({ error: "campaign already has an active game" });
     const sessionId = randomUUID();
     const seed = Math.floor(Math.random() * 2 ** 31); // server randomness; logged in session row + engine events
     const campaignState: CampaignState = c.state ? JSON.parse(c.state) : initialCampaign(c.world_name); // new (10b): seed from the persisted campaign
-    await db.insertInto("game_sessions").values({
-      id: sessionId, campaign_id: campaignId, game_number: c.game_number + 1, seed: String(seed),
-      campaign_state: JSON.stringify(campaignState), // new: creation-time snapshot keeps replay deterministic
-    }).execute();
-    await db.updateTable("campaigns").set({ game_number: c.game_number + 1 }).where("id", "=", campaignId).execute();
-    let order = 0;
-    for (const p of players) {
-      await db.insertInto("game_seats").values({ session_id: sessionId, user_id: p.userId, seat_order: order++, faction_id: null, result: null }).execute();
+    let prepared: LiveSession;
+    try {
+      prepared = prepareSessionState({ sessionId, campaignId, seed, campaign: campaignState, readyPlayers: players });
+    } catch (e) {
+      if (e instanceof RuleViolation) return ack?.({ error: e.message });
+      console.error(e);
+      return ack?.({ error: "internal error" });
     }
+    try {
+      await db.insertInto("game_sessions").values({
+        id: sessionId, campaign_id: campaignId, game_number: c.game_number + 1, seed: String(seed),
+        campaign_state: JSON.stringify(campaignState), // new: creation-time snapshot keeps replay deterministic
+      }).execute();
+      await db.updateTable("campaigns").set({ game_number: c.game_number + 1 }).where("id", "=", campaignId).execute();
+      let order = 0;
+      for (const p of players) {
+        await db.insertInto("game_seats").values({ session_id: sessionId, user_id: p.userId, seat_order: order++, faction_id: null, result: null }).execute();
+      }
+    } catch (e) {
+      if ((e as { code?: string }).code === "23505") return ack?.({ error: "campaign already has an active game" });
+      console.error(e);
+      return ack?.({ error: "internal error" });
+    }
+    live.set(sessionId, prepared);
     await audit(campaignId, sessionId, user.id, "GameSessionCreated", { seed, players: players.map((p) => p.userId) });
     io.to(`lobby:${campaignId}`).emit("game:created", { sessionId });
     ack?.({ ok: true, sessionId });
@@ -316,7 +338,6 @@ io.on("connection", (socket) => {
         sock?.emit("game:state", filterState(sess.state, seated ? viewer.id : null));
       }
       if (next.phase === "game_over" && next.winner && prev.phase !== "game_over") { // new: fire once at the winning action (reward.choose actions follow inside game_over)
-        await db.updateTable("game_sessions").set({ status: "completed" }).where("id", "=", sessionId).execute();
         for (const [fid, result] of Object.entries(next.results ?? {})) {
           const pid = Object.values(next.players).find((p) => p.factionId === fid)?.id;
           if (pid) await db.updateTable("game_seats").set({ result, faction_id: fid }).where("session_id", "=", sessionId).where("user_id", "=", pid).execute();
@@ -325,10 +346,10 @@ io.on("connection", (socket) => {
       }
       // new (10b): once end-game rewards resolve (or none open, post-Game-15), fold the finished
       // game into the persisted CampaignState and export — the seed for the next game:create.
-      const legacyDone = (st: GameState) => !!st.winner && (!st.rewards || st.rewards.committed); // new
       if (legacyDone(next) && !legacyDone(prev)) { // new
         const folded = applyGameToCampaign(sess.campaign ?? initialCampaign(""), next); // new
         await db.updateTable("campaigns").set({ state: JSON.stringify(folded) }).where("id", "=", sess.campaignId).execute(); // new
+        await db.updateTable("game_sessions").set({ status: "completed" }).where("id", "=", sessionId).execute();
         await audit(sess.campaignId, sessionId, null, "CampaignStateFolded", { gameNumber: folded.gameNumber, signatures: folded.signatures }); // new
         // Automatic app-level campaign export after completed games (backup direction)
         writeFileSync(join(BACKUP_DIR, `export-${sess.campaignId}-${sessionId}.json`), JSON.stringify({ campaignId: sess.campaignId, sessionId, finalState: next, campaignState: folded }, null, 2)); // new: now includes the folded campaign
