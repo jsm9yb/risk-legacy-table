@@ -1,0 +1,6 @@
+{
+  "name": "@risk/simulator",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": { "@risk/rules": "*", "@risk/content": "*", "@risk/map": "*" }
+}

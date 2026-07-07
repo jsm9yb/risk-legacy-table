@@ -1,0 +1,25 @@
+{
+  "name": "risk-legacy",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*"
+  ],
+  "scripts": {
+    "build": "npm run build -ws --if-present",
+    "test": "vitest run",
+    "lint": "tsc -p packages/map --noEmit && tsc -p packages/content --noEmit && tsc -p packages/rules --noEmit && tsc -p tools/simulator --noEmit && tsc -p apps/server --noEmit && tsc -p apps/web --noEmit",
+    "validate:content": "node --experimental-strip-types packages/content/src/validate.ts",
+    "generate:board": "node --experimental-strip-types packages/map/src/generate-board.ts",
+    "sim": "node --experimental-strip-types tools/simulator/src/run.ts",
+    "dev:server": "npm run dev -w @risk/server",
+    "dev:web": "npm run dev -w @risk/web"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^22.0.0"
+  }
+}

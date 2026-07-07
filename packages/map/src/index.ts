@@ -1,0 +1,54 @@
+import manifestJson from "../data/manifest.json" with { type: "json" };
+
+export interface TerritoryDef {
+  id: string;
+  name: string;
+  continent: string;
+  grid: [number, number];
+  neighbors: string[];
+}
+export interface ContinentDef { id: string; name: string; baseBonus: number }
+export interface MapManifest {
+  version: string;
+  viewBox: string;
+  continents: ContinentDef[];
+  territories: TerritoryDef[];
+}
+
+export const manifest = manifestJson as unknown as MapManifest;
+
+/** Pixel anchor for a territory in board viewBox coordinates. */
+export function anchor(t: TerritoryDef): { x: number; y: number } {
+  return { x: 48 + t.grid[0] * 58, y: 46 + t.grid[1] * 62 };
+}
+
+export function territoryById(id: string): TerritoryDef {
+  const t = manifest.territories.find((t) => t.id === id);
+  if (!t) throw new Error(`Unknown territory: ${id}`);
+  return t;
+}
+
+export function continentTerritories(continentId: string): TerritoryDef[] {
+  return manifest.territories.filter((t) => t.continent === continentId);
+}
+
+/** Validate manifest invariants: 42 territories, symmetric adjacency, valid continents. */
+export function validateManifest(m: MapManifest = manifest): string[] {
+  const errors: string[] = [];
+  if (m.territories.length !== 42) errors.push(`Expected 42 territories, found ${m.territories.length}`);
+  const ids = new Set(m.territories.map((t) => t.id));
+  if (ids.size !== m.territories.length) errors.push("Duplicate territory ids");
+  const continents = new Set(m.continents.map((c) => c.id));
+  for (const t of m.territories) {
+    if (!continents.has(t.continent)) errors.push(`${t.id}: unknown continent ${t.continent}`);
+    for (const n of t.neighbors) {
+      if (!ids.has(n)) errors.push(`${t.id}: unknown neighbor ${n}`);
+      else {
+        const back = m.territories.find((x) => x.id === n)!;
+        if (!back.neighbors.includes(t.id)) errors.push(`Asymmetric adjacency: ${t.id} -> ${n}`);
+      }
+    }
+  }
+  if (m.continents.length !== 6) errors.push(`Expected 6 continents, found ${m.continents.length}`);
+  return errors;
+}

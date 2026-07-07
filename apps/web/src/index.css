@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0c0f15;
+  --color-panel: #141925;
+  --color-panel-2: #1a2132;
+  --color-line: #232c3d;
+  --color-text: #d6deeb;
+  --color-muted: #7d8aa3;
+  --color-signal: #e0a93c;   /* command amber */
+  --color-danger: #c9504a;
+  --color-ok: #4caf7d;
+  --font-display: "Big Shoulders", sans-serif;
+  --font-body: "IBM Plex Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+/* territory interactions */
+.territory { cursor: pointer; transition: filter 120ms ease, stroke 120ms ease; }
+.territory:hover { filter: brightness(1.25); }
+.territory.selected { stroke: var(--color-signal); stroke-width: 2.5; }
+.territory.highlight-attack { stroke: var(--color-danger); stroke-width: 2; stroke-dasharray: 4 3; }
+.territory.highlight-move { stroke: var(--color-ok); stroke-width: 2; stroke-dasharray: 4 3; }
+.territory.highlight-start { stroke: var(--color-signal); stroke-width: 1.8; stroke-dasharray: 3 3; }
+.territory.dimmed { opacity: 0.45; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

@@ -1,0 +1,878 @@
+{
+  "packId": "risk-legacy-private-v1",
+  "version": 2,
+  "seededAt": "2026-06-12",
+  "notes": "Core rules confirmed against rulebook. Sealed modules seeded as locked content. Items marked verification:pending-engine are confirmed in rule but not yet wired into the engine (see notes).",
+  "factions": [
+    {
+      "id": "die_mechaniker",
+      "name": "Die Mechaniker",
+      "color": "#e0a93c",
+      "startingPowers": [
+        "fortified_hq",
+        "defensive_stand"
+      ]
+    },
+    {
+      "id": "enclave_of_the_bear",
+      "name": "Enclave of the Bear",
+      "color": "#b3403a",
+      "startingPowers": [
+        "lower_die_intimidation",
+        "total_conquest"
+      ]
+    },
+    {
+      "id": "imperial_balkania",
+      "name": "Imperial Balkania",
+      "color": "#7e57c2",
+      "startingPowers": [
+        "round_up_recruiting",
+        "expansionist_supply"
+      ]
+    },
+    {
+      "id": "khan_industries",
+      "name": "Khan Industries",
+      "color": "#3f8cff",
+      "startingPowers": [
+        "hq_reinforcement",
+        "territory_card_reinforcement"
+      ]
+    },
+    {
+      "id": "saharan_republic",
+      "name": "Saharan Republic",
+      "color": "#43a06b",
+      "startingPowers": [
+        "early_maneuver",
+        "unconnected_maneuver"
+      ]
+    }
+  ],
+  "powers": [
+    {
+      "id": "fortified_hq",
+      "name": "Fortified HQ",
+      "handler": "modifyCombatDie",
+      "text": "Die Mechaniker's starting HQ is fortified when Die Mechaniker defends it: +1 to each defense die, no durability boxes, no expansion surcharge; does not stack with the Fortification reward mark.",
+      "verification": "confirmed"
+    },
+    {
+      "id": "defensive_stand",
+      "name": "Defensive Stand",
+      "handler": "modifyCombatDie",
+      "text": "If Die Mechaniker's natural defense roll is two 6s, the defended territory cannot be attacked again for the rest of the active turn.",
+      "verification": "confirmed"
+    },
+    {
+      "id": "lower_die_intimidation",
+      "name": "Intimidation",
+      "handler": "modifyCombatDie",
+      "text": "Defender subtracts 1 from the LOWER defense die in the first territory Enclave of the Bear attacks each turn, for as long as Enclave keeps attacking that same territory.",
+      "verification": "confirmed"
+    },
+    {
+      "id": "total_conquest",
+      "name": "Total Conquest",
+      "handler": "modifyCombatDie",
+      "text": "If Enclave of the Bear's natural attack roll is three of a kind and the final combat would kill at least one defender, remove ALL defenders and conquer normally.",
+      "verification": "confirmed"
+    },
+    {
+      "id": "round_up_recruiting",
+      "name": "Round-Up Recruiting",
+      "handler": "alterRecruitment",
+      "text": "Round UP (instead of down) only the (territories + population) / 3 recruitment component, before minimum-recruit and bonuses.",
+      "verification": "confirmed"
+    },
+    {
+      "id": "expansionist_supply",
+      "name": "Expansionist Supply",
+      "handler": "alterRecruitment",
+      "effect": { "expandThreshold": 4 },
+      "text": "If Imperial Balkania expands into 4 or more unoccupied territories this turn, it may draw a Resource card at end of turn even without an enemy conquest.",
+      "verification": "confirmed"
+    },
+    {
+      "id": "hq_reinforcement",
+      "name": "HQ Reinforcement",
+      "handler": "alterRecruitment",
+      "text": "At the start of Khan Industries' turn, add 1 troop to each territory Khan controls that contains any HQ.",
+      "verification": "confirmed"
+    },
+    {
+      "id": "territory_card_reinforcement",
+      "name": "Territory Card Reinforcement",
+      "handler": "alterRecruitment",
+      "text": "After drawing a Territory card, if Khan Industries controls that territory, it may add 1 troop there.",
+      "verification": "confirmed"
+    },
+    {
+      "id": "early_maneuver",
+      "name": "Early Maneuver",
+      "handler": "extraManeuver",
+      "text": "Saharan Republic's one maneuver may be taken at any stable point during its own turn, not just the maneuver phase.",
+      "verification": "confirmed"
+    },
+    {
+      "id": "unconnected_maneuver",
+      "name": "Unconnected Maneuver",
+      "handler": "extraManeuver",
+      "text": "Normal maneuver timing, but the source and target territories need only be controlled by Saharan Republic, not connected.",
+      "verification": "confirmed"
+    }
+  ],
+  "scars": [
+    {
+      "id": "bunker",
+      "name": "Bunker",
+      "target": "territory",
+      "handler": "modifyCombatDie",
+      "source": "starter",
+      "starterPlayable": true,
+      "instances": 3,
+      "effect": {
+        "side": "def",
+        "op": "add",
+        "amount": 1,
+        "applyTo": "highest_die"
+      },
+      "verification": "confirmed",
+      "text": "Defender adds +1 to the highest defense die."
+    },
+    {
+      "id": "ammo_shortage",
+      "name": "Ammo Shortage",
+      "target": "territory",
+      "handler": "modifyCombatDie",
+      "source": "starter",
+      "starterPlayable": true,
+      "instances": 3,
+      "effect": {
+        "side": "def",
+        "op": "sub",
+        "amount": 1,
+        "applyTo": "highest_die"
+      },
+      "verification": "confirmed",
+      "text": "Defender subtracts 1 from the highest defense die."
+    },
+    {
+      "id": "biohazard",
+      "name": "Biohazard",
+      "target": "territory",
+      "handler": "onEndTurn",
+      "source": "pack1",
+      "starterPlayable": false,
+      "instances": 3,
+      "effect": {
+        "trigger": "controller_end_turn",
+        "op": "remove_troops",
+        "amount": 1
+      },
+      "verification": "confirmed",
+      "text": "Pack 1 scar. At the controller's end of turn (before the draw), lose 1 troop from this territory; vacate if it was the last."
+    },
+    {
+      "id": "mercenary",
+      "name": "Mercenary",
+      "target": "territory",
+      "handler": "onEndTurn",
+      "source": "pack2",
+      "starterPlayable": false,
+      "instances": 3,
+      "effect": {
+        "trigger": "controller_end_turn",
+        "op": "add_troops",
+        "amount": 1
+      },
+      "verification": "confirmed",
+      "text": "Pack 2 scar. At the controller's end of turn, gain 1 troop if still controlled. Playable once Pack 2 unlocks (SPEC section 5, confirmed)."
+    },
+    {
+      "id": "fortification",
+      "name": "Fortification",
+      "target": "territory",
+      "handler": "modifyCombatDie",
+      "source": "reward",
+      "starterPlayable": false,
+      "durability": 10,
+      "effect": {
+        "side": "def",
+        "op": "add",
+        "amount": 1,
+        "applyTo": "each_die",
+        "expandSurcharge": 2,
+        "markDurabilityWhenAttackersEquals": 3,
+        "cityOnly": true,
+        "refortifyReplaces": true
+      },
+      "verification": "confirmed",
+      "text": "Not a scar card — a winner reward mark (fortify_city) on a city. Defender adds +1 to EACH defense die. Expanding into the unoccupied fortified city costs +2 troops. Mark 1 durability box after each attack roll made with 3 attacking troops; after 10 boxes the city is no longer fortified. Re-fortifying replaces remaining durability."
+    }
+  ],
+  "cards": {
+    "territoryCards": [
+      {
+        "id": "0",
+        "kind": "territory",
+        "territoryId": "alaska",
+        "resources": 1
+      },
+      {
+        "id": "1",
+        "kind": "territory",
+        "territoryId": "northwest_territory",
+        "resources": 1
+      },
+      {
+        "id": "2",
+        "kind": "territory",
+        "territoryId": "greenland",
+        "resources": 1
+      },
+      {
+        "id": "3",
+        "kind": "territory",
+        "territoryId": "alberta",
+        "resources": 1
+      },
+      {
+        "id": "4",
+        "kind": "territory",
+        "territoryId": "ontario",
+        "resources": 1
+      },
+      {
+        "id": "5",
+        "kind": "territory",
+        "territoryId": "quebec",
+        "resources": 1
+      },
+      {
+        "id": "6",
+        "kind": "territory",
+        "territoryId": "western_united_states",
+        "resources": 1
+      },
+      {
+        "id": "7",
+        "kind": "territory",
+        "territoryId": "eastern_united_states",
+        "resources": 1
+      },
+      {
+        "id": "8",
+        "kind": "territory",
+        "territoryId": "central_america",
+        "resources": 1
+      },
+      {
+        "id": "9",
+        "kind": "territory",
+        "territoryId": "venezuela",
+        "resources": 1
+      },
+      {
+        "id": "10",
+        "kind": "territory",
+        "territoryId": "peru",
+        "resources": 1
+      },
+      {
+        "id": "11",
+        "kind": "territory",
+        "territoryId": "brazil",
+        "resources": 1
+      },
+      {
+        "id": "12",
+        "kind": "territory",
+        "territoryId": "argentina",
+        "resources": 1
+      },
+      {
+        "id": "13",
+        "kind": "territory",
+        "territoryId": "iceland",
+        "resources": 1
+      },
+      {
+        "id": "14",
+        "kind": "territory",
+        "territoryId": "great_britain",
+        "resources": 1
+      },
+      {
+        "id": "15",
+        "kind": "territory",
+        "territoryId": "scandinavia",
+        "resources": 1
+      },
+      {
+        "id": "16",
+        "kind": "territory",
+        "territoryId": "ukraine",
+        "resources": 1
+      },
+      {
+        "id": "17",
+        "kind": "territory",
+        "territoryId": "northern_europe",
+        "resources": 1
+      },
+      {
+        "id": "18",
+        "kind": "territory",
+        "territoryId": "southern_europe",
+        "resources": 1
+      },
+      {
+        "id": "19",
+        "kind": "territory",
+        "territoryId": "western_europe",
+        "resources": 1
+      },
+      {
+        "id": "20",
+        "kind": "territory",
+        "territoryId": "north_africa",
+        "resources": 1
+      },
+      {
+        "id": "21",
+        "kind": "territory",
+        "territoryId": "egypt",
+        "resources": 1
+      },
+      {
+        "id": "22",
+        "kind": "territory",
+        "territoryId": "east_africa",
+        "resources": 1
+      },
+      {
+        "id": "23",
+        "kind": "territory",
+        "territoryId": "congo",
+        "resources": 1
+      },
+      {
+        "id": "24",
+        "kind": "territory",
+        "territoryId": "south_africa",
+        "resources": 1
+      },
+      {
+        "id": "25",
+        "kind": "territory",
+        "territoryId": "madagascar",
+        "resources": 1
+      },
+      {
+        "id": "26",
+        "kind": "territory",
+        "territoryId": "ural",
+        "resources": 1
+      },
+      {
+        "id": "27",
+        "kind": "territory",
+        "territoryId": "siberia",
+        "resources": 1
+      },
+      {
+        "id": "28",
+        "kind": "territory",
+        "territoryId": "yakutsk",
+        "resources": 1
+      },
+      {
+        "id": "29",
+        "kind": "territory",
+        "territoryId": "kamchatka",
+        "resources": 1
+      },
+      {
+        "id": "30",
+        "kind": "territory",
+        "territoryId": "irkutsk",
+        "resources": 1
+      },
+      {
+        "id": "31",
+        "kind": "territory",
+        "territoryId": "mongolia",
+        "resources": 1
+      },
+      {
+        "id": "32",
+        "kind": "territory",
+        "territoryId": "japan",
+        "resources": 1
+      },
+      {
+        "id": "33",
+        "kind": "territory",
+        "territoryId": "afghanistan",
+        "resources": 1
+      },
+      {
+        "id": "34",
+        "kind": "territory",
+        "territoryId": "china",
+        "resources": 1
+      },
+      {
+        "id": "35",
+        "kind": "territory",
+        "territoryId": "middle_east",
+        "resources": 1
+      },
+      {
+        "id": "36",
+        "kind": "territory",
+        "territoryId": "india",
+        "resources": 1
+      },
+      {
+        "id": "37",
+        "kind": "territory",
+        "territoryId": "siam",
+        "resources": 1
+      },
+      {
+        "id": "38",
+        "kind": "territory",
+        "territoryId": "indonesia",
+        "resources": 1
+      },
+      {
+        "id": "39",
+        "kind": "territory",
+        "territoryId": "new_guinea",
+        "resources": 1
+      },
+      {
+        "id": "40",
+        "kind": "territory",
+        "territoryId": "western_australia",
+        "resources": 1
+      },
+      {
+        "id": "41",
+        "kind": "territory",
+        "territoryId": "eastern_australia",
+        "resources": 1
+      }
+    ],
+    "coinCards": [
+      {
+        "id": "42",
+        "kind": "coin",
+        "resources": 1
+      },
+      {
+        "id": "43",
+        "kind": "coin",
+        "resources": 1
+      },
+      {
+        "id": "44",
+        "kind": "coin",
+        "resources": 1
+      },
+      {
+        "id": "45",
+        "kind": "coin",
+        "resources": 1
+      },
+      {
+        "id": "46",
+        "kind": "coin",
+        "resources": 1
+      },
+      {
+        "id": "47",
+        "kind": "coin",
+        "resources": 1
+      },
+      {
+        "id": "48",
+        "kind": "coin",
+        "resources": 1
+      },
+      {
+        "id": "49",
+        "kind": "coin",
+        "resources": 1
+      },
+      {
+        "id": "50",
+        "kind": "coin",
+        "resources": 1
+      },
+      {
+        "id": "51",
+        "kind": "coin",
+        "resources": 1
+      }
+    ]
+  },
+  "troopPayoutTable": {
+    "2": 1,
+    "3": 2,
+    "4": 3,
+    "5": 4,
+    "6": 5,
+    "7": 6,
+    "8": 7,
+    "9": 8,
+    "10": 10
+  },
+  "cityPopulations": {
+    "none": 0,
+    "minor": 1,
+    "major": 2,
+    "world_capital": 5
+  },
+  "ruleConstants": {
+    "minPlayers": {
+      "value": 3,
+      "verification": "confirmed",
+      "note": "2-player is not a supported starter mode."
+    },
+    "maxPlayers": {
+      "value": 5,
+      "verification": "confirmed"
+    },
+    "redStarsToWin": {
+      "value": 4,
+      "verification": "confirmed"
+    },
+    "startingTroops": {
+      "value": 8,
+      "verification": "confirmed",
+      "note": "Flat 8 per player. No player-count scaling."
+    },
+    "redStarPurchaseCost": {
+      "value": 4,
+      "verification": "confirmed",
+      "unit": "cards",
+      "note": "4 Resource cards (Territory or Coin); resource value irrelevant. Multiple Red Stars may be bought at start of turn if enough cards."
+    },
+    "ownHqCountsAsRedStar": {
+      "value": true,
+      "verification": "confirmed",
+      "note": "Every HQ a player CONTROLS counts as 1 board Red Star. An HQ territory with 0 troops is controlled by nobody."
+    },
+    "legalStartRule": {
+      "value": "unoccupied_unmarked_or_own_founded_major_city",
+      "verification": "confirmed",
+      "note": "Unoccupied unmarked territory, or unoccupied Major City founded by that player (even if scarred). Minor cities never qualify. Engine: major-city allowance activates with the city-founding slice."
+    },
+    "initialHqAdjacencyRule": {
+      "value": "no_adjacent_enemy_hq",
+      "verification": "confirmed",
+      "note": "Initial HQ placement cannot be adjacent to another faction HQ. Enforced in engine."
+    },
+    "joinWarLegalStartRule": {
+      "value": "same_as_start_no_hq",
+      "verification": "confirmed",
+      "note": "Same legal territory rule as starting placement, but no HQ is placed; HQ-adjacency only applies when placing an HQ."
+    },
+    "joinWarTroops": {
+      "value": "half_starting_total",
+      "verification": "confirmed",
+      "note": "Half the starting troop total (=4 with starter rules). No HQ placed."
+    },
+    "cityResistanceOnExpand": {
+      "value": "population_plus_fortify",
+      "verification": "confirmed",
+      "note": "Expanding into an unoccupied city costs troops = population (Minor 1, Major 2, World Capital 5); fortified +2. Attacking enemy troops in a city pays no resistance."
+    },
+    "minRecruit": {
+      "value": 3,
+      "verification": "confirmed"
+    },
+    "territoriesPerTroop": {
+      "value": 3,
+      "verification": "confirmed"
+    },
+    "recruitCountsPopulationInDivision": {
+      "value": true,
+      "verification": "confirmed",
+      "note": "Recruit = max(floor((territories + city population) / 3), minRecruit) + bonuses. Population is INSIDE the division (rulebook; also implied by round_up_recruiting in SPEC section 6). Corrected 2026-07-06 - previously population was added at face value."
+    },
+    "missileEffect": {
+      "value": "set_own_die_to_unmodifiable_6",
+      "verification": "confirmed"
+    },
+    "coinDepletionAward": {
+      "value": "most_territories_red_star_tie_none",
+      "verification": "confirmed"
+    },
+    "rewardInventories": {
+      "value": { "cancelStickers": 4, "fortifyMarks": 5, "majorCities": 5, "minorCities": 9 },
+      "verification": "confirmed",
+      "note": "Finite campaign-wide reward inventories (SPEC §7): 4 cancel stickers, 5 Fortification marks, 5 Major Cities, 9 Minor Cities."
+    },
+    "namedContinentBonus": {
+      "value": 1,
+      "verification": "confirmed",
+      "note": "name_continent winner reward: the naming player gets a personal +1 recruit when controlling the named continent."
+    },
+    "cardUpgradeMaxResources": {
+      "value": 6,
+      "verification": "confirmed",
+      "note": "upgrade_territory_card held-on reward: +1 resource sticker on a controlled, non-destroyed territory card under 6 resources. Coin cards never upgrade."
+    },
+    "starterRewardsLastGame": {
+      "value": 15,
+      "verification": "confirmed",
+      "note": "After Game 15 rewards, starter reward changes (signing + winner/held-on rewards) stop; existing state and modules remain active (SPEC §7)."
+    }
+  },
+  "unlockModules": [
+    {
+      "id": "pack_1_advanced_draft_biohazards",
+      "name": "Pack 1 — Advanced Draft / Biohazards",
+      "trigger": "onMinorCityFounded",
+      "openCondition": "ninth_minor_city_founded",
+      "revealTiming": "end_game_after_last_minor_city_placed",
+      "permanentRules": [
+        "advanced_setup_draft_snake_order"
+      ],
+      "cardsAdded": {
+        "draft": [
+          "starting_resources_coins",
+          "placement_order",
+          "turn_order",
+          "starting_troop_count"
+        ],
+        "scars": 3,
+        "events": [
+          "urban_panic",
+          "civil_engineers",
+          "city_collapse",
+          "minor_city_shortage"
+        ]
+      },
+      "factionsAdded": [],
+      "stateAdded": [
+        "foundedMinorCities"
+      ],
+      "rulesHooks": [
+        "onFactionDraftStarted",
+        "onRecruitmentCalculated"
+      ],
+      "scarSource": "pack1",
+      "contentRequired": ["draft", "events"],
+      "implementationStatus": "content_seeded",
+      "locked": true
+    },
+    {
+      "id": "pack_2_comeback_mercenaries",
+      "name": "Pack 2 — Comeback Powers / Mercenaries",
+      "trigger": "onPlayerEliminated",
+      "openCondition": "player_or_faction_eliminated",
+      "revealTiming": "mid_game_no_legal_join_or_end_game_on_elimination",
+      "permanentRules": [
+        "eliminated_faction_may_take_one_comeback_power"
+      ],
+      "cardsAdded": {
+        "powers": [
+          "border_recruiters",
+          "underground_network",
+          "siege_doctrine",
+          "mobile_command",
+          "contract_army",
+          "stockpiled_ammunition"
+        ],
+        "scars": 3
+      },
+      "factionsAdded": [],
+      "stateAdded": [
+        "factions[].comebackPower"
+      ],
+      "rulesHooks": [
+        "onPlayerStartTurn",
+        "onPlayerEliminated"
+      ],
+      "scarSource": "pack2",
+      "contentRequired": ["powers"],
+      "implementationStatus": "content_seeded",
+      "locked": true
+    },
+    {
+      "id": "pack_3_homelands_missions",
+      "name": "Pack 3 — Homelands / Homeland Missions",
+      "trigger": "onBoardSigned",
+      "openCondition": "second_signature_by_one_person",
+      "revealTiming": "end_game_after_second_win_reward",
+      "permanentRules": [
+        "homeland_resource_draw_at_end_of_turn"
+      ],
+      "cardsAdded": {
+        "missions": [
+          "claim_the_homeland",
+          "defend_the_people",
+          "supply_corridor",
+          "found_the_world_capital",
+          "break_the_giant",
+          "national_identity"
+        ],
+        "events": [
+          "largest_population_themed"
+        ]
+      },
+      "factionsAdded": [],
+      "stateAdded": [
+        "factions[].homelandContinent"
+      ],
+      "rulesHooks": [
+        "onGameEnd",
+        "onMissionCompleted"
+      ],
+      "implementationStatus": "content_seeded",
+      "locked": true
+    },
+    {
+      "id": "pack_4_lead_faction_private_missions",
+      "name": "Pack 4 — Lead Faction / Private Missions",
+      "trigger": "onBoardSigned",
+      "openCondition": "world_capital_mark_placed",
+      "revealTiming": "mid_game_when_mark_enters_play",
+      "permanentRules": [
+        "lead_faction_chooses_public_mission",
+        "world_capital_population_5",
+        "lead_faction_extra_troops_at_capital"
+      ],
+      "cardsAdded": {
+        "privateMissions": [
+          "silent_coup",
+          "secure_the_capital",
+          "trade_monopoly",
+          "urban_dominion",
+          "continental_mandate",
+          "decapitation_strike"
+        ]
+      },
+      "factionsAdded": [],
+      "stateAdded": [
+        "leadFactionId",
+        "worldCapitalTerritoryId",
+        "factions[].capturedPrivateMission"
+      ],
+      "rulesHooks": [
+        "onGameEnd",
+        "onMissionCompleted"
+      ],
+      "implementationStatus": "content_seeded",
+      "locked": true
+    },
+    {
+      "id": "pocket_1_nuclear_war_mutants",
+      "name": "Pocket 1 — Nuclear War / Mutants",
+      "trigger": "onMissilePlayed",
+      "openCondition": "three_missiles_same_combat_roll",
+      "revealTiming": "mid_combat_after_third_missile_before_resolution",
+      "permanentRules": [
+        "bringer_of_nuclear_fire",
+        "fallout_scar_destroys_territory_contents"
+      ],
+      "cardsAdded": {
+        "missilePowers": [
+          "last_warning",
+          "dead_zone_strike",
+          "hardened_silos",
+          "fallout_march"
+        ],
+        "events": [
+          "mutant_themed"
+        ]
+      },
+      "factionsAdded": [
+        {
+          "id": "mutants",
+          "evolutions": [
+            "rad_hardened",
+            "swarm_adaptation",
+            "toxic_memory",
+            "broken_diplomacy"
+          ]
+        }
+      ],
+      "stateAdded": [
+        "board.falloutScars"
+      ],
+      "rulesHooks": [
+        "onMissilePlayed",
+        "onCombatRollPendingResolution"
+      ],
+      "implementationStatus": "content_seeded",
+      "locked": true
+    },
+    {
+      "id": "pocket_2_alien_landing",
+      "name": "Pocket 2 — Alien Landing / Alien Faction",
+      "trigger": "onRecruitmentCalculated",
+      "openCondition": "placing_30plus_troops_with_a_missile",
+      "revealTiming": "mid_game_recruitment_before_placement",
+      "permanentRules": [
+        "alien_collaborator",
+        "alien_island_sea_lines"
+      ],
+      "cardsAdded": {
+        "events": [
+          "strange_lights",
+          "contact_protocol",
+          "island_surge",
+          "technology_leak"
+        ],
+        "scars": [
+          "weakness_yellow"
+        ]
+      },
+      "factionsAdded": [
+        {
+          "id": "aliens",
+          "powers": [
+            "orbital_drop",
+            "abduction_sweep",
+            "atmospheric_shield",
+            "signal_beacon"
+          ]
+        }
+      ],
+      "stateAdded": [
+        "board.alienIsland"
+      ],
+      "rulesHooks": [
+        "onRecruitmentCalculated"
+      ],
+      "implementationStatus": "content_seeded",
+      "locked": true
+    },
+    {
+      "id": "do_not_open_ever",
+      "name": "Do Not Open Ever — optional host variant",
+      "trigger": "host_enabled",
+      "openCondition": "none_host_optional",
+      "revealTiming": "host_enabled_variant",
+      "permanentRules": [
+        "one_of: deadly_virus | unstable_orbit | curse_deck | ancient_entity"
+      ],
+      "cardsAdded": {},
+      "factionsAdded": [],
+      "stateAdded": [
+        "optionalVariantId"
+      ],
+      "rulesHooks": [],
+      "implementationStatus": "content_seeded",
+      "locked": true,
+      "optional": true
+    }
+  ]
+}
