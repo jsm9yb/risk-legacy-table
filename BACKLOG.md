@@ -162,7 +162,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Acceptance:** no horizontal overflow at 390x844, 768x1024, and 1280x720; the current action remains reachable without page zoom; add the strongest automated coverage available plus a documented browser screenshot check; verify loop green.
 
 ### UI-6 - Game-first hub polish
-- **Status:** todo
+- **Status:** done
 - **Depends on:** UI-1 · **Blocked by:** —
 - **Scope:** remove project-status and implementation-copy from the hub, make the first screen feel like the game table, and keep the local hot-seat and LAN entry points obvious. Replace text like `1-web-b` / file-drop instructions with player-facing language and a compact board/campaign visual signal. **Design 2026-07-07:** board art as dimmed full-bleed backdrop; world name in display type; the five faction emblems in a row; entries "PLAY AT THIS TABLE" (hot-seat) and "JOIN THE WAR ROOM" (LAN); when connected with a campaign, show game number, signatures, and unlocked packs as opened-envelope icons.
 - **Non-goals:** new campaign features, server behavior, or real board-art integration.

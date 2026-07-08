@@ -28,6 +28,13 @@ body {
   display: block;
 }
 
+/* new (UI-6): hub backdrop — the board art dimmed under the war room */
+.board-backdrop #risk-board-modern {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
 /* territory interactions — each state distinct in pattern AND color (UI-4 legibility pass) */
 .territory { cursor: pointer; transition: filter 120ms ease, stroke 120ms ease; }
 .territory:hover { filter: brightness(1.25); }
