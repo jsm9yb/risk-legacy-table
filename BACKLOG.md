@@ -135,10 +135,10 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 
 ### UI-2 - Action-first side panel
 - **Status:** todo
-- **Depends on:** UI-1 · **Blocked by:** —
-- **Scope:** restructure the in-game right rail so the current required player action is always the first visible section, with Quick Look, Sideboard, and Ledger moved into compact tabs or collapsible areas. The acting player should not need to scroll past status summaries to choose a faction, pick a power, recruit, attack, maneuver, draw, or resolve rewards.
+- **Depends on:** UI-1, UI-8 · **Blocked by:** —
+- **Scope:** **Rescoped 2026-07-07 (design conversation):** spatial grammar is *bottom = you, right = the table*. Non-blocking phase controls (place-count stepper, expand/maneuver counts, End Attacks / End Maneuver / End Turn) move into a slim **action bar** in the UI-9 bottom strip beside the hand/HUD. The right rail becomes purely ambient: sideboard mat (UI-9) → Quick Look roster (emblem tiles) → battle log as a tab. Includes the Ledger perf fix: render the latest ~50 events with lazy "earlier…" expansion (currently re-renders the full log per action — quadratic on long games, noted 2026-07-06).
 - **Non-goals:** mobile layout, board art, or new rules.
-- **Acceptance:** setup, recruit, combat, maneuver, and end-turn controls render at the top of the rail in their phases; existing game-screen tests updated/added for at least setup and recruit; verify loop green.
+- **Acceptance:** no blocking flow renders in the rail (they live in UI-8 surfaces); phase controls live in the bottom action bar; the ledger no longer renders the full event log per action; existing game-screen tests updated/added for at least setup and recruit; verify loop green.
 
 ### UI-3 - Territory inspector and move preview
 - **Status:** todo
@@ -164,7 +164,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 ### UI-6 - Game-first hub polish
 - **Status:** todo
 - **Depends on:** UI-1 · **Blocked by:** —
-- **Scope:** remove project-status and implementation-copy from the hub, make the first screen feel like the game table, and keep the local hot-seat and LAN entry points obvious. Replace text like `1-web-b` / file-drop instructions with player-facing language and a compact board/campaign visual signal.
+- **Scope:** remove project-status and implementation-copy from the hub, make the first screen feel like the game table, and keep the local hot-seat and LAN entry points obvious. Replace text like `1-web-b` / file-drop instructions with player-facing language and a compact board/campaign visual signal. **Design 2026-07-07:** board art as dimmed full-bleed backdrop; world name in display type; the five faction emblems in a row; entries "PLAY AT THIS TABLE" (hot-seat) and "JOIN THE WAR ROOM" (LAN); when connected with a campaign, show game number, signatures, and unlocked packs as opened-envelope icons.
 - **Non-goals:** new campaign features, server behavior, or real board-art integration.
 - **Acceptance:** hub contains no internal task ids or asset-drop instructions; local start and LAN connect flows still work in tests; verify loop green.
 
@@ -175,10 +175,47 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Non-goals:** redesigning the map data model or changing Risk Legacy rules.
 - **Acceptance:** final board art renders in the game screen; all 42 territories remain clickable and test-addressable; overlays align with territories at desktop and tablet sizes; verify loop green.
 
+### UI-8 - Modal/overlay layer + combat modal
+- **Status:** todo
+- **Depends on:** UI-1 · **Blocked by:** —
+- **Scope:** introduce a shared modal/overlay system for blocking decisions (decided 2026-07-07): **combat** gets a large centered overlay (attacker vs defender panels in faction colors, big dice with natural→final missile states, attacker/defender dice choice, the missile modifier window as an explicit interrupt, move-in slider); **card draws / hand decisions** get a bottom-anchored panel; **faction + power selection** gets a full-screen takeover during setup. Hot-seat and networked both show a clear "whose decision" marker on every blocking surface (no pass-the-device interstitial). Scar plays and rewards adopt the same layer where natural. The rail's `CombatTray` is retired.
+- **Non-goals:** rendered card art (UI-9), faction emblems (UI-10), rules/engine changes, optimistic updates.
+- **Design decisions (2026-07-07):** dice get a short CSS tumble (respect `prefers-reduced-motion`); an "Attack again" button re-declares the same battle after a non-conquering roll; the overlay keeps a compact per-roll battle history for sieges; a per-player "auto-defend with max dice" UI toggle (off by default) auto-dispatches the defender dice choice; scar/power effects on a roll render as explanatory badges.
+- **Acceptance:** declaring an attack opens the combat overlay and drives dice choice → roll → missile window → casualties → move-in to completion through the real action API; setup runs through the full-screen faction/power picker; tests cover the combat overlay flow and the setup takeover; verify loop green.
+
+### UI-9 - Rendered resource cards + card flows
+- **Status:** todo
+- **Depends on:** UI-8 · **Blocked by:** —
+- **Scope:** render Resource cards as physical-game-styled card components (reference: white card, yellow name banner, gray textured panel with a white-outlined territory silhouette reusing the board SVG path geometry filled per continent, yellow lower panel with a 3×2 grid of 6 coin slots — filled coins = current `resources` incl. `cardModifications` upgrades, capped by `cardUpgradeMaxResources`; small card id in the corner; black logo card back for decks/hidden hands; **coin cards are a big single individual coin face** — same deck, distinct look from territory cards). Together these form the one resource deck. Rebuild the card-touching flows on these components: hand view, 4-slot sideboard, buy-Red-Star selection, recruit trade-in, end-of-turn draw (mandatory-match emphasized), and the `upgrade_territory_card` reward showing the new coin being added.
+- **Non-goals:** scanned/photographic assets, new card rules, changing pack data.
+- **Design decisions (2026-07-07):** ambient sideboard renders as a **sideboard mat** modeled on the rulebook illustration — top row DRAW (face-down stack) · coin slot (face-up) · MISSION · EVENT (sealed/empty outlines until modules unlock) · DISCARD; bottom row numbered slots 1→4 face-up; red star token pool beside the mat. The player's **hand is an always-visible strip along the bottom of the board**, sharing a personal HUD (recruitment estimate, red stars tokens+board, missiles, scar count); Quick Look in the rail keeps other players. Upgraded coins render **identical to base coins** (like the physical sticker — no marker). Card/mat textures are code-drawn (SVG filter) behind a single swappable seam so an external texture image can drop in later.
+- **Acceptance:** hand/sideboard/draw/trade/buy flows all render card components instead of text labels; an upgraded card visibly shows its extra coin(s); card faces of other players' hands are never rendered from filtered payloads (counts/backs only); tests cover the card component (resource pips incl. an upgraded card) and one full draw flow; verify loop green.
+
+### UI-10 - Faction visual identity
+- **Status:** todo
+- **Depends on:** UI-8 · **Blocked by:** —
+- **Scope:** give the five base factions distinct visual identities beyond a hex color: an emblem/crest per faction in the board-art style — **static image assets (e.g. PNG) are fine; SVG not required** — plus faction-colored HQ/troop marker treatments, and a faction "card" (emblem, name, blurb, both starting powers) used by the UI-8 setup takeover, the Quick Look roster, and combat overlay headers.
+- **Non-goals:** changing faction ids/colors in the pack, rules behavior, module factions (Mutants/Aliens) beyond leaving a slot for them.
+- **Acceptance:** all five factions render distinct emblems in setup, roster, and combat surfaces; board markers visually distinguish factions beyond color at 1280x720; component tests assert emblems render per faction; verify loop green. Emblem art **exists** (2026-07-07) at `apps/web/src/assets/factions/*.png` in the main checkout (uncommitted — copy into the working branch), plus scar art at `assets/scars/*.png` and `assets/red-star.svg`. The images have solid dark backgrounds: render emblems as rounded framed tiles with a faction-color border, circular-cropped at small sizes (roster, ledger, HQ shield). Scar art renders as full cards in scar-play/inspector flows and circular chips on the board. A `FactionEmblem` component still provides a styled fallback for module factions without art.
+
+### UI-12 - Victory, signing & reward flow presentation
+- **Status:** todo
+- **Depends on:** UI-8, UI-9, UI-10 · **Blocked by:** —
+- **Scope:** make the end-game the legacy ritual it is (design 2026-07-07): (1) **victory beat** — full-screen takeover with the winner's emblem, then the signing moment rendering the winner's name in a handwriting face onto the board's signature rail (engine already auto-signs; presentation only); (2) **reward sequence** — a modal walking the engine's claim order with the whose-decision chip; rewards render as a sticker-sheet of choice cards showing remaining inventory, ineligible/depleted choices dimmed with the reason; (3) **target selection drops to the board** — city founding (glow → click → name → sticker animates on), continent naming, card upgrade via the UI-9 card component; (4) **aftermath screen** — per-faction results and a world-change recap, preceded by an **envelope tear-open reveal** whenever a module unlocks. Scar-play flow also lands here using the full scar art as a card + a circular board chip.
+- **Non-goals:** engine/reward-rule changes, module mechanics, campaign persistence changes.
+- **Acceptance:** a game driven to victory flows through victory beat → signing → each claimant's reward via the modal → aftermath; a module unlock shows the envelope reveal; a scar play uses the card flow; tests cover the reward modal claim order and one board-targeted reward; verify loop green.
+
+### UI-11 - Legacy-game theming pass
+- **Status:** todo
+- **Depends on:** UI-8, UI-9, UI-10 · **Blocked by:** —
+- **Scope:** extend the physical game's battle-worn aesthetic from the board (UI-7) to the surrounding chrome: hub, phase strip, rail, modals, ledger — textures, typography, and iconography inspired by the original game so the app reads as one artifact. Absorbs the intent of UI-6's "feel like the game table".
+- **Non-goals:** copyrighted asset reproduction, board changes, new mechanics.
+- **Acceptance:** hub + game chrome share the themed treatment; no regression in existing component tests; a documented browser screenshot check at 1280x720; verify loop green.
+
 ---
 
 ## Ready right now (no decision needed)
-**The original engine/network backlog is complete.** The next ready pickup batch is UI polish from the 2026-07-07 UI review: start with `UI-1`, then `UI-2`, then `UI-3`/`UI-4`, then `UI-5`/`UI-6`. `UI-7` is done with the in-repo board SVG asset.
+**The original engine/network backlog is complete.** The next ready pickup batch is UI polish, re-sequenced after the 2026-07-07 UX conversation (modals, card art, faction identity): `UI-1` → **`UI-8` (modal layer + combat modal, the keystone)** → `UI-9` (rendered cards + bottom strip) and `UI-10` (faction identity) in either order → `UI-2` (ambient rail + action bar) → `UI-12` (victory/reward presentation) → `UI-3`/`UI-4` → `UI-5`/`UI-6` → `UI-11` (theming capstone). `UI-7` is done with the in-repo board SVG asset.
 
 What starts the next backlog cycle (add tasks here when they become real):
 - **Module mechanics from host-entered text** — the import wizard stores `content_required` card text; the gameplay that consumes it (Pack 1 advanced-draft turns, Pack 2 comeback-power effects, Pack 3 missions/homelands play, Pack 4 lead faction/private missions, Pocket 1 nuclear resolution, Pocket 2 Alien Island) begins when the group actually unlocks a module and supplies real card text.
