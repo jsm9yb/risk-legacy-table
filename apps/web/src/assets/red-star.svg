@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Red star">
+  <defs>
+    <linearGradient id="red-star-face" x1="26" y1="18" x2="94" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff6b5f" />
+      <stop offset="0.45" stop-color="#cf2f2b" />
+      <stop offset="1" stop-color="#7f1318" />
+    </linearGradient>
+    <linearGradient id="red-star-ridge" x1="64" y1="20" x2="64" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffd2bb" stop-opacity="0.85" />
+      <stop offset="0.46" stop-color="#f06b53" stop-opacity="0.42" />
+      <stop offset="1" stop-color="#3a080b" stop-opacity="0.78" />
+    </linearGradient>
+    <filter id="red-star-shadow" x="-20%" y="-18%" width="140%" height="142%">
+      <feDropShadow dx="0" dy="6" stdDeviation="4" flood-color="#05070b" flood-opacity="0.7" />
+    </filter>
+  </defs>
+
+  <path
+    d="M64 8.5 79.6 43.2 117.4 47.3 89.2 72.8 97 110 64 91 31 110 38.8 72.8 10.6 47.3 48.4 43.2 64 8.5Z"
+    fill="#3b070a"
+    filter="url(#red-star-shadow)"
+  />
+  <path
+    d="M64 14.8 77.5 44.9 110.3 48.4 85.8 70.5 92.6 102.8 64 86.3 35.4 102.8 42.2 70.5 17.7 48.4 50.5 44.9 64 14.8Z"
+    fill="#f4c46a"
+  />
+  <path
+    d="M64 20.4 75 46.3 103.1 50 82.1 69.2 88.1 96.9 64 82.5 39.9 96.9 45.9 69.2 24.9 50 53 46.3 64 20.4Z"
+    fill="url(#red-star-face)"
+  />
+  <path
+    d="M64 20.4 64 82.5 53 46.3Z"
+    fill="#ff8975"
+    opacity="0.46"
+  />
+  <path
+    d="M64 20.4 75 46.3 64 82.5Z"
+    fill="#8f1519"
+    opacity="0.58"
+  />
+  <path
+    d="M103.1 50 64 82.5 82.1 69.2Z"
+    fill="#4d0b10"
+    opacity="0.6"
+  />
+  <path
+    d="M24.9 50 45.9 69.2 64 82.5Z"
+    fill="#ed4c3e"
+    opacity="0.42"
+  />
+  <path
+    d="M64 82.5 88.1 96.9 82.1 69.2Z"
+    fill="#661013"
+    opacity="0.5"
+  />
+  <path
+    d="M64 82.5 39.9 96.9 45.9 69.2Z"
+    fill="#b51e21"
+    opacity="0.5"
+  />
+  <path
+    d="M64 20.4 75 46.3 103.1 50 82.1 69.2 88.1 96.9 64 82.5 39.9 96.9 45.9 69.2 24.9 50 53 46.3 64 20.4Z"
+    fill="none"
+    stroke="url(#red-star-ridge)"
+    stroke-width="2.6"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M64 26.2 72.2 48.7 95.8 52.4"
+    fill="none"
+    stroke="#ffd8a0"
+    stroke-width="3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    opacity="0.62"
+  />
+  <path
+    d="M38.2 94.8 64 79.8 89.8 94.8"
+    fill="none"
+    stroke="#4e080d"
+    stroke-width="2.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    opacity="0.48"
+  />
+</svg>
