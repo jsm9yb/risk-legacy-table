@@ -14,8 +14,10 @@ import CombatOverlay from "./CombatOverlay.tsx";
 import TurnDecisionDock from "./TurnDecisionDock.tsx";
 import HandStrip from "./HandStrip.tsx"; // new (UI-9)
 import ActionBar from "./ActionBar.tsx"; // new (UI-2)
+import VictoryFlow from "./VictoryFlow.tsx"; // new (UI-12)
 import { DecisionChip } from "./overlays.tsx";
-import { factionById, powerName } from "./labels.ts";
+import { continentName, factionById, powerName, scarName, territoryName } from "./labels.ts";
+import { Btn } from "./overlays.tsx";
 
 const PHASES: { id: GameState["phase"]; label: string }[] = [
   { id: "setup", label: "SETUP" },
@@ -34,6 +36,16 @@ export interface UiState {
   moveCount: number;
   expandCount: number;
   selectedCards: string[];
+  /** new (UI-12): a chosen end-game reward whose target selection dropped to the board. */
+  rewardTarget?: {
+    kind: "name_continent" | "found_major_city" | "cancel_scar" | "change_continent_bonus" | "fortify_city" | "found_minor_city";
+    playerId: string;
+    territoryId?: string;
+    continentId?: string;
+    delta: 1 | -1;
+  };
+  /** new (UI-12): a held scar being played — next board click on an unscarred territory places it. */
+  scarTarget?: { playerId: string; instanceId: string; scarId: string };
 }
 
 export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
@@ -66,7 +78,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
   useEffect(() => {
     if (prevActor.current !== actor) {
       prevActor.current = actor;
-      setUi((u) => ({ ...u, pickedFaction: undefined, pickedPower: undefined, selected: undefined }));
+      setUi((u) => ({ ...u, pickedFaction: undefined, pickedPower: undefined, selected: undefined, rewardTarget: undefined }));
     }
   }, [actor]);
 
@@ -87,9 +99,32 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
   const stripSelectable = !!actor && canAct && actor === stripPlayer &&
     (gs.phase === "start_turn" || (gs.phase === "join_or_recruit" && !!gs.recruit));
 
+  // new (UI-12): board-eligibility predicate for a reward target kind
+  const rewardEligible = (kind: NonNullable<UiState["rewardTarget"]>["kind"], tid: string): boolean => {
+    const t = gs.territories[tid];
+    switch (kind) {
+      case "found_major_city": return !t.city;
+      case "found_minor_city": return t.controller === ui.rewardTarget?.playerId && !t.city;
+      case "cancel_scar": return t.scars.length > 0;
+      case "fortify_city": return !!t.city;
+      case "name_continent": return !gs.continents[territoryById(tid).continent]?.name;
+      case "change_continent_bonus": return gs.continents[territoryById(tid).continent]?.bonusMark === undefined;
+    }
+  };
+
   // Phase-aware board highlights
   const highlights = useMemo<Record<string, Highlight>>(() => {
     const h: Record<string, Highlight> = {};
+    // new (UI-12): active targeting modes glow their legal targets and override phase highlights
+    if (ui.scarTarget && canActFor(ui.scarTarget.playerId)) {
+      for (const t of manifest.territories) if (gs.territories[t.id].scars.length === 0) h[t.id] = "highlight-start";
+      return h;
+    }
+    if (gs.phase === "game_over" && ui.rewardTarget && canActFor(ui.rewardTarget.playerId)) {
+      for (const t of manifest.territories) if (rewardEligible(ui.rewardTarget.kind, t.id)) h[t.id] = "highlight-start";
+      if (ui.rewardTarget.territoryId) h[ui.rewardTarget.territoryId] = "selected";
+      return h;
+    }
     if (!actor || !canAct) {
       if (gs.combat) { h[gs.combat.from] = "selected"; h[gs.combat.to] = "highlight-attack"; }
       return h;
@@ -127,9 +162,39 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
       }
     }
     return h;
-  }, [gs, ui.selected, ui.pickedFaction, actor, canAct]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gs, ui.selected, ui.pickedFaction, ui.rewardTarget, ui.scarTarget, actor, canAct]);
 
   const onTerritoryClick = (tid: string) => {
+    // new (UI-12): scar play targeting — the holder acts on anyone's turn at a stable boundary
+    if (ui.scarTarget) {
+      const st = ui.scarTarget;
+      if (!canActFor(st.playerId) || gs.territories[tid].scars.length > 0) return;
+      doDispatch({ type: "scar.play", playerId: st.playerId, scarInstanceId: st.instanceId, territoryId: tid });
+      setUi((u) => ({ ...u, scarTarget: undefined }));
+      return;
+    }
+    // new (UI-12): end-game reward targeting dropped to the board
+    if (gs.phase === "game_over" && ui.rewardTarget) {
+      const rt = ui.rewardTarget;
+      if (!canActFor(rt.playerId) || !rewardEligible(rt.kind, tid)) return;
+      if (rt.kind === "cancel_scar" || rt.kind === "fortify_city") {
+        doDispatch({ type: "reward.choose", playerId: rt.playerId, reward: { kind: rt.kind, territoryId: tid } });
+        setUi((u) => ({ ...u, rewardTarget: undefined }));
+        return;
+      }
+      if (rt.kind === "change_continent_bonus") {
+        doDispatch({ type: "reward.choose", playerId: rt.playerId, reward: { kind: rt.kind, continentId: territoryById(tid).continent, delta: rt.delta } });
+        setUi((u) => ({ ...u, rewardTarget: undefined }));
+        return;
+      }
+      // name-carrying rewards: remember the target, the banner collects the name + confirm
+      setUi((u) => ({
+        ...u,
+        rewardTarget: { ...rt, territoryId: tid, continentId: territoryById(tid).continent },
+      }));
+      return;
+    }
     if (!actor || !canAct) return;
     const t = gs.territories[tid];
     switch (gs.phase) {
@@ -229,12 +294,29 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
                   className="font-mono text-xs text-muted hover:text-text">CHANGE</button>
               </div>
             )}
+            {/* new (UI-12): scar-play targeting banner */}
+            {ui.scarTarget && (
+              <div className="absolute top-6 left-1/2 -translate-x-1/2 z-30 bg-panel border border-danger rounded-sm px-4 py-2 flex items-center gap-3">
+                <span className="text-sm">
+                  Play <span className="text-danger font-semibold">{scarName(ui.scarTarget.scarId)}</span>:
+                  {" "}click an unscarred territory. The scar is permanent.
+                </span>
+                <button onClick={() => setUi((u) => ({ ...u, scarTarget: undefined }))}
+                  className="font-mono text-xs text-muted hover:text-text">CANCEL</button>
+              </div>
+            )}
+            {/* new (UI-12): reward targeting banner — glow → click → (name) → sticker on */}
+            {gs.phase === "game_over" && ui.rewardTarget && (
+              <RewardTargetBanner gs={gs} ui={ui} setUi={setUi} dispatch={doDispatch} />
+            )}
           </div>
           {/* new (UI-8/UI-9): blocking card decisions dock above the hand strip */}
           {(gs.phase === "start_turn" || gs.phase === "end_turn") && actor && canAct ? (
             <TurnDecisionDock gs={gs} ui={ui} dispatch={doDispatch} actor={actor} />
           ) : <span />}
           <HandStrip gs={gs} player={stripPlayer} ui={ui} setUi={setUi} selectable={stripSelectable}
+            scarPlayable={gs.phase !== "game_over" && !!stripPlayer && canActFor(stripPlayer)
+              && !(gs.combat && (gs.combat.natural || gs.combat.awaitingMoveIn))} // new (UI-12): stable boundary only
             actions={actor && canAct ? ( // new (UI-2): non-blocking phase controls beside the hand/HUD
               <ActionBar gs={gs} ui={ui} setUi={setUi} dispatch={doDispatch} actor={actor} />
             ) : undefined} />
@@ -255,6 +337,71 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
         <CombatOverlay gs={gs} dispatch={doDispatch} canActFor={canActFor} autoDefend={autoDefend}
           onAutoDefend={(pid, on) => setAutoDefend((m) => ({ ...m, [pid]: on }))} />
       )}
+      {gs.phase === "game_over" && gs.winner && ( // new (UI-12): victory → signing → rewards → aftermath
+        <VictoryFlow gs={gs} dispatch={doDispatch} canActFor={canActFor} ui={ui} setUi={setUi} />
+      )}
+    </div>
+  );
+}
+
+// new (UI-12): board-target banner for a chosen reward — instruction, optional name entry, confirm.
+function RewardTargetBanner({ gs, ui, setUi, dispatch }: {
+  gs: GameState;
+  ui: UiState;
+  setUi: (fn: (u: UiState) => UiState) => void;
+  dispatch: (a: Action) => void;
+}) {
+  const [name, setName] = useState("");
+  const rt = ui.rewardTarget!;
+  const needsName = rt.kind === "name_continent" || rt.kind === "found_major_city" || rt.kind === "found_minor_city";
+  const targeted = rt.kind === "name_continent"
+    ? (rt.continentId ? continentName(rt.continentId) : undefined)
+    : (rt.territoryId ? territoryName(rt.territoryId) : undefined);
+  const instruction: Record<NonNullable<UiState["rewardTarget"]>["kind"], string> = {
+    name_continent: "click a territory of an unnamed continent",
+    found_major_city: "click any territory without a city",
+    cancel_scar: "click a scarred territory",
+    change_continent_bonus: "pick +1 or −1, then click a territory of an unchanged continent",
+    fortify_city: "click a city territory",
+    found_minor_city: "click a territory you control without a city",
+  };
+  const marks = Object.values(gs.continents).map((c) => c.bonusMark);
+
+  const confirm = () => {
+    if (rt.kind === "name_continent") {
+      dispatch({ type: "reward.choose", playerId: rt.playerId, reward: { kind: "name_continent", continentId: rt.continentId!, name } });
+    } else if (rt.kind === "found_major_city" || rt.kind === "found_minor_city") {
+      dispatch({ type: "reward.choose", playerId: rt.playerId, reward: { kind: rt.kind, territoryId: rt.territoryId!, name } });
+    }
+    setUi((u) => ({ ...u, rewardTarget: undefined }));
+  };
+
+  return (
+    <div className="absolute top-6 left-1/2 -translate-x-1/2 z-30 bg-panel border border-signal rounded-sm px-4 py-2 flex items-center gap-3 flex-wrap max-w-[90%]">
+      <DecisionChip name={gs.players[rt.playerId].name} color={factionById(gs.players[rt.playerId].factionId)?.color} />
+      <span className="text-sm">{instruction[rt.kind]}</span>
+      {rt.kind === "change_continent_bonus" && (
+        <span className="inline-flex gap-1">
+          {([1, -1] as const).map((d) => (
+            <button key={d} disabled={marks.includes(d)}
+              onClick={() => setUi((u) => ({ ...u, rewardTarget: { ...rt, delta: d } }))}
+              className={`px-2 py-0.5 rounded-sm border font-mono text-xs disabled:opacity-40 ${
+                rt.delta === d ? "border-signal text-signal" : "border-line"}`}>
+              {d > 0 ? "+1" : "−1"}
+            </button>
+          ))}
+        </span>
+      )}
+      {needsName && targeted && (
+        <>
+          <span className="font-mono text-xs text-signal">{targeted}</span>
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="enter a name"
+            className="bg-panel-2 border border-line rounded-sm px-2 py-1 text-sm font-mono w-44 focus:border-signal outline-none" />
+          <Btn tone="primary" disabled={!name.trim()} onClick={confirm}>CONFIRM</Btn>
+        </>
+      )}
+      <button onClick={() => setUi((u) => ({ ...u, rewardTarget: undefined }))}
+        className="font-mono text-xs text-muted hover:text-text">CANCEL</button>
     </div>
   );
 }

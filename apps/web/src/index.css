@@ -37,6 +37,11 @@ body {
 .territory.highlight-start { stroke: var(--color-signal); stroke-width: 1.8; stroke-dasharray: 3 3; }
 .territory.dimmed { opacity: 0.45; }
 
+/* new (UI-12): the winner's signature renders in a handwriting face */
+.signature-script {
+  font-family: "Segoe Script", "Brush Script MT", "Lucida Handwriting", cursive;
+}
+
 /* new (UI-9): resource-card coin pip — upgraded coins render identically to base coins */
 .coin-face {
   background: radial-gradient(circle at 35% 30%, #f7df8b, #d8b23c 60%, #a37e1f);

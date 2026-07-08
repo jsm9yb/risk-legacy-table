@@ -6,14 +6,17 @@ import { redStars, waitingOn, type GameState } from "@risk/rules";
 import type { UiState } from "./GameScreen.tsx";
 import { cardResources, factionById } from "./labels.ts";
 import ResourceCard from "./cards/ResourceCard.tsx";
+import ScarCard from "./cards/ScarCard.tsx"; // new (UI-12)
 import FactionEmblem from "./FactionEmblem.tsx"; // new (UI-10)
 
-export default function HandStrip({ gs, player, ui, setUi, selectable, actions }: {
+export default function HandStrip({ gs, player, ui, setUi, selectable, scarPlayable, actions }: {
   gs: GameState;
   player?: string;
   ui: UiState;
   setUi: (fn: (u: UiState) => UiState) => void;
   selectable: boolean;
+  /** new (UI-12): held scars can be played (any turn, stable boundary). */
+  scarPlayable?: boolean;
   /** new (UI-2): the slim per-phase action bar renders beside the hand/HUD. */
   actions?: React.ReactNode;
 }) {
@@ -53,6 +56,13 @@ export default function HandStrip({ gs, player, ui, setUi, selectable, actions }
               onClick={selectable ? () => toggle(id) : undefined} />
           ))
         )}
+        {p.scarHand.map((h) => ( // new (UI-12): held scars as full-art cards; click to play
+          <ScarCard key={h.instanceId} scarId={h.scarId} size="sm"
+            selected={ui.scarTarget?.instanceId === h.instanceId}
+            onClick={scarPlayable
+              ? () => setUi((u) => ({ ...u, scarTarget: { playerId: player!, instanceId: h.instanceId, scarId: h.scarId } }))
+              : undefined} />
+        ))}
       </div>
       {actions && <div className="ml-auto shrink-0 max-w-[55%]">{actions}</div>}{/* new (UI-2) */}
     </div>
