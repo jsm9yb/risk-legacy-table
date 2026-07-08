@@ -4,7 +4,8 @@
 import { contentPack } from "@risk/content";
 import { redStars, type GameState, type Action } from "@risk/rules";
 import type { UiState } from "./GameScreen.tsx"; // new (1-web-b)
-import { cardLabel, continentName, factionById } from "./labels.ts";
+import { continentName, factionById } from "./labels.ts";
+import SideboardMat from "./cards/SideboardMat.tsx"; // new (UI-9)
 import { Btn, Num } from "./overlays.tsx";
 
 type Props = {
@@ -76,22 +77,13 @@ export default function SidePanel({ gs, ui, setUi, dispatch, actor, playerFactio
                 {gs.recruit.breakdown.tradeIns > 0 && <div><span className="text-muted">trade-ins →</span> {gs.recruit.breakdown.tradeIns}</div>}
                 <div className="text-signal">to place → {gs.recruit.remaining}</div>
               </div>
-              {p.hand.length >= 2 && (
-                <details className="mb-2">
-                  <summary className="text-xs text-muted cursor-pointer">Trade in Resource cards</summary>
-                  <div className="space-y-1 mt-1">
-                    {p.hand.map((id) => (
-                      <label key={id} className="flex items-center gap-2 font-mono text-xs">
-                        <input type="checkbox" checked={ui.selectedCards.includes(id)}
-                          onChange={(e) => setUi((u) => ({ ...u, selectedCards: e.target.checked ? [...u.selectedCards, id] : u.selectedCards.filter((x) => x !== id) }))} />
-                        {cardLabel(id)}
-                      </label>
-                    ))}
-                    {ui.selectedCards.length >= 2 && (
-                      <Btn onClick={() => dispatch({ type: "recruit.trade", playerId: actor, cardIds: ui.selectedCards })}>Trade {ui.selectedCards.length} cards</Btn>
-                    )}
-                  </div>
-                </details>
+              {p.hand.length >= 2 && ( // new (UI-9): selection happens on the hand-strip cards
+                <div className="mb-2">
+                  <p className="text-xs text-muted mb-1">Trade in Resource cards: select 2+ in your hand below.</p>
+                  {ui.selectedCards.length >= 2 && (
+                    <Btn onClick={() => dispatch({ type: "recruit.trade", playerId: actor, cardIds: ui.selectedCards })}>Trade {ui.selectedCards.length} cards</Btn>
+                  )}
+                </div>
               )}
               <div className="flex items-center gap-2 mb-2 text-sm">
                 Place <Num value={ui.placeCount} min={1} max={Math.max(1, gs.recruit.remaining)} onChange={(n) => setUi((u) => ({ ...u, placeCount: n }))} /> per click
@@ -130,14 +122,9 @@ export default function SidePanel({ gs, ui, setUi, dispatch, actor, playerFactio
         </Section>
       )}
 
-      {/* Sideboard always visible: exactly 4 face-up slots + coin pile (Q? slot-4 coin-draw discard) */}
+      {/* Sideboard always visible — rendered as the rulebook-style mat (UI-9) */}
       <Section title="SIDEBOARD">
-        <div className="font-mono text-xs space-y-0.5">
-          {gs.sideboard.slots.map((id, i) => (
-            <div key={i}><span className="text-muted">slot {i + 1}:</span> {id ? cardLabel(id) : "—"}</div>
-          ))}
-          <div><span className="text-muted">deck:</span> {(gs.sideboard as any).territoryDeckCount ?? gs.sideboard.territoryDeck.length} · <span className="text-muted">coins:</span> {(gs.sideboard as any).coinCount ?? gs.sideboard.coinPile.length} · <span className="text-muted">discard:</span> {gs.sideboard.discard.length}</div>{/* new (1-web-b) */}
-        </div>
+        <SideboardMat gs={gs} />
       </Section>
     </div>
   );

@@ -8,7 +8,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { anchor, manifest, validateManifest, type TerritoryDef } from "./index.ts";
+import { anchor, continentColors, manifest, validateManifest, type TerritoryDef } from "./index.ts";
 import territoryPathJson from "../data/territory-paths.json" with { type: "json" };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -115,14 +115,7 @@ const LABEL_TWEAKS: Record<string, LabelTweak> = {
   eastern_australia: { dy: 8, size: 5.4, lines: ["Eastern", "Australia"], maxWidth: 56 },
 };
 
-const CONTINENT_MARKER_COLORS: Record<string, string> = {
-  north_america: "#8cc63f",
-  south_america: "#f89a1c",
-  europe: "#8293c4",
-  africa: "#a66a2a",
-  asia: "#5b8038",
-  australia: "#755b65",
-};
+const CONTINENT_MARKER_COLORS = continentColors; // shared palette (also fills card silhouettes, UI-9)
 
 const CONTINENT_CALLOUTS: Record<string, {
   x: number;

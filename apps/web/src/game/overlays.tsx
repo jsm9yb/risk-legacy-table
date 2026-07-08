@@ -33,10 +33,12 @@ export function CenterOverlay({ label, children }: { label: string; children: Re
 }
 
 export function BottomDock({ label, children }: { label: string; children: ReactNode }) {
+  // Flows above the hand strip at the bottom of the board column (UI-9) rather than
+  // overlaying it, so hand-card selection stays reachable while the dock is open.
   return (
-    <div className="absolute bottom-0 inset-x-0 z-30 flex justify-center pointer-events-none">
+    <div className="flex justify-center px-4 pb-2">
       <div role="dialog" aria-label={label}
-        className="pointer-events-auto bg-panel border border-line border-b-0 rounded-t-sm shadow-2xl px-5 py-4 w-full max-w-2xl">
+        className="bg-panel border border-signal/40 rounded-sm shadow-2xl px-5 py-4 w-full max-w-2xl">
         {children}
       </div>
     </div>

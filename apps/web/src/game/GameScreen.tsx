@@ -12,6 +12,7 @@ import EffectsLayer from "./EffectsLayer.tsx";
 import SetupTakeover from "./SetupTakeover.tsx";
 import CombatOverlay from "./CombatOverlay.tsx";
 import TurnDecisionDock from "./TurnDecisionDock.tsx";
+import HandStrip from "./HandStrip.tsx"; // new (UI-9)
 import { DecisionChip } from "./overlays.tsx";
 import { factionById, powerName } from "./labels.ts";
 
@@ -79,6 +80,11 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
 
   // Setup readiness: faction picked + power resolved (stored permanent choice or first-play pick).
   const setupReady = gs.phase === "setup" && !!ui.pickedFaction && !!(gs.factionPowers[ui.pickedFaction] ?? ui.pickedPower);
+
+  // new (UI-9): the bottom strip renders YOUR hand — the viewer when networked, the actor hot-seat.
+  const stripPlayer = viewer ? (gs.players[viewer] ? viewer : undefined) : actor;
+  const stripSelectable = !!actor && canAct && actor === stripPlayer &&
+    (gs.phase === "start_turn" || (gs.phase === "join_or_recruit" && !!gs.recruit));
 
   // Phase-aware board highlights
   const highlights = useMemo<Record<string, Highlight>>(() => {
@@ -199,28 +205,35 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
       </header>
 
       <div className="grid grid-cols-[1fr_340px] min-h-0">
-        <div className="relative min-h-0 p-4 overflow-auto">
-          <div className="relative w-full max-h-full aspect-[749.819/519.068]">
-            <Board gs={gs} playerFaction={playerFaction} highlights={highlights} onTerritoryClick={onTerritoryClick} />
-            <EffectsLayer gs={gs} />
-            {shownError && (
-              <div role="alert" className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-panel border border-danger text-danger font-mono text-xs px-4 py-2 rounded-sm">
-                {shownError}
+        <div className="grid grid-rows-[1fr_auto_auto] min-h-0">
+          <div className="relative min-h-0 p-4 overflow-auto">
+            <div className="relative w-full max-h-full aspect-[749.819/519.068]">
+              <Board gs={gs} playerFaction={playerFaction} highlights={highlights} onTerritoryClick={onTerritoryClick} />
+              <EffectsLayer gs={gs} />
+              {shownError && (
+                <div role="alert" className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-panel border border-danger text-danger font-mono text-xs px-4 py-2 rounded-sm">
+                  {shownError}
+                </div>
+              )}
+            </div>
+            {/* new (UI-8): HQ placement hint once the takeover hands off to the board */}
+            {gs.phase === "setup" && actor && canAct && setupReady && ui.pickedFaction && (
+              <div className="absolute top-6 left-1/2 -translate-x-1/2 z-30 bg-panel border border-signal rounded-sm px-4 py-2 flex items-center gap-3">
+                <DecisionChip name={actorPlayer!.name} color={factionById(ui.pickedFaction)?.color} you={!!viewer} />
+                <span className="text-sm">
+                  {factionById(ui.pickedFaction)?.name} — {powerName(gs.factionPowers[ui.pickedFaction] ?? ui.pickedPower!)}:
+                  {" "}click a highlighted territory to place your HQ.
+                </span>
+                <button onClick={() => setUi((u) => ({ ...u, pickedFaction: undefined, pickedPower: undefined }))}
+                  className="font-mono text-xs text-muted hover:text-text">CHANGE</button>
               </div>
             )}
           </div>
-          {/* new (UI-8): HQ placement hint once the takeover hands off to the board */}
-          {gs.phase === "setup" && actor && canAct && setupReady && ui.pickedFaction && (
-            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-30 bg-panel border border-signal rounded-sm px-4 py-2 flex items-center gap-3">
-              <DecisionChip name={actorPlayer!.name} color={factionById(ui.pickedFaction)?.color} you={!!viewer} />
-              <span className="text-sm">
-                {factionById(ui.pickedFaction)?.name} — {powerName(gs.factionPowers[ui.pickedFaction] ?? ui.pickedPower!)}:
-                {" "}click a highlighted territory to place your HQ.
-              </span>
-              <button onClick={() => setUi((u) => ({ ...u, pickedFaction: undefined, pickedPower: undefined }))}
-                className="font-mono text-xs text-muted hover:text-text">CHANGE</button>
-            </div>
-          )}
+          {/* new (UI-8/UI-9): blocking card decisions dock above the hand strip */}
+          {(gs.phase === "start_turn" || gs.phase === "end_turn") && actor && canAct ? (
+            <TurnDecisionDock gs={gs} ui={ui} dispatch={doDispatch} actor={actor} />
+          ) : <span />}
+          <HandStrip gs={gs} player={stripPlayer} ui={ui} setUi={setUi} selectable={stripSelectable} />
         </div>
         <aside className="border-l border-line bg-panel min-h-0 grid grid-rows-[1fr_220px]">
           <div className="overflow-y-auto">
@@ -237,9 +250,6 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
       {gs.combat && (
         <CombatOverlay gs={gs} dispatch={doDispatch} canActFor={canActFor} autoDefend={autoDefend}
           onAutoDefend={(pid, on) => setAutoDefend((m) => ({ ...m, [pid]: on }))} />
-      )}
-      {(gs.phase === "start_turn" || gs.phase === "end_turn") && actor && canAct && (
-        <TurnDecisionDock gs={gs} ui={ui} setUi={setUi} dispatch={doDispatch} actor={actor} />
       )}
     </div>
   );

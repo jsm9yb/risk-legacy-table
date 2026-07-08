@@ -184,7 +184,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Acceptance:** declaring an attack opens the combat overlay and drives dice choice → roll → missile window → casualties → move-in to completion through the real action API; setup runs through the full-screen faction/power picker; tests cover the combat overlay flow and the setup takeover; verify loop green.
 
 ### UI-9 - Rendered resource cards + card flows
-- **Status:** todo
+- **Status:** done
 - **Depends on:** UI-8 · **Blocked by:** —
 - **Scope:** render Resource cards as physical-game-styled card components (reference: white card, yellow name banner, gray textured panel with a white-outlined territory silhouette reusing the board SVG path geometry filled per continent, yellow lower panel with a 3×2 grid of 6 coin slots — filled coins = current `resources` incl. `cardModifications` upgrades, capped by `cardUpgradeMaxResources`; small card id in the corner; black logo card back for decks/hidden hands; **coin cards are a big single individual coin face** — same deck, distinct look from territory cards). Together these form the one resource deck. Rebuild the card-touching flows on these components: hand view, 4-slot sideboard, buy-Red-Star selection, recruit trade-in, end-of-turn draw (mandatory-match emphasized), and the `upgrade_territory_card` reward showing the new coin being added.
 - **Non-goals:** scanned/photographic assets, new card rules, changing pack data.

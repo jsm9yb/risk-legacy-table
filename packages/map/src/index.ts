@@ -18,7 +18,11 @@ export interface MapManifest {
 
 export const manifest = manifestJson as unknown as MapManifest;
 const territoryPathData = territoryPathJson as unknown as {
-  territories: Record<string, { anchor: readonly [number, number] }>;
+  territories: Record<string, {
+    d: string;
+    anchor: readonly [number, number];
+    bbox: readonly [number, number, number, number];
+  }>;
 };
 
 /** Pixel anchor for a territory in board viewBox coordinates. */
@@ -27,6 +31,23 @@ export function anchor(t: TerritoryDef): { x: number; y: number } {
   if (artAnchor) return { x: artAnchor[0], y: artAnchor[1] };
   return { x: 48 + t.grid[0] * 58, y: 46 + t.grid[1] * 62 };
 }
+
+/** Raw board-art geometry for a territory (path + bbox in board viewBox coordinates) — reused
+ * by the resource-card silhouettes (UI-9) so cards and board share one source of truth. */ // new
+export function territoryPath(id: string): { d: string; bbox: readonly [number, number, number, number] } | undefined { // new
+  const t = territoryPathData.territories[id]; // new
+  return t ? { d: t.d, bbox: t.bbox } : undefined; // new
+} // new
+
+/** Continent identity colors (board callouts + card silhouette fills share this palette). */ // new
+export const continentColors: Record<string, string> = { // new
+  north_america: "#8cc63f", // new
+  south_america: "#f89a1c", // new
+  europe: "#8293c4", // new
+  africa: "#a66a2a", // new
+  asia: "#5b8038", // new
+  australia: "#755b65", // new
+}; // new
 
 export function territoryById(id: string): TerritoryDef {
   const t = manifest.territories.find((t) => t.id === id);

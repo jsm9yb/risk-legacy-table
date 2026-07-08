@@ -5,11 +5,10 @@ import "../test-shims.ts";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { contentPack } from "@risk/content";
-import { applyAction, createGame, isLegalStart, waitingOn, type Action, type GameState } from "@risk/rules";
-import { manifest, territoryById } from "@risk/map";
+import { applyAction, type Action, type GameState } from "@risk/rules";
 import GameScreen from "./GameScreen.tsx";
 import { territoryName } from "./labels.ts";
+import { atExpandAttack, throughSetup } from "./test-fixtures.ts";
 
 afterEach(cleanup);
 
@@ -20,42 +19,6 @@ function Harness({ initial }: { initial: GameState }) {
   current = gs;
   const dispatch = (a: Action) => setGs((s) => (current = applyAction(s, a)));
   return <GameScreen gs={gs} dispatch={dispatch} onExit={() => {}} error={null} />;
-}
-
-function throughSetup(seed: number): GameState {
-  let gs = createGame({
-    gameId: `combat-ui-${seed}`,
-    seed,
-    players: [
-      { id: "u1", name: "Ada" },
-      { id: "u2", name: "Lin" },
-      { id: "u3", name: "Rex" },
-    ],
-  });
-  while (gs.phase === "setup") {
-    const pid = waitingOn(gs)!;
-    const faction = contentPack.factions.find((f) => !Object.values(gs.players).some((x) => x.factionId === f.id))!;
-    const start = manifest.territories.find((t) => isLegalStart(gs, t.id, true, faction.id, pid))!;
-    gs = applyAction(gs, {
-      type: "setup.choose", playerId: pid, factionId: faction.id, territoryId: start.id,
-      powerId: gs.factionPowers[faction.id] ? undefined : faction.startingPowers[0],
-    });
-  }
-  return gs;
-}
-
-/** Real actions to expand_attack, then plant a 1-troop enemy outpost next to the attacker's stack. */
-function atExpandAttack(seed: number) {
-  let gs = throughSetup(seed);
-  const pid = waitingOn(gs)!;
-  gs = applyAction(gs, { type: "start.done", playerId: pid });
-  const mine = Object.entries(gs.territories).find(([, t]) => t.controller === pid)![0];
-  gs = applyAction(gs, { type: "recruit.place", playerId: pid, territoryId: mine, count: gs.recruit!.remaining });
-  gs = applyAction(gs, { type: "recruit.done", playerId: pid });
-  const enemy = gs.turnOrder.find((x) => x !== pid)!;
-  const target = territoryById(mine).neighbors.find((n) => !gs.territories[n].controller)!;
-  gs.territories[target] = { controller: enemy, troops: 1, scars: [] };
-  return { gs, pid, mine, target, enemy };
 }
 
 const attackDiceBtn = () =>

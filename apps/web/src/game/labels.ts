@@ -1,6 +1,7 @@
 // new (UI-1): player-facing labels for content ids — the UI never shows raw snake_case ids.
 import { contentPack } from "@risk/content";
 import { manifest } from "@risk/map";
+import type { GameState } from "@risk/rules";
 
 const territoryNames = new Map(manifest.territories.map((t) => [t.id, t.name]));
 const continentNames = new Map(manifest.continents.map((c) => [c.id, c.name]));
@@ -27,3 +28,7 @@ export const cardLabel = (id: string) => {
     ? `${territoryName(c.territoryId)} (${c.resources})`
     : `Coin (${c.resources})`;
 };
+
+/** Current resource value of a card incl. upgrade_territory_card overrides (UI-9). */
+export const cardResources = (gs: GameState, id: string) =>
+  gs.cardModifications[id]?.resources ?? cardDef(id).resources;
