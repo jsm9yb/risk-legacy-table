@@ -1,7 +1,11 @@
-import { useState } from "react";
+// new (UI-8): the rail is ambient status + non-blocking phase controls. Blocking decisions
+// (setup takeover, combat overlay, start/end-of-turn dock) moved to the shared overlay layer;
+// the old CombatTray is retired. UI-1: labels come from the content pack, never raw ids.
 import { contentPack } from "@risk/content";
 import { redStars, type GameState, type Action } from "@risk/rules";
 import type { UiState } from "./GameScreen.tsx"; // new (1-web-b)
+import { cardLabel, continentName, factionById } from "./labels.ts";
+import { Btn, Num } from "./overlays.tsx";
 
 type Props = {
   gs: GameState;
@@ -12,27 +16,6 @@ type Props = {
   playerFaction: (pid?: string) => string | undefined;
 };
 
-const cardDef = (id: string) =>
-  contentPack.cards.territoryCards.find((c) => c.id === id) ??
-  contentPack.cards.coinCards.find((c) => c.id === id)!;
-
-const cardLabel = (id: string) => {
-  const c = cardDef(id);
-  return c.kind === "territory"
-    ? `${c.territoryId.replace(/_/g, " ")} (${c.resources})`
-    : `coin (${c.resources})`;
-};
-
-function Num({ value, onChange, min, max }: { value: number; onChange: (n: number) => void; min: number; max: number }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <button className="w-6 h-6 bg-panel-2 border border-line rounded-sm hover:border-signal" onClick={() => onChange(Math.max(min, value - 1))}>−</button>
-      <span className="font-mono w-8 text-center">{Math.min(Math.max(value, min), max)}</span>
-      <button className="w-6 h-6 bg-panel-2 border border-line rounded-sm hover:border-signal" onClick={() => onChange(Math.min(max, value + 1))}>+</button>
-    </span>
-  );
-}
-
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="px-4 py-3 border-b border-line">
@@ -40,13 +23,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       {children}
     </section>
   );
-}
-
-function Btn({ onClick, children, tone = "default" }: { onClick: () => void; children: React.ReactNode; tone?: "default" | "primary" | "danger" }) {
-  const cls = tone === "primary" ? "bg-signal text-ink hover:brightness-110"
-    : tone === "danger" ? "border border-danger text-danger hover:bg-danger hover:text-ink"
-    : "border border-line hover:border-signal";
-  return <button onClick={onClick} className={`px-3 py-1.5 rounded-sm text-sm font-medium ${cls}`}>{children}</button>;
 }
 
 export default function SidePanel({ gs, ui, setUi, dispatch, actor, playerFaction }: Props) {
@@ -82,75 +58,8 @@ export default function SidePanel({ gs, ui, setUi, dispatch, actor, playerFactio
           </p>
           <div className="font-mono text-xs space-y-0.5">
             {Object.entries(gs.results ?? {}).map(([fid, r]) => (
-              <div key={fid}><span className="text-muted">{contentPack.factions.find((f) => f.id === fid)?.name}:</span> {r.replace("_", " ")}</div>
+              <div key={fid}><span className="text-muted">{factionById(fid)?.name}:</span> {r.replace("_", " ")}</div>
             ))}
-          </div>
-        </Section>
-      )}
-
-      {gs.phase === "setup" && actor && (
-        <Section title={`FACTION PICK — ${gs.players[actor].name}`}>
-          <div className="space-y-1 mb-2">
-            {contentPack.factions.map((f) => {
-              const taken = Object.values(gs.players).some((x) => x.factionId === f.id);
-              const picked = ui.pickedFaction === f.id;
-              return (
-                <button key={f.id} disabled={taken}
-                  onClick={() => setUi((u) => ({ ...u, pickedFaction: f.id, pickedPower: undefined }))}
-                  className={`w-full text-left px-2 py-1.5 rounded-sm border text-sm flex items-center gap-2 ${
-                    taken ? "opacity-35 border-line" : picked ? "border-signal" : "border-line hover:border-muted"}`}>
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: f.color }} />
-                  {f.name}
-                  <span className="ml-auto font-mono text-[10px] text-muted">{f.startingPowers.join(" · ")}</span>
-                </button>
-              );
-            })}
-          </div>
-          {ui.pickedFaction && ( // new (9): first play requires a starting-power pick; later games show the permanent choice
-            gs.factionPowers[ui.pickedFaction] ? (
-              <p className="text-xs text-muted mb-2">
-                Power (permanent): <span className="text-text">{contentPack.powers.find((x) => x.id === gs.factionPowers[ui.pickedFaction!])?.name}</span>
-              </p>
-            ) : (
-              <div className="space-y-1 mb-2">
-                <p className="font-mono text-[10px] text-muted uppercase tracking-widest">Starting power — permanent for this faction</p>
-                {contentPack.factions.find((f) => f.id === ui.pickedFaction)!.startingPowers.map((pwId) => {
-                  const pw = contentPack.powers.find((x) => x.id === pwId)!;
-                  const picked = ui.pickedPower === pwId;
-                  return (
-                    <button key={pwId} onClick={() => setUi((u) => ({ ...u, pickedPower: pwId }))}
-                      className={`w-full text-left px-2 py-1.5 rounded-sm border ${picked ? "border-signal" : "border-line hover:border-muted"}`}>
-                      <span className="text-sm block">{pw.name}</span>
-                      <span className="text-xs text-muted">{pw.text}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )
-          )}
-          <p className="text-xs text-muted">Then click a highlighted territory. HQ and starting troops place automatically.</p>
-        </Section>
-      )}
-
-      {gs.phase === "start_turn" && actor && p && (
-        <Section title="START OF TURN">
-          <p className="text-xs text-muted mb-2">Buy Red Stars before recruiting. Cost: {String((contentPack.ruleConstants.redStarPurchaseCost as any).value)} Resource cards.</p>
-          {p.hand.length > 0 && (
-            <div className="space-y-1 mb-2">
-              {p.hand.map((id) => (
-                <label key={id} className="flex items-center gap-2 font-mono text-xs">
-                  <input type="checkbox" checked={ui.selectedCards.includes(id)}
-                    onChange={(e) => setUi((u) => ({ ...u, selectedCards: e.target.checked ? [...u.selectedCards, id] : u.selectedCards.filter((x) => x !== id) }))} />
-                  {cardLabel(id)}
-                </label>
-              ))}
-            </div>
-          )}
-          <div className="flex gap-2">
-            {ui.selectedCards.length === 4 && (
-              <Btn tone="primary" onClick={() => dispatch({ type: "start.buyRedStar", playerId: actor, cardIds: ui.selectedCards })}>Buy Red Star</Btn>
-            )}
-            <Btn onClick={() => dispatch({ type: "start.done", playerId: actor })}>Continue</Btn>
           </div>
         </Section>
       )}
@@ -162,7 +71,7 @@ export default function SidePanel({ gs, ui, setUi, dispatch, actor, playerFactio
               <div className="font-mono text-xs space-y-0.5 mb-2">
                 <div><span className="text-muted">(territories {gs.recruit.breakdown.territories}{gs.recruit.breakdown.population > 0 ? ` + pop ${gs.recruit.breakdown.population}` : ""}) / 3 →</span> {gs.recruit.breakdown.fromTerritories}</div>{/* new (9): population counts inside the division */}
                 {gs.recruit.breakdown.continents.map((c) => (
-                  <div key={c.id}><span className="text-muted">{c.id.replace(/_/g, " ")} ({c.base}+{c.globalModifier}+{c.namedBonus}) →</span> {c.total}</div>
+                  <div key={c.id}><span className="text-muted">{continentName(c.id)} ({c.base}+{c.globalModifier}+{c.namedBonus}) →</span> {c.total}</div>
                 ))}
                 {gs.recruit.breakdown.tradeIns > 0 && <div><span className="text-muted">trade-ins →</span> {gs.recruit.breakdown.tradeIns}</div>}
                 <div className="text-signal">to place → {gs.recruit.remaining}</div>
@@ -209,8 +118,6 @@ export default function SidePanel({ gs, ui, setUi, dispatch, actor, playerFactio
         </Section>
       )}
 
-      {gs.combat && <CombatTray gs={gs} dispatch={dispatch} playerFaction={playerFaction} />}
-
       {gs.phase === "maneuver" && actor && (
         <Section title="MANEUVER">
           <p className="text-xs text-muted mb-2">{gs.maneuverUsed ? "Maneuver used." : "Select a source, then a connected territory."}</p>
@@ -223,35 +130,6 @@ export default function SidePanel({ gs, ui, setUi, dispatch, actor, playerFactio
         </Section>
       )}
 
-      {gs.phase === "end_turn" && actor && p && (
-        <Section title="END OF TURN">
-          {p.conqueredEnemyThisTurn ? (
-            <>
-              <p className="text-xs text-muted mb-2">You conquered enemy territory — draw one Resource card. Matching face-up territory cards are mandatory before coins.</p>
-              <div className="space-y-1 mb-2">
-                {gs.sideboard.slots.map((id, i) => {
-                  if (!id) return <div key={i} className="font-mono text-xs text-muted">slot {i + 1}: —</div>;
-                  const c = cardDef(id);
-                  const mine = c.kind === "territory" && gs.territories[c.territoryId].controller === actor;
-                  return (
-                    <div key={i} className="flex items-center gap-2 font-mono text-xs">
-                      <span className={mine ? "text-signal" : "text-muted"}>slot {i + 1}: {cardLabel(id)}</span>
-                      {mine && <Btn tone="primary" onClick={() => dispatch({ type: "end.draw", playerId: actor, choice: { slot: i } })}>Take</Btn>}
-                    </div>
-                  );
-                })}
-                <div className="flex items-center gap-2 font-mono text-xs">
-                  <span className="text-muted">coin pile: {(gs.sideboard as any).coinCount ?? gs.sideboard.coinPile.length}</span>{/* new (1-web-b) */}
-                  <Btn onClick={() => dispatch({ type: "end.draw", playerId: actor, choice: { coin: true } })}>Take coin</Btn>
-                </div>
-              </div>
-            </>
-          ) : (
-            <Btn tone="primary" onClick={() => dispatch({ type: "end.turn", playerId: actor })}>End Turn</Btn>
-          )}
-        </Section>
-      )}
-
       {/* Sideboard always visible: exactly 4 face-up slots + coin pile (Q? slot-4 coin-draw discard) */}
       <Section title="SIDEBOARD">
         <div className="font-mono text-xs space-y-0.5">
@@ -261,109 +139,6 @@ export default function SidePanel({ gs, ui, setUi, dispatch, actor, playerFactio
           <div><span className="text-muted">deck:</span> {(gs.sideboard as any).territoryDeckCount ?? gs.sideboard.territoryDeck.length} · <span className="text-muted">coins:</span> {(gs.sideboard as any).coinCount ?? gs.sideboard.coinPile.length} · <span className="text-muted">discard:</span> {gs.sideboard.discard.length}</div>{/* new (1-web-b) */}
         </div>
       </Section>
-    </div>
-  );
-}
-
-function CombatTray({ gs, dispatch, playerFaction }: { gs: GameState; dispatch: (a: Action) => void; playerFaction: (pid?: string) => string | undefined }) {
-  const c = gs.combat!;
-  const att = gs.players[c.attacker];
-  const def = gs.players[c.defender];
-  const fromT = gs.territories[c.from];
-  const toT = gs.territories[c.to];
-
-  const Die = ({ v, final, mod }: { v: number; final: number; mod: boolean }) => (
-    <span className={`inline-flex items-center justify-center w-7 h-7 rounded-sm border font-mono text-sm ${
-      mod ? "border-signal text-signal" : "border-line"}`} title={mod ? `natural ${v} → missile 6` : undefined}>
-      {final}
-    </span>
-  );
-
-  const finals = c.natural
-    ? {
-        att: c.natural.att.map((v, i) => ({ v, final: c.modifiers.some((m) => m.side === "att" && m.dieIndex === i) ? 6 : v, mod: c.modifiers.some((m) => m.side === "att" && m.dieIndex === i) })),
-        def: c.natural.def.map((v, i) => ({ v, final: c.modifiers.some((m) => m.side === "def" && m.dieIndex === i) ? 6 : v, mod: c.modifiers.some((m) => m.side === "def" && m.dieIndex === i) })),
-      }
-    : null;
-
-  const windowActor = c.natural && c.window
-    ? [c.attacker, c.defender].find((pid) => gs.players[pid].missiles > 0 && !c.window!.passed.includes(pid))
-    : undefined;
-
-  return (
-    <Section title="COMBAT TRAY">
-      <div className="font-mono text-xs mb-2">
-        <span style={{ color: playerFaction(c.attacker) }}>{att.name}</span> {c.from.replace(/_/g, " ")} ({fromT.troops})
-        <span className="text-danger"> ⚔ </span>
-        <span style={{ color: playerFaction(c.defender) }}>{def.name}</span> {c.to.replace(/_/g, " ")} ({toT.troops})
-      </div>
-
-      {!c.natural && !c.awaitingMoveIn && (
-        <div className="space-y-2">
-          {c.attackerDice === undefined ? (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted text-xs">{att.name}: attackers</span>
-              {[1, 2, 3].filter((n) => n <= fromT.troops - 1).map((n) => (
-                <Btn key={n} onClick={() => dispatch({ type: "attack.chooseAttackers", playerId: c.attacker, count: n })}>{n}</Btn>
-              ))}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted text-xs">{def.name}: defense dice</span>
-              {[1, 2].filter((n) => n <= toT.troops).map((n) => (
-                <Btn key={n} onClick={() => dispatch({ type: "attack.defenderDice", playerId: c.defender, count: n })}>{n}</Btn>
-              ))}
-            </div>
-          )}
-          {c.attackerDice === undefined && (
-            <Btn onClick={() => dispatch({ type: "attack.cancel", playerId: c.attacker })}>Cancel attack</Btn>
-          )}
-        </div>
-      )}
-
-      {finals && c.window && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-[10px] text-muted w-8">ATT</span>
-            {finals.att.map((d, i) => <Die key={i} {...d} />)}
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-[10px] text-muted w-8">DEF</span>
-            {finals.def.map((d, i) => <Die key={i} {...d} />)}
-          </div>
-          {windowActor && (
-            <div className="border border-signal rounded-sm p-2">
-              <p className="font-mono text-xs text-signal mb-1.5">MODIFIER WINDOW — {gs.players[windowActor].name} (missiles: {gs.players[windowActor].missiles})</p>
-              <div className="flex flex-wrap gap-1.5">
-                {(windowActor === c.attacker ? finals.att : finals.def).map((d, i) =>
-                  d.mod ? null : (
-                    <Btn key={i} onClick={() => dispatch({ type: "combat.useMissile", playerId: windowActor, dieIndex: i })}>
-                      ▲ die {i + 1} → 6
-                    </Btn>
-                  )
-                )}
-                <Btn onClick={() => dispatch({ type: "combat.pass", playerId: windowActor })}>Pass</Btn>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {c.awaitingMoveIn && (
-        <MoveIn min={c.awaitingMoveIn.min} max={c.awaitingMoveIn.max}
-          onCommit={(n) => dispatch({ type: "attack.moveIn", playerId: c.attacker, count: n })} />
-      )}
-    </Section>
-  );
-}
-
-function MoveIn({ min, max, onCommit }: { min: number; max: number; onCommit: (n: number) => void }) {
-  const [n, setN] = useState(max);
-  return (
-    <div className="space-y-2">
-      <p className="font-mono text-xs text-signal">Territory taken — move in {min}–{max} troops.</p>
-      <input type="range" min={min} max={max} value={n} onChange={(e) => setN(Number(e.target.value))} className="w-full accent-(--color-signal)" />
-      <Btn tone="primary" onClick={() => onCommit(n)}>Move in {n}</Btn>
     </div>
   );
 }

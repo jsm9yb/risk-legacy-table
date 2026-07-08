@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "../test-shims.ts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { contentPack } from "@risk/content";
 import { createGame, waitingOn } from "@risk/rules";
 import GameScreen from "./GameScreen.tsx";
@@ -56,7 +56,7 @@ describe("GameScreen", () => {
     expect(document.getElementById("alaska")?.getAttribute("class")).toContain("highlight-start");
   });
 
-  it("dispatches setup from a clicked SVG territory path", () => {
+  it("runs setup through the full-screen faction/power takeover with readable labels (UI-1/UI-8)", () => {
     const gs = createGame({
       gameId: "ui-board-click",
       seed: 13,
@@ -73,10 +73,22 @@ describe("GameScreen", () => {
     const dispatch = vi.fn();
 
     render(<GameScreen gs={gs} dispatch={dispatch} onExit={vi.fn()} error={null} />);
+
+    // full-screen takeover with the whose-decision chip; no raw snake_case power ids anywhere (UI-1)
+    const takeover = screen.getByRole("dialog", { name: "Faction setup" });
+    expect(within(takeover).getByText(gs.players[actor].name)).toBeTruthy();
+    for (const f of contentPack.factions) {
+      expect(within(takeover).getByText(f.name)).toBeTruthy();
+      for (const pw of f.startingPowers) expect(screen.queryByText(pw)).toBeNull();
+    }
+
+    // faction step → power step (readable name + rules text) → takeover closes to the board
     fireEvent.click(screen.getByText(faction.name));
     fireEvent.click(screen.getByText(power.name));
-    fireEvent.click(document.getElementById("alaska")!);
+    expect(screen.queryByRole("dialog", { name: "Faction setup" })).toBeNull();
+    expect(screen.getByText(/click a highlighted territory/i)).toBeTruthy();
 
+    fireEvent.click(document.getElementById("alaska")!);
     expect(dispatch).toHaveBeenCalledWith({
       type: "setup.choose",
       playerId: actor,

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { GameState } from "@risk/rules";
+import { territoryName } from "./labels.ts"; // new (UI-1)
 
 /** Comms-style monospace action ledger (append-only mirror of the engine event log). */
 export default function Ledger({ gs }: { gs: GameState }) {
@@ -31,9 +32,9 @@ function renderDetail(type: string, data?: Record<string, unknown>) {
   if (!data) return null;
   if (type === "DiceRolled") return <span> · A[{(data.att as number[]).join(",")}] D[{(data.def as number[]).join(",")}]</span>;
   if (type === "CombatResolved") return <span> · A-{data.attackerLosses as number} D-{data.defenderLosses as number}</span>;
-  if (type === "TerritoryConquered") return <span> · {(data.territory as string).replace(/_/g, " ")} ({data.moved as number} in)</span>;
-  if (type === "FactionChosen") return <span> · {(data.territory as string).replace(/_/g, " ")} +{data.troops as number}</span>;
-  if (type === "TroopsPlaced") return <span> · {(data.territory as string).replace(/_/g, " ")} +{data.count as number}</span>;
+  if (type === "TerritoryConquered") return <span> · {territoryName(data.territory as string)} ({data.moved as number} in)</span>;
+  if (type === "FactionChosen") return <span> · {territoryName(data.territory as string)} +{data.troops as number}</span>;
+  if (type === "TroopsPlaced") return <span> · {territoryName(data.territory as string)} +{data.count as number}</span>;
   if (type === "GameWon") return <span> · {data.reason as string}</span>;
   return null;
 }

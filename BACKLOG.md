@@ -127,7 +127,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Acceptance:** effects render at the seam with no game-component changes; build green (+ TEST-web smoke if present).
 
 ### UI-1 - Human-readable setup labels
-- **Status:** todo
+- **Status:** done (folded into UI-8, 2026-07-07)
 - **Depends on:** TEST-web · **Blocked by:** —
 - **Scope:** replace raw faction-power ids and other snake_case labels in the web UI with player-facing names/descriptions from the content pack. Setup faction buttons should show readable power names, sideboard/card labels should use title-cased territory names, and the ledger should avoid internal ids where a readable label exists.
 - **Non-goals:** changing content-pack ids, rules behavior, or sealed-content text.
@@ -176,7 +176,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Acceptance:** final board art renders in the game screen; all 42 territories remain clickable and test-addressable; overlays align with territories at desktop and tablet sizes; verify loop green.
 
 ### UI-8 - Modal/overlay layer + combat modal
-- **Status:** todo
+- **Status:** done
 - **Depends on:** UI-1 · **Blocked by:** —
 - **Scope:** introduce a shared modal/overlay system for blocking decisions (decided 2026-07-07): **combat** gets a large centered overlay (attacker vs defender panels in faction colors, big dice with natural→final missile states, attacker/defender dice choice, the missile modifier window as an explicit interrupt, move-in slider); **card draws / hand decisions** get a bottom-anchored panel; **faction + power selection** gets a full-screen takeover during setup. Hot-seat and networked both show a clear "whose decision" marker on every blocking surface (no pass-the-device interstitial). Scar plays and rewards adopt the same layer where natural. The rail's `CombatTray` is retired.
 - **Non-goals:** rendered card art (UI-9), faction emblems (UI-10), rules/engine changes, optimistic updates.
