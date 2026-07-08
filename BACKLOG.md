@@ -206,7 +206,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Acceptance:** a game driven to victory flows through victory beat → signing → each claimant's reward via the modal → aftermath; a module unlock shows the envelope reveal; a scar play uses the card flow; tests cover the reward modal claim order and one board-targeted reward; verify loop green.
 
 ### UI-11 - Legacy-game theming pass
-- **Status:** todo
+- **Status:** done
 - **Depends on:** UI-8, UI-9, UI-10 · **Blocked by:** —
 - **Scope:** extend the physical game's battle-worn aesthetic from the board (UI-7) to the surrounding chrome: hub, phase strip, rail, modals, ledger — textures, typography, and iconography inspired by the original game so the app reads as one artifact. Absorbs the intent of UI-6's "feel like the game table".
 - **Non-goals:** copyrighted asset reproduction, board changes, new mechanics.
@@ -215,9 +215,10 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 ---
 
 ## Ready right now (no decision needed)
-**The original engine/network backlog is complete.** The next ready pickup batch is UI polish, re-sequenced after the 2026-07-07 UX conversation (modals, card art, faction identity): `UI-1` → **`UI-8` (modal layer + combat modal, the keystone)** → `UI-9` (rendered cards + bottom strip) and `UI-10` (faction identity) in either order → `UI-2` (ambient rail + action bar) → `UI-12` (victory/reward presentation) → `UI-3`/`UI-4` → `UI-5`/`UI-6` → `UI-11` (theming capstone). `UI-7` is done with the in-repo board SVG asset.
+**The UI polish batch is complete (2026-07-08):** UI-1 through UI-12 are all `done` — modal/overlay layer with the combat modal, rendered resource cards + card flows, faction visual identity, ambient rail + bottom action bar, the end-game victory/signing/reward ritual with scar-play, territory inspector, board legibility, responsive layout, game-first hub, and the legacy theming capstone. Nothing is `todo` — the next pickup comes from the list below.
 
 What starts the next backlog cycle (add tasks here when they become real):
+- **Hub campaign strip** — when the LAN flow persists a last-connected campaign summary, the hub shows game number, signatures, and unlocked packs as opened-envelope icons (deferred from UI-6).
 - **Module mechanics from host-entered text** — the import wizard stores `content_required` card text; the gameplay that consumes it (Pack 1 advanced-draft turns, Pack 2 comeback-power effects, Pack 3 missions/homelands play, Pack 4 lead faction/private missions, Pocket 1 nuclear resolution, Pocket 2 Alien Island) begins when the group actually unlocks a module and supplies real card text.
 - **Networked-play niceties** — reconnection UX, optimistic updates, spectator polish, Ledger render perf on long games.
 - **True socket/Postgres e2e** — the in-test session covers engine+filter+protocol; a scripted 2-laptop LAN checklist would close the loop.

@@ -22,6 +22,23 @@ body {
   font-family: var(--font-body);
 }
 
+/* new (UI-11): legacy theming — the whole app reads as one battle-worn artifact.
+   One grain texture over every panel surface + a table vignette over the chrome. */
+:root {
+  --chrome-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.5 0.5 0.5 0 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.16'/%3E%3C/svg%3E");
+}
+.bg-panel, .bg-panel-2, .bg-panel\/95 { background-image: var(--chrome-noise); }
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  background: radial-gradient(ellipse at center, transparent 58%, rgba(0, 0, 0, 0.34) 100%);
+}
+/* engraved display type across chrome headings and phase track */
+.font-display { text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4); }
+
 .board-art-frame #risk-board-modern {
   width: 100%;
   height: 100%;
