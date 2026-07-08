@@ -141,7 +141,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Acceptance:** no blocking flow renders in the rail (they live in UI-8 surfaces); phase controls live in the bottom action bar; the ledger no longer renders the full event log per action; existing game-screen tests updated/added for at least setup and recruit; verify loop green.
 
 ### UI-3 - Territory inspector and move preview
-- **Status:** todo
+- **Status:** done
 - **Depends on:** UI-2 · **Blocked by:** —
 - **Scope:** add a selected-territory inspector that shows owner, troops, HQ/city/scar markers, adjacent legal targets, and the action that the next click will take in the current phase. During attack/maneuver, selecting a source territory should make the target choices and consequences explicit before the player commits.
 - **Non-goals:** undo, confirmation modals for every action, or rule-engine changes.

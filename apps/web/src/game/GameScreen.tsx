@@ -15,6 +15,7 @@ import TurnDecisionDock from "./TurnDecisionDock.tsx";
 import HandStrip from "./HandStrip.tsx"; // new (UI-9)
 import ActionBar from "./ActionBar.tsx"; // new (UI-2)
 import VictoryFlow from "./VictoryFlow.tsx"; // new (UI-12)
+import Inspector from "./Inspector.tsx"; // new (UI-3)
 import { DecisionChip } from "./overlays.tsx";
 import { continentName, factionById, powerName, scarName, territoryName } from "./labels.ts";
 import { Btn } from "./overlays.tsx";
@@ -46,6 +47,8 @@ export interface UiState {
   };
   /** new (UI-12): a held scar being played — next board click on an unscarred territory places it. */
   scarTarget?: { playerId: string; instanceId: string; scarId: string };
+  /** new (UI-3): last-clicked territory — drives the rail inspector. */
+  inspected?: string;
 }
 
 export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
@@ -166,6 +169,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
   }, [gs, ui.selected, ui.pickedFaction, ui.rewardTarget, ui.scarTarget, actor, canAct]);
 
   const onTerritoryClick = (tid: string) => {
+    setUi((u) => ({ ...u, inspected: tid })); // new (UI-3): every board click updates the inspector
     // new (UI-12): scar play targeting — the holder acts on anyone's turn at a stable boundary
     if (ui.scarTarget) {
       const st = ui.scarTarget;
@@ -202,6 +206,11 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
         if (!ui.pickedFaction) { setLocalError("Pick a faction first"); return; }
         const stored = gs.factionPowers[ui.pickedFaction];
         if (!stored && !ui.pickedPower) { setLocalError("Pick a starting power first"); return; }
+        // new (UI-3): illegal starts never dispatch — the inspector explains why instead
+        if (!isLegalStart(gs, tid, true, ui.pickedFaction, actor)) {
+          setLocalError("Not a legal start — see the territory panel");
+          return;
+        }
         setLocalError(null);
         doDispatch({ type: "setup.choose", playerId: actor, factionId: ui.pickedFaction, territoryId: tid, powerId: stored ? undefined : ui.pickedPower });
         return;
@@ -323,6 +332,9 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
         </div>
         <aside className="border-l border-line bg-panel min-h-0 grid grid-rows-[1fr_auto]">
           <div className="overflow-y-auto">
+            {ui.inspected && ( // new (UI-3): selected-territory inspector tops the rail
+              <Inspector gs={gs} tid={ui.inspected} actor={actor} canAct={canAct} ui={ui} />
+            )}
             <SidePanel gs={gs} actor={canAct ? actor : undefined} playerFaction={playerFaction} />
           </div>
           <Ledger gs={gs} />{/* new (UI-2): collapsible BATTLE LOG tab */}
