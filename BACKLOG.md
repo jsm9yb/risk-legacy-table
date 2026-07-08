@@ -155,7 +155,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Acceptance:** at 1280x720 all troop counts and major state markers are readable without zoom; legal setup and attack highlights are visually distinct; component smoke still asserts 42 territory shapes; verify loop green.
 
 ### UI-5 - Responsive play layout
-- **Status:** todo
+- **Status:** done
 - **Depends on:** UI-2, UI-4 · **Blocked by:** —
 - **Scope:** replace the fixed desktop-only game grid with a responsive layout. Desktop keeps board + rail; tablet/phone uses a board-first layout with a bottom drawer or tabbed panel for actions/status/logs, and the phase strip must remain usable without horizontal clipping.
 - **Non-goals:** native app gestures, offline support, or a separate mobile game mode.

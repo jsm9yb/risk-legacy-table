@@ -70,7 +70,7 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
           You conquered enemy territory — draw one Resource card.
           {hasMatch && <span className="text-signal"> A face-up card matches your territory: taking it is mandatory before coins.</span>}
         </p>
-        <div className="flex items-end gap-3">
+        <div className="flex items-end gap-3 flex-wrap">{/* new (UI-5): wraps at phone widths */}
           {gs.sideboard.slots.map((id, i) => (
             <div key={i} className="flex flex-col items-center gap-1.5">
               {id

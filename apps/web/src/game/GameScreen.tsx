@@ -51,6 +51,20 @@ export interface UiState {
   inspected?: string;
 }
 
+// new (UI-5): responsive breakpoint — desktop keeps board + rail; below it the layout is
+// board-first with the rail's content in a bottom "table" drawer.
+function useDesktop() {
+  const [is, setIs] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
+  useEffect(() => {
+    const m = window.matchMedia("(min-width: 1024px)");
+    const fn = () => setIs(m.matches);
+    m.addEventListener?.("change", fn);
+    window.addEventListener("resize", fn); // some embedded webviews skip mediaquery change events
+    return () => { m.removeEventListener?.("change", fn); window.removeEventListener("resize", fn); };
+  }, []);
+  return is;
+}
+
 export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
   gs: GameState;
   dispatch: (a: Action) => void;
@@ -62,6 +76,8 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
   const [ui, setUi] = useState<UiState>({ placeCount: 1, moveCount: 1, expandCount: 1, selectedCards: [] });
   const [localError, setLocalError] = useState<string | null>(null);
   const [autoDefend, setAutoDefend] = useState<Record<string, boolean>>({}); // new (UI-8): per-player toggle, off by default
+  const desktop = useDesktop(); // new (UI-5)
+  const [drawerOpen, setDrawerOpen] = useState(false); // new (UI-5): mobile table drawer
 
   const actor = waitingOn(gs); // whoever the game waits on
   const actorPlayer = actor ? gs.players[actor] : undefined;
@@ -251,22 +267,11 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
 
   return (
     <div className="relative h-full grid grid-rows-[auto_1fr] overflow-hidden">
-      {/* Command strip — signature element: ops-board phase track */}
-      <header className="border-b border-line bg-panel px-6 py-3 grid grid-cols-[auto_1fr_auto] items-center gap-6">
+      {/* Command strip — signature element: ops-board phase track.
+          new (UI-5): wraps to its own scrollable row below lg so nothing clips at 390px. */}
+      <header className="border-b border-line bg-panel px-3 lg:px-6 py-2 lg:py-3 flex flex-wrap items-center gap-x-4 gap-y-1">
         <button onClick={onExit} className="font-mono text-xs text-muted hover:text-text">← HUB</button>
-        <nav className="flex items-center gap-1 justify-center" aria-label="Turn phases">
-          {PHASES.map((p, i) => {
-            const active = gs.phase === p.id || (gs.phase === "game_over" && p.id === "end_turn");
-            return (
-              <span key={p.id} className="flex items-center gap-1">
-                {i > 0 && <span className="text-line">—</span>}
-                <span className={`font-display font-bold tracking-widest text-sm px-2 py-0.5 rounded-sm ${
-                  active ? "bg-signal text-ink" : "text-muted"}`}>{p.label}</span>
-              </span>
-            );
-          })}
-        </nav>
-        <div className="font-mono text-xs text-right">
+        <div className="ml-auto order-2 font-mono text-xs text-right">
           {gs.phase === "game_over" ? (
             <span className="text-signal">GAME OVER</span>
           ) : actorPlayer ? (
@@ -277,9 +282,21 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
             </>
           ) : null}
         </div>
+        <nav className="order-3 w-full lg:order-1 lg:w-auto lg:flex-1 flex items-center gap-1 justify-start lg:justify-center overflow-x-auto" aria-label="Turn phases">
+          {PHASES.map((p, i) => {
+            const active = gs.phase === p.id || (gs.phase === "game_over" && p.id === "end_turn");
+            return (
+              <span key={p.id} className="flex items-center gap-1 shrink-0">
+                {i > 0 && <span className="text-line">—</span>}
+                <span className={`font-display font-bold tracking-widest text-xs lg:text-sm px-1.5 lg:px-2 py-0.5 rounded-sm whitespace-nowrap ${
+                  active ? "bg-signal text-ink" : "text-muted"}`}>{p.label}</span>
+              </span>
+            );
+          })}
+        </nav>
       </header>
 
-      <div className="grid grid-cols-[1fr_340px] min-h-0">
+      <div className={`grid min-h-0 ${desktop ? "grid-cols-[1fr_340px]" : "grid-cols-1"}`}>{/* new (UI-5) */}
         <div className="grid grid-rows-[1fr_auto_auto] min-h-0">
           <div className="relative min-h-0 p-4 overflow-auto">
             <div className="relative w-full max-h-full aspect-[749.819/519.068]">
@@ -330,16 +347,40 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
               <ActionBar gs={gs} ui={ui} setUi={setUi} dispatch={doDispatch} actor={actor} />
             ) : undefined} />
         </div>
-        <aside className="border-l border-line bg-panel min-h-0 grid grid-rows-[1fr_auto]">
-          <div className="overflow-y-auto">
-            {ui.inspected && ( // new (UI-3): selected-territory inspector tops the rail
-              <Inspector gs={gs} tid={ui.inspected} actor={actor} canAct={canAct} ui={ui} />
-            )}
-            <SidePanel gs={gs} actor={canAct ? actor : undefined} playerFaction={playerFaction} />
-          </div>
-          <Ledger gs={gs} />{/* new (UI-2): collapsible BATTLE LOG tab */}
-        </aside>
+        {desktop && (
+          <aside className="border-l border-line bg-panel min-h-0 grid grid-rows-[1fr_auto]">
+            <div className="overflow-y-auto">
+              {ui.inspected && ( // new (UI-3): selected-territory inspector tops the rail
+                <Inspector gs={gs} tid={ui.inspected} actor={actor} canAct={canAct} ui={ui} />
+              )}
+              <SidePanel gs={gs} actor={canAct ? actor : undefined} playerFaction={playerFaction} />
+            </div>
+            <Ledger gs={gs} />{/* new (UI-2): collapsible BATTLE LOG tab */}
+          </aside>
+        )}
       </div>
+
+      {/* new (UI-5): below the desktop breakpoint the table lives in a bottom drawer */}
+      {!desktop && (
+        <>
+          <button onClick={() => setDrawerOpen((o) => !o)}
+            className="absolute bottom-32 right-3 z-30 bg-panel border border-line rounded-sm px-3 py-1.5 font-mono text-xs text-muted hover:text-text shadow-lg">
+            TABLE
+          </button>
+          {drawerOpen && (
+            <div role="dialog" aria-label="Table" className="absolute inset-x-0 bottom-0 z-40 max-h-[70%] bg-panel border-t border-line grid grid-rows-[auto_1fr]">
+              <div className="flex justify-end border-b border-line px-4 py-1.5">
+                <button onClick={() => setDrawerOpen(false)} className="font-mono text-xs text-muted hover:text-text">CLOSE ▾</button>
+              </div>
+              <div className="overflow-y-auto">
+                {ui.inspected && <Inspector gs={gs} tid={ui.inspected} actor={actor} canAct={canAct} ui={ui} />}
+                <SidePanel gs={gs} actor={canAct ? actor : undefined} playerFaction={playerFaction} />
+                <Ledger gs={gs} />
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* new (UI-8): shared overlay layer — blocking decisions */}
       {gs.phase === "setup" && actor && canAct && !setupReady && (

@@ -136,6 +136,35 @@ describe("GameScreen", () => {
     expect(screen.getByRole("button", { name: "END ATTACKS" })).toBeTruthy();
   });
 
+  it("phone: board-first layout with the table drawer instead of the rail (UI-5)", () => {
+    const orig = window.matchMedia;
+    window.matchMedia = ((q: string) => ({
+      matches: false, media: q, onchange: null,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+      dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+    try {
+      let gs = throughSetup(107);
+      const pid = waitingOn(gs)!;
+      gs = applyAction(gs, { type: "start.done", playerId: pid });
+      render(<Harness initial={gs} />);
+
+      expect(document.querySelector("aside")).toBeNull(); // no desktop rail
+      expect(document.getElementById("risk-board-modern")).toBeTruthy(); // board-first
+      expect(document.querySelector("[data-action-bar]")).toBeTruthy(); // current action reachable
+
+      fireEvent.click(screen.getByRole("button", { name: "TABLE" }));
+      const drawer = screen.getByRole("dialog", { name: "Table" });
+      expect(within(drawer).getByText("QUICK LOOK")).toBeTruthy();
+      expect(within(drawer).getByText("SIDEBOARD")).toBeTruthy();
+      expect(within(drawer).getByText("BATTLE LOG")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "CLOSE ▾" }));
+      expect(screen.queryByRole("dialog", { name: "Table" })).toBeNull();
+    } finally {
+      window.matchMedia = orig;
+    }
+  });
+
   it("battle log is a collapsed rail tab that windows long logs (UI-2)", () => {
     const gs = throughSetup(89);
     for (let i = 1; i <= 300; i++) gs.log.push({ seq: gs.eventSeq + i, type: "SyntheticEvent" });

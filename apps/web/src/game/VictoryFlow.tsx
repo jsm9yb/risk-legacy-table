@@ -37,7 +37,7 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
   if (closed) {
     return (
       <button onClick={() => setClosed(false)}
-        className="absolute bottom-4 right-[356px] z-30 bg-panel border border-signal rounded-sm px-3 py-1.5 font-mono text-xs text-signal hover:brightness-110">
+        className="absolute bottom-4 right-3 lg:right-[356px] z-30 bg-panel border border-signal rounded-sm px-3 py-1.5 font-mono text-xs text-signal hover:brightness-110">
         AFTERMATH ▴
       </button>
     );
