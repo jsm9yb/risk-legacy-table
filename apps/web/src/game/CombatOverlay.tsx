@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import type { Action, GameState } from "@risk/rules";
 import { factionById, scarName, territoryName } from "./labels.ts";
+import FactionEmblem from "./FactionEmblem.tsx"; // new (UI-10)
 import { Btn, CenterOverlay, DecisionChip } from "./overlays.tsx";
 
 const SCAR_COMBAT_NOTES: Record<string, string> = {
@@ -114,16 +115,22 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
             color={factionById(gs.players[decider].factionId)?.color} />}
         </div>
         <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
-          <div className="border-l-4 pl-3" style={{ borderColor: attFaction?.color ?? "var(--color-line)" }}>
-            <div className="font-display font-bold tracking-widest">{att.name}</div>
-            <div className="text-xs text-muted">{attFaction?.name}</div>
-            <div className="font-mono text-xs mt-1">{territoryName(c.from)} · {fromT.troops} troops</div>
+          <div className="border-l-4 pl-3 flex items-center gap-2.5" style={{ borderColor: attFaction?.color ?? "var(--color-line)" }}>
+            <FactionEmblem factionId={att.factionId} size="sm" />{/* new (UI-10) */}
+            <div>
+              <div className="font-display font-bold tracking-widest">{att.name}</div>
+              <div className="text-xs text-muted">{attFaction?.name}</div>
+              <div className="font-mono text-xs mt-1">{territoryName(c.from)} · {fromT.troops} troops</div>
+            </div>
           </div>
           <div className="font-display font-bold text-2xl text-danger">VS</div>
-          <div className="border-r-4 pr-3 text-right" style={{ borderColor: defFaction?.color ?? "var(--color-line)" }}>
-            <div className="font-display font-bold tracking-widest">{def.name}</div>
-            <div className="text-xs text-muted">{defFaction?.name}</div>
-            <div className="font-mono text-xs mt-1">{territoryName(c.to)} · {toT.troops} troops</div>
+          <div className="border-r-4 pr-3 text-right flex items-center justify-end gap-2.5" style={{ borderColor: defFaction?.color ?? "var(--color-line)" }}>
+            <div>
+              <div className="font-display font-bold tracking-widest">{def.name}</div>
+              <div className="text-xs text-muted">{defFaction?.name}</div>
+              <div className="font-mono text-xs mt-1">{territoryName(c.to)} · {toT.troops} troops</div>
+            </div>
+            <FactionEmblem factionId={def.factionId} size="sm" />{/* new (UI-10) */}
           </div>
         </div>
         {badges.length > 0 && (

@@ -6,6 +6,7 @@ import { redStars, type GameState, type Action } from "@risk/rules";
 import type { UiState } from "./GameScreen.tsx"; // new (1-web-b)
 import { continentName, factionById } from "./labels.ts";
 import SideboardMat from "./cards/SideboardMat.tsx"; // new (UI-9)
+import FactionEmblem from "./FactionEmblem.tsx"; // new (UI-10)
 import { Btn, Num } from "./overlays.tsx";
 
 type Props = {
@@ -40,7 +41,9 @@ export default function SidePanel({ gs, ui, setUi, dispatch, actor, playerFactio
             const active = pid === actor;
             return (
               <div key={pid} className={`flex items-center gap-2 font-mono text-xs ${pl.eliminated ? "opacity-40 line-through" : ""}`}>
-                <span className="w-2 h-2 rounded-full" style={{ background: playerFaction(pid) ?? "#5a6578" }} />
+                {pl.factionId
+                  ? <FactionEmblem factionId={pl.factionId} size="xs" />
+                  : <span className="w-2 h-2 rounded-full" style={{ background: playerFaction(pid) ?? "#5a6578" }} />}{/* new (UI-10) */}
                 <span className={active ? "text-signal" : ""}>{pl.name}</span>
                 <span className="ml-auto text-muted">★{rs.tokens}+{rs.board}={rs.total}</span>
                 <span title="resource cards">🂠{(pl as any).handCount ?? pl.hand.length}</span>{/* new (1-web-b): filtered payloads carry counts */}

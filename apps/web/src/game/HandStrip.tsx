@@ -6,6 +6,7 @@ import { redStars, waitingOn, type GameState } from "@risk/rules";
 import type { UiState } from "./GameScreen.tsx";
 import { cardResources, factionById } from "./labels.ts";
 import ResourceCard from "./cards/ResourceCard.tsx";
+import FactionEmblem from "./FactionEmblem.tsx"; // new (UI-10)
 
 export default function HandStrip({ gs, player, ui, setUi, selectable }: {
   gs: GameState;
@@ -31,7 +32,9 @@ export default function HandStrip({ gs, player, ui, setUi, selectable }: {
     <div className="border-t border-line bg-panel px-4 py-2 flex items-center gap-4 min-h-[104px]">
       <div className="font-mono text-xs space-y-0.5 shrink-0">
         <div className="flex items-center gap-1.5">
-          <span className="w-2.5 h-2.5 rounded-full" style={{ background: faction?.color ?? "#5a6578" }} />
+          {faction
+            ? <FactionEmblem factionId={faction.id} size="xs" />
+            : <span className="w-2.5 h-2.5 rounded-full bg-[#5a6578]" />}{/* new (UI-10) */}
           <span className="text-text">{p.name}</span>
         </div>
         <div className="text-muted">★ {rs.tokens}+{rs.board}={rs.total} · ▲ {p.missiles} · scars {p.scarCardCount}</div>

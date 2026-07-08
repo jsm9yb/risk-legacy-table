@@ -3,6 +3,16 @@ import { manifest, anchor } from "@risk/map";
 import { contentPack } from "@risk/content";
 import type { GameState } from "@risk/rules";
 import boardSvg from "../../../../packages/map/assets/board.svg?raw";
+import { FACTION_EMBLEMS, FACTION_TROOP_SHAPES, SCAR_ART, type TroopShape } from "./factionAssets.ts"; // new (UI-10)
+
+// new (UI-10): distinct troop-marker silhouettes per faction (~r10.5 footprint)
+const TROOP_SHAPE_PATHS: Record<TroopShape, string> = {
+  circle: "M 0 -10.5 A 10.5 10.5 0 1 1 -0.01 -10.5 Z",
+  square: "M -9 -9 H 9 V 9 H -9 Z",
+  diamond: "M 0 -11.5 L 11.5 0 L 0 11.5 L -11.5 0 Z",
+  hex: "M 0 -11 L 9.5 -5.5 L 9.5 5.5 L 0 11 L -9.5 5.5 L -9.5 -5.5 Z",
+  shield: "M -9 -9 H 9 V 1 C 9 6.5 4.5 9.5 0 11.5 C -4.5 9.5 -9 6.5 -9 1 Z",
+};
 
 export type Highlight = "selected" | "highlight-attack" | "highlight-move" | "highlight-start" | "dimmed";
 
@@ -69,18 +79,28 @@ export default function Board({
           const st = gs.territories[t.id];
           const owner = st.controller;
           const color = owner ? playerFaction(owner) : undefined;
+          const ownerFactionId = owner ? gs.players[owner]?.factionId : undefined; // new (UI-10)
+          const troopShape = TROOP_SHAPE_PATHS[(ownerFactionId && FACTION_TROOP_SHAPES[ownerFactionId]) || "circle"]; // new (UI-10)
           return (
             <g key={t.id}>
-              {st.hqFaction && (
-                <g transform={`translate(${a.x + 21} ${a.y - 18})`}>
-                  <path d="M 0 -8 L 8 0 L 0 8 L -8 0 Z" fill="#0c0f15" stroke={factionColorSafe(st.hqFaction)} strokeWidth={1.8} />
-                  <text y="3" textAnchor="middle" style={{ font: "800 7px var(--font-mono)", fill: factionColorSafe(st.hqFaction) }}>H</text>
+              {st.hqFaction && ( // new (UI-10): HQ renders as a circular emblem shield in the HQ faction's color
+                <g transform={`translate(${a.x + 21} ${a.y - 18})`} data-hq-emblem={st.hqFaction}>
+                  <circle r={9.6} fill="#0c0f15" stroke={factionColorSafe(st.hqFaction)} strokeWidth={2} />
+                  {FACTION_EMBLEMS[st.hqFaction] ? (
+                    <>
+                      <clipPath id={`hq-clip-${t.id}`}><circle r={8.2} /></clipPath>
+                      <image href={FACTION_EMBLEMS[st.hqFaction]} x={-8.2} y={-8.2} width={16.4} height={16.4}
+                        clipPath={`url(#hq-clip-${t.id})`} preserveAspectRatio="xMidYMid slice" />
+                    </>
+                  ) : (
+                    <text y="3" textAnchor="middle" style={{ font: "800 7px var(--font-mono)", fill: factionColorSafe(st.hqFaction) }}>H</text>
+                  )}
                 </g>
               )}
               {st.troops > 0 && (
-                <g transform={`translate(${a.x - 23} ${a.y - 17})`}>
-                  <circle r={10.5} fill={color ?? "#5a6578"} stroke="#071018" strokeWidth={1.7} />
-                  <circle r={7.1} fill="#f2e8bd" opacity={0.18} />
+                <g transform={`translate(${a.x - 23} ${a.y - 17})`} data-troop-shape={(ownerFactionId && FACTION_TROOP_SHAPES[ownerFactionId]) || "circle"}>
+                  <path d={troopShape} fill={color ?? "#5a6578"} stroke="#071018" strokeWidth={1.7} strokeLinejoin="round" />{/* new (UI-10): faction silhouette */}
+                  <circle r={6.6} fill="#f2e8bd" opacity={0.18} />
                   <text y="3.4" textAnchor="middle" style={{ font: "800 9.5px var(--font-mono)", fill: "#080c12" }}>{st.troops}</text>
                 </g>
               )}
@@ -91,10 +111,21 @@ export default function Board({
                   <text x="12" y="15.2" textAnchor="middle" style={{ font: "800 7.5px var(--font-mono)", fill: "#f1e6b7" }}>{st.city.population}</text>
                 </g>
               )}
-              {st.scars.length > 0 && (
-                <g transform={`translate(${a.x + 18} ${a.y + 17})`}>
-                  <rect x="-9" y="-6" width="18" height="12" rx="2" fill="#c9504a" stroke="#12080a" strokeWidth="1.1" />
-                  <text y="3.1" textAnchor="middle" style={{ font: "900 8px var(--font-mono)", fill: "#1a0708" }}>!</text>
+              {st.scars.length > 0 && ( // new (UI-10): scar art as a circular board chip
+                <g transform={`translate(${a.x + 18} ${a.y + 17})`} data-scar-chip={st.scars[0]}>
+                  <circle r={8.4} fill="#1a0708" stroke="#c9504a" strokeWidth={1.5} />
+                  {SCAR_ART[st.scars[0]] ? (
+                    <>
+                      <clipPath id={`scar-clip-${t.id}`}><circle r={7.2} /></clipPath>
+                      <image href={SCAR_ART[st.scars[0]]} x={-7.2} y={-7.2} width={14.4} height={14.4}
+                        clipPath={`url(#scar-clip-${t.id})`} preserveAspectRatio="xMidYMid slice" />
+                    </>
+                  ) : (
+                    <text y="3.1" textAnchor="middle" style={{ font: "900 8px var(--font-mono)", fill: "#c9504a" }}>!</text>
+                  )}
+                  {st.scars.length > 1 && (
+                    <text x="8" y="-8" textAnchor="middle" style={{ font: "800 6.5px var(--font-mono)", fill: "#c9504a" }}>×{st.scars.length}</text>
+                  )}
                 </g>
               )}
               {st.fortification && (

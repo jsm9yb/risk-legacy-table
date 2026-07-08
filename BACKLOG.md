@@ -192,7 +192,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Acceptance:** hand/sideboard/draw/trade/buy flows all render card components instead of text labels; an upgraded card visibly shows its extra coin(s); card faces of other players' hands are never rendered from filtered payloads (counts/backs only); tests cover the card component (resource pips incl. an upgraded card) and one full draw flow; verify loop green.
 
 ### UI-10 - Faction visual identity
-- **Status:** todo
+- **Status:** done
 - **Depends on:** UI-8 · **Blocked by:** —
 - **Scope:** give the five base factions distinct visual identities beyond a hex color: an emblem/crest per faction in the board-art style — **static image assets (e.g. PNG) are fine; SVG not required** — plus faction-colored HQ/troop marker treatments, and a faction "card" (emblem, name, blurb, both starting powers) used by the UI-8 setup takeover, the Quick Look roster, and combat overlay headers.
 - **Non-goals:** changing faction ids/colors in the pack, rules behavior, module factions (Mutants/Aliens) beyond leaving a slot for them.

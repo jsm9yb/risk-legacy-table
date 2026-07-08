@@ -4,6 +4,8 @@ import { contentPack } from "@risk/content";
 import type { GameState } from "@risk/rules";
 import type { UiState } from "./GameScreen.tsx";
 import { powerById, powerName } from "./labels.ts";
+import FactionEmblem from "./FactionEmblem.tsx"; // new (UI-10)
+import { FACTION_BLURBS } from "./factionAssets.ts"; // new (UI-10)
 import { DecisionChip, TakeoverOverlay } from "./overlays.tsx";
 
 export default function SetupTakeover({ gs, ui, setUi, actor, you }: {
@@ -33,16 +35,19 @@ export default function SetupTakeover({ gs, ui, setUi, actor, you }: {
             return (
               <button key={f.id} disabled={taken}
                 onClick={() => setUi((u) => ({ ...u, pickedFaction: f.id, pickedPower: undefined }))}
-                className={`text-left border rounded-sm p-4 ${taken ? "opacity-35 border-line" : "border-line hover:border-signal"}`}>
-                <span className="flex items-center gap-2.5 mb-1.5">
-                  <span className="w-3 h-3 rounded-full" style={{ background: f.color }} />
-                  <span className="font-display font-bold tracking-widest text-lg">{f.name}</span>
-                  {taken && <span className="font-mono text-[10px] text-muted ml-auto">TAKEN</span>}
-                </span>
-                <span className="block text-xs text-muted">
-                  {permanent
-                    ? <>Power (permanent): <span className="text-text">{powerName(permanent)}</span></>
-                    : <>Starting powers: <span className="text-text">{f.startingPowers.map(powerName).join(" or ")}</span></>}
+                className={`text-left border rounded-sm p-4 flex items-start gap-4 ${taken ? "opacity-35 border-line" : "border-line hover:border-signal"}`}>
+                <FactionEmblem factionId={f.id} size="md" />{/* new (UI-10): faction card */}
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2.5 mb-1">
+                    <span className="font-display font-bold tracking-widest text-lg">{f.name}</span>
+                    {taken && <span className="font-mono text-[10px] text-muted">TAKEN</span>}
+                  </span>
+                  <span className="block text-xs text-muted italic mb-1.5">{FACTION_BLURBS[f.id]}</span>
+                  <span className="block text-xs text-muted">
+                    {permanent
+                      ? <>Power (permanent): <span className="text-text">{powerName(permanent)}</span></>
+                      : <>Starting powers: <span className="text-text">{f.startingPowers.map(powerName).join(" or ")}</span></>}
+                  </span>
                 </span>
               </button>
             );
@@ -50,9 +55,12 @@ export default function SetupTakeover({ gs, ui, setUi, actor, you }: {
         </div>
       ) : (
         <div>
-          <div className="flex items-center gap-2.5 mb-4">
-            <span className="w-3 h-3 rounded-full" style={{ background: picked.color }} />
-            <span className="font-display font-bold tracking-widest text-lg">{picked.name}</span>
+          <div className="flex items-center gap-3 mb-4">
+            <FactionEmblem factionId={picked.id} size="lg" />{/* new (UI-10) */}
+            <span>
+              <span className="font-display font-bold tracking-widest text-lg block">{picked.name}</span>
+              <span className="text-xs text-muted italic">{FACTION_BLURBS[picked.id]}</span>
+            </span>
             <button onClick={() => setUi((u) => ({ ...u, pickedFaction: undefined, pickedPower: undefined }))}
               className="ml-auto font-mono text-xs text-muted hover:text-text">← ALL FACTIONS</button>
           </div>
