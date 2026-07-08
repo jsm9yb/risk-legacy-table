@@ -8,12 +8,14 @@ import { cardResources, factionById } from "./labels.ts";
 import ResourceCard from "./cards/ResourceCard.tsx";
 import FactionEmblem from "./FactionEmblem.tsx"; // new (UI-10)
 
-export default function HandStrip({ gs, player, ui, setUi, selectable }: {
+export default function HandStrip({ gs, player, ui, setUi, selectable, actions }: {
   gs: GameState;
   player?: string;
   ui: UiState;
   setUi: (fn: (u: UiState) => UiState) => void;
   selectable: boolean;
+  /** new (UI-2): the slim per-phase action bar renders beside the hand/HUD. */
+  actions?: React.ReactNode;
 }) {
   const p = player ? gs.players[player] : undefined;
   if (!p) return null;
@@ -52,6 +54,7 @@ export default function HandStrip({ gs, player, ui, setUi, selectable }: {
           ))
         )}
       </div>
+      {actions && <div className="ml-auto shrink-0 max-w-[55%]">{actions}</div>}{/* new (UI-2) */}
     </div>
   );
 }

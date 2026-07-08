@@ -1,12 +1,23 @@
 // @vitest-environment jsdom
 import "../test-shims.ts";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { contentPack } from "@risk/content";
-import { createGame, waitingOn } from "@risk/rules";
+import { applyAction, createGame, waitingOn, type Action, type GameState } from "@risk/rules";
 import GameScreen from "./GameScreen.tsx";
+import { throughSetup } from "./test-fixtures.ts";
 
 afterEach(cleanup);
+
+// Hot-seat harness over the REAL engine: any illegal dispatch throws and fails the test.
+let current: GameState;
+function Harness({ initial }: { initial: GameState }) {
+  const [gs, setGs] = useState(initial);
+  current = gs;
+  const dispatch = (a: Action) => setGs((s) => (current = applyAction(s, a)));
+  return <GameScreen gs={gs} dispatch={dispatch} onExit={() => {}} error={null} />;
+}
 
 describe("GameScreen", () => {
   it("renders the imported board SVG with all clickable territory paths", () => {
@@ -96,5 +107,41 @@ describe("GameScreen", () => {
       territoryId: "alaska",
       powerId,
     });
+  });
+
+  it("recruit phase controls live in the bottom action bar, not the rail (UI-2)", () => {
+    let gs = throughSetup(83);
+    const pid = waitingOn(gs)!;
+    gs = applyAction(gs, { type: "start.done", playerId: pid });
+    render(<Harness initial={gs} />);
+
+    const bar = document.querySelector("[data-action-bar]") as HTMLElement;
+    expect(bar).toBeTruthy();
+    expect(within(bar).getByText(`to place: ${current.recruit!.remaining}`)).toBeTruthy();
+    const rail = document.querySelector("aside") as HTMLElement;
+    expect(within(rail).queryByText(/to place/)).toBeNull(); // the rail is ambient only
+
+    // board clicks place via the stepper count; TO ATTACK advances the phase
+    const mine = Object.entries(current.territories).find(([, t]) => t.controller === pid)![0];
+    const start = current.recruit!.remaining;
+    for (let i = 0; i < start; i++) fireEvent.click(document.getElementById(mine)!);
+    expect(current.recruit!.remaining).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "TO ATTACK" }));
+    expect(current.phase).toBe("expand_attack");
+    expect(screen.getByRole("button", { name: "END ATTACKS" })).toBeTruthy();
+  });
+
+  it("battle log is a collapsed rail tab that windows long logs (UI-2)", () => {
+    const gs = throughSetup(89);
+    for (let i = 1; i <= 300; i++) gs.log.push({ seq: gs.eventSeq + i, type: "SyntheticEvent" });
+
+    render(<GameScreen gs={gs} dispatch={vi.fn()} onExit={vi.fn()} error={null} />);
+    expect(screen.queryByTestId("ledger-log")).toBeNull(); // collapsed by default
+    fireEvent.click(screen.getByText("BATTLE LOG"));
+
+    const log = screen.getByTestId("ledger-log");
+    expect(log.querySelectorAll("div").length).toBeLessThanOrEqual(50); // latest window only
+    fireEvent.click(screen.getByText(/earlier \d+ events/));
+    expect(screen.getByTestId("ledger-log").querySelectorAll("div")).toHaveLength(gs.log.length);
   });
 });

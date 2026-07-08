@@ -134,7 +134,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Acceptance:** faction setup no longer displays strings like `fortified_hq` / `defensive_stand`; the setup smoke/component test covers the readable labels; verify loop green.
 
 ### UI-2 - Action-first side panel
-- **Status:** todo
+- **Status:** done
 - **Depends on:** UI-1, UI-8 · **Blocked by:** —
 - **Scope:** **Rescoped 2026-07-07 (design conversation):** spatial grammar is *bottom = you, right = the table*. Non-blocking phase controls (place-count stepper, expand/maneuver counts, End Attacks / End Maneuver / End Turn) move into a slim **action bar** in the UI-9 bottom strip beside the hand/HUD. The right rail becomes purely ambient: sideboard mat (UI-9) → Quick Look roster (emblem tiles) → battle log as a tab. Includes the Ledger perf fix: render the latest ~50 events with lazy "earlier…" expansion (currently re-renders the full log per action — quadratic on long games, noted 2026-07-06).
 - **Non-goals:** mobile layout, board art, or new rules.

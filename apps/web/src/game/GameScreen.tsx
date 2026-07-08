@@ -13,6 +13,7 @@ import SetupTakeover from "./SetupTakeover.tsx";
 import CombatOverlay from "./CombatOverlay.tsx";
 import TurnDecisionDock from "./TurnDecisionDock.tsx";
 import HandStrip from "./HandStrip.tsx"; // new (UI-9)
+import ActionBar from "./ActionBar.tsx"; // new (UI-2)
 import { DecisionChip } from "./overlays.tsx";
 import { factionById, powerName } from "./labels.ts";
 
@@ -233,13 +234,16 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer }: {
           {(gs.phase === "start_turn" || gs.phase === "end_turn") && actor && canAct ? (
             <TurnDecisionDock gs={gs} ui={ui} dispatch={doDispatch} actor={actor} />
           ) : <span />}
-          <HandStrip gs={gs} player={stripPlayer} ui={ui} setUi={setUi} selectable={stripSelectable} />
+          <HandStrip gs={gs} player={stripPlayer} ui={ui} setUi={setUi} selectable={stripSelectable}
+            actions={actor && canAct ? ( // new (UI-2): non-blocking phase controls beside the hand/HUD
+              <ActionBar gs={gs} ui={ui} setUi={setUi} dispatch={doDispatch} actor={actor} />
+            ) : undefined} />
         </div>
-        <aside className="border-l border-line bg-panel min-h-0 grid grid-rows-[1fr_220px]">
+        <aside className="border-l border-line bg-panel min-h-0 grid grid-rows-[1fr_auto]">
           <div className="overflow-y-auto">
-            <SidePanel gs={gs} ui={ui} setUi={setUi} dispatch={doDispatch} actor={canAct ? actor : undefined} playerFaction={playerFaction} />
+            <SidePanel gs={gs} actor={canAct ? actor : undefined} playerFaction={playerFaction} />
           </div>
-          <Ledger gs={gs} />
+          <Ledger gs={gs} />{/* new (UI-2): collapsible BATTLE LOG tab */}
         </aside>
       </div>
 
