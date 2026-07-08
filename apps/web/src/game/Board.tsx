@@ -30,13 +30,18 @@ export default function Board({
       const ownerColor = st.controller ? playerFaction(st.controller) : undefined;
       const highlight = highlights[territory.id];
       path.setAttribute("class", ["territory-border", "territory", highlight].filter(Boolean).join(" "));
-      if (ownerColor) {
-        path.setAttribute("stroke", ownerColor);
-        path.setAttribute("stroke-width", "2.2");
+      // Owner tint via inline style so it beats the board's `.territory-border` stylesheet rule
+      // (a presentation attribute would lose to it); defer to the `.territory.<highlight>` class
+      // while a highlight is active so interaction feedback reads clearly. // new
+      if (ownerColor && !highlight) {
+        path.style.stroke = ownerColor;
+        path.style.strokeWidth = "2.2";
       } else {
-        path.removeAttribute("stroke");
-        path.removeAttribute("stroke-width");
+        path.style.stroke = "";
+        path.style.strokeWidth = "";
       }
+      path.removeAttribute("stroke");
+      path.removeAttribute("stroke-width");
       path.setAttribute("tabindex", "0");
       if (st.controller) path.dataset.owner = st.controller;
       else delete path.dataset.owner;
