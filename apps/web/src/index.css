@@ -28,13 +28,25 @@ body {
   display: block;
 }
 
-/* territory interactions */
+/* territory interactions — each state distinct in pattern AND color (UI-4 legibility pass) */
 .territory { cursor: pointer; transition: filter 120ms ease, stroke 120ms ease; }
 .territory:hover { filter: brightness(1.25); }
-.territory.selected { stroke: var(--color-signal); stroke-width: 2.5; }
-.territory.highlight-attack { stroke: var(--color-danger); stroke-width: 2; stroke-dasharray: 4 3; }
-.territory.highlight-move { stroke: var(--color-ok); stroke-width: 2; stroke-dasharray: 4 3; }
-.territory.highlight-start { stroke: var(--color-signal); stroke-width: 1.8; stroke-dasharray: 3 3; }
+.territory.selected {
+  stroke: var(--color-signal); stroke-width: 3.2;
+  filter: drop-shadow(0 0 3px var(--color-signal)) brightness(1.12);
+}
+.territory.highlight-attack {
+  stroke: var(--color-danger); stroke-width: 2.8; stroke-dasharray: 6 3;
+  filter: drop-shadow(0 0 2.5px var(--color-danger));
+}
+.territory.highlight-move {
+  stroke: var(--color-ok); stroke-width: 2.6; stroke-dasharray: 1.5 3; stroke-linecap: round;
+  filter: drop-shadow(0 0 2px var(--color-ok));
+}
+.territory.highlight-start {
+  stroke: var(--color-signal); stroke-width: 2.4; stroke-dasharray: 4 2;
+  filter: drop-shadow(0 0 2px var(--color-signal));
+}
 .territory.dimmed { opacity: 0.45; }
 
 /* new (UI-12): the winner's signature renders in a handwriting face */

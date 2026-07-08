@@ -45,7 +45,7 @@ export default function Board({
       // while a highlight is active so interaction feedback reads clearly. // new
       if (ownerColor && !highlight) {
         path.style.stroke = ownerColor;
-        path.style.strokeWidth = "2.2";
+        path.style.strokeWidth = "2.8"; // new (UI-4): stronger owner tint
       } else {
         path.style.stroke = "";
         path.style.strokeWidth = "";
@@ -85,30 +85,32 @@ export default function Board({
             <g key={t.id}>
               {st.hqFaction && ( // new (UI-10): HQ renders as a circular emblem shield in the HQ faction's color
                 <g transform={`translate(${a.x + 21} ${a.y - 18})`} data-hq-emblem={st.hqFaction}>
-                  <circle r={9.6} fill="#0c0f15" stroke={factionColorSafe(st.hqFaction)} strokeWidth={2} />
+                  <circle r={10.6} fill="#0c0f15" stroke={factionColorSafe(st.hqFaction)} strokeWidth={2.3} />{/* new (UI-4): larger shield */}
                   {FACTION_EMBLEMS[st.hqFaction] ? (
                     <>
-                      <clipPath id={`hq-clip-${t.id}`}><circle r={8.2} /></clipPath>
-                      <image href={FACTION_EMBLEMS[st.hqFaction]} x={-8.2} y={-8.2} width={16.4} height={16.4}
+                      <clipPath id={`hq-clip-${t.id}`}><circle r={9} /></clipPath>
+                      <image href={FACTION_EMBLEMS[st.hqFaction]} x={-9} y={-9} width={18} height={18}
                         clipPath={`url(#hq-clip-${t.id})`} preserveAspectRatio="xMidYMid slice" />
                     </>
                   ) : (
-                    <text y="3" textAnchor="middle" style={{ font: "800 7px var(--font-mono)", fill: factionColorSafe(st.hqFaction) }}>H</text>
+                    <text y="3" textAnchor="middle" style={{ font: "800 8px var(--font-mono)", fill: factionColorSafe(st.hqFaction) }}>H</text>
                   )}
                 </g>
               )}
               {st.troops > 0 && (
                 <g transform={`translate(${a.x - 23} ${a.y - 17})`} data-troop-shape={(ownerFactionId && FACTION_TROOP_SHAPES[ownerFactionId]) || "circle"}>
-                  <path d={troopShape} fill={color ?? "#5a6578"} stroke="#071018" strokeWidth={1.7} strokeLinejoin="round" />{/* new (UI-10): faction silhouette */}
-                  <circle r={6.6} fill="#f2e8bd" opacity={0.18} />
-                  <text y="3.4" textAnchor="middle" style={{ font: "800 9.5px var(--font-mono)", fill: "#080c12" }}>{st.troops}</text>
+                  <g transform="scale(1.15)">{/* new (UI-4): bigger troop counters, readable at 1280x720 */}
+                    <path d={troopShape} fill={color ?? "#5a6578"} stroke="#071018" strokeWidth={1.7} strokeLinejoin="round" />{/* new (UI-10): faction silhouette */}
+                    <circle r={6.6} fill="#f2e8bd" opacity={0.18} />
+                  </g>
+                  <text y="3.8" textAnchor="middle" style={{ font: "800 10.5px var(--font-mono)", fill: "#080c12" }}>{st.troops}</text>
                 </g>
               )}
               {st.city && (
                 <g transform={`translate(${a.x - 12} ${a.y + 5})`}>
-                  <rect x="0" y="6" width="24" height="12" rx="1.5" fill="#151b24" stroke="#d8c074" strokeWidth="1.3" />
-                  <path d="M 3 6 V 1 H 8 V 6 M 10 6 V -2 H 15 V 6 M 17 6 V 3 H 21 V 6" fill="none" stroke="#d8c074" strokeWidth="1.2" />
-                  <text x="12" y="15.2" textAnchor="middle" style={{ font: "800 7.5px var(--font-mono)", fill: "#f1e6b7" }}>{st.city.population}</text>
+                  <rect x="-1" y="5.5" width="26" height="13.5" rx="1.5" fill="#151b24" stroke="#e8d084" strokeWidth="1.6" />{/* new (UI-4): stronger city marker */}
+                  <path d="M 3 6 V 1 H 8 V 6 M 10 6 V -2 H 15 V 6 M 17 6 V 3 H 21 V 6" fill="none" stroke="#e8d084" strokeWidth="1.4" />
+                  <text x="12" y="15.6" textAnchor="middle" style={{ font: "800 8.5px var(--font-mono)", fill: "#f6ecc2" }}>{st.city.population}</text>
                 </g>
               )}
               {st.scars.length > 0 && ( // new (UI-10): scar art as a circular board chip

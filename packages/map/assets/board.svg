@@ -26,8 +26,8 @@
   .signature-num { font-family: "IBM Plex Mono", Consolas, monospace; font-weight: 800; fill: #ffffff; stroke: #7f7f7f; stroke-width: 0.35; font-size: 4.8px; opacity: 0.78; }
   .signature-line { stroke: #ffffff; stroke-width: 0.8; stroke-opacity: 0.68; }
   .top-slot { fill: none; stroke: #e8e8e8; stroke-width: 1.7; stroke-linecap: round; opacity: 0.78; }
-  .route-line { fill: none; stroke: #3a3a3a; stroke-width: 1.35; stroke-linecap: round; stroke-opacity: 0.8; }
-  .route-node { fill: #8f8f8f; stroke: #333333; stroke-width: 1.35; }
+  .route-line { fill: none; stroke: #2c2c2c; stroke-width: 1.85; stroke-linecap: round; stroke-opacity: 0.95; }
+  .route-node { fill: #a8a8a8; stroke: #2c2c2c; stroke-width: 1.5; }
   .territory-halo { fill: none; stroke: #f8f8f2; stroke-width: 4.15; stroke-linejoin: round; filter: url(#land-shadow); pointer-events: none; }
   .territory-border { stroke: #f8f8f2; stroke-width: 0.72; stroke-linejoin: round; cursor: pointer; transition: filter 120ms ease, stroke 120ms ease, opacity 120ms ease; }
   .territory-border:hover { filter: brightness(1.08); }
@@ -72,39 +72,39 @@
 </g>
 <g id="routes">
 <path class="route-line" d="M 41.94 99.48 C 38 91 17 92 4 91 M 686.8 106.95 C 710 101 729 101 746 101" />
-<circle class="route-node" cx="41.94" cy="99.48" r="3" /><circle class="route-node" cx="686.8" cy="106.95" r="3" />
+<circle class="route-node" cx="41.94" cy="99.48" r="3.4" /><circle class="route-node" cx="686.8" cy="106.95" r="3.4" />
 <path class="route-line" d="M 256.25 66.69 Q 280.67 100.56 322.13 105.44" />
-<circle class="route-node" cx="256.25" cy="66.69" r="3" /><circle class="route-node" cx="322.13" cy="105.44" r="3" />
+<circle class="route-node" cx="256.25" cy="66.69" r="3.4" /><circle class="route-node" cx="322.13" cy="105.44" r="3.4" />
 <path class="route-line" d="M 322.13 105.44 Q 303.43 127.66 307.18 156.46" />
-<circle class="route-node" cx="322.13" cy="105.44" r="3" /><circle class="route-node" cx="307.18" cy="156.46" r="3" />
+<circle class="route-node" cx="322.13" cy="105.44" r="3.4" /><circle class="route-node" cx="307.18" cy="156.46" r="3.4" />
 <path class="route-line" d="M 322.13 105.44 Q 352.05 117.7 381.31 103.93" />
-<circle class="route-node" cx="322.13" cy="105.44" r="3" /><circle class="route-node" cx="381.31" cy="103.93" r="3" />
+<circle class="route-node" cx="322.13" cy="105.44" r="3.4" /><circle class="route-node" cx="381.31" cy="103.93" r="3.4" />
 <path class="route-line" d="M 221.94 343.07 Q 295.32 351.52 356.09 309.52" />
-<circle class="route-node" cx="221.94" cy="343.07" r="3" /><circle class="route-node" cx="356.09" cy="309.52" r="3" />
+<circle class="route-node" cx="221.94" cy="343.07" r="3.4" /><circle class="route-node" cx="356.09" cy="309.52" r="3.4" />
 <path class="route-line" d="M 325.27 222.69 Q 321.58 272.89 356.09 309.52" />
-<circle class="route-node" cx="325.27" cy="222.69" r="3" /><circle class="route-node" cx="356.09" cy="309.52" r="3" />
+<circle class="route-node" cx="325.27" cy="222.69" r="3.4" /><circle class="route-node" cx="356.09" cy="309.52" r="3.4" />
 <path class="route-line" d="M 380.61 218.57 Q 377.72 259.25 405.76 288.87" />
-<circle class="route-node" cx="380.61" cy="218.57" r="3" /><circle class="route-node" cx="405.76" cy="288.87" r="3" />
+<circle class="route-node" cx="380.61" cy="218.57" r="3.4" /><circle class="route-node" cx="405.76" cy="288.87" r="3.4" />
 <path class="route-line" d="M 405.76 288.87 Q 434.71 293.33 457.56 274.99" />
-<circle class="route-node" cx="405.76" cy="288.87" r="3" /><circle class="route-node" cx="457.56" cy="274.99" r="3" />
+<circle class="route-node" cx="405.76" cy="288.87" r="3.4" /><circle class="route-node" cx="457.56" cy="274.99" r="3.4" />
 <path class="route-line" d="M 444.38 362.94 Q 470.32 321.86 457.56 274.99" />
-<circle class="route-node" cx="444.38" cy="362.94" r="3" /><circle class="route-node" cx="457.56" cy="274.99" r="3" />
+<circle class="route-node" cx="444.38" cy="362.94" r="3.4" /><circle class="route-node" cx="457.56" cy="274.99" r="3.4" />
 <path class="route-line" d="M 611.76 171.41 Q 643.15 187.72 676.38 175.59" />
-<circle class="route-node" cx="611.76" cy="171.41" r="3" /><circle class="route-node" cx="676.38" cy="175.59" r="3" />
+<circle class="route-node" cx="611.76" cy="171.41" r="3.4" /><circle class="route-node" cx="676.38" cy="175.59" r="3.4" />
 <path class="route-line" d="M 663.8 109.95 Q 655.65 145.54 676.38 175.59" />
-<circle class="route-node" cx="663.8" cy="109.95" r="3" /><circle class="route-node" cx="676.38" cy="175.59" r="3" />
+<circle class="route-node" cx="663.8" cy="109.95" r="3.4" /><circle class="route-node" cx="676.38" cy="175.59" r="3.4" />
 <path class="route-line" d="M 602.74 289.23 Q 590.18 328.63 610.75 364.51" />
-<circle class="route-node" cx="602.74" cy="289.23" r="3" /><circle class="route-node" cx="610.75" cy="364.51" r="3" />
+<circle class="route-node" cx="602.74" cy="289.23" r="3.4" /><circle class="route-node" cx="610.75" cy="364.51" r="3.4" />
 <path class="route-line" d="M 610.75 364.51 Q 647.04 369.96 675.58 346.89" />
-<circle class="route-node" cx="610.75" cy="364.51" r="3" /><circle class="route-node" cx="675.58" cy="346.89" r="3" />
+<circle class="route-node" cx="610.75" cy="364.51" r="3.4" /><circle class="route-node" cx="675.58" cy="346.89" r="3.4" />
 <path class="route-line" d="M 610.75 364.51 Q 617.47 409.28 655.02 434.57" />
-<circle class="route-node" cx="610.75" cy="364.51" r="3" /><circle class="route-node" cx="655.02" cy="434.57" r="3" />
+<circle class="route-node" cx="610.75" cy="364.51" r="3.4" /><circle class="route-node" cx="655.02" cy="434.57" r="3.4" />
 <path class="route-line" d="M 675.58 346.89 Q 646.01 386.21 655.02 434.57" />
-<circle class="route-node" cx="675.58" cy="346.89" r="3" /><circle class="route-node" cx="655.02" cy="434.57" r="3" />
+<circle class="route-node" cx="675.58" cy="346.89" r="3.4" /><circle class="route-node" cx="655.02" cy="434.57" r="3.4" />
 <path class="route-line" d="M 675.58 346.89 Q 668.56 393.17 697.94 429.62" />
-<circle class="route-node" cx="675.58" cy="346.89" r="3" /><circle class="route-node" cx="697.94" cy="429.62" r="3" />
+<circle class="route-node" cx="675.58" cy="346.89" r="3.4" /><circle class="route-node" cx="697.94" cy="429.62" r="3.4" />
 <path class="route-line" d="M 655.02 434.57 Q 677.57 441.54 697.94 429.62" />
-<circle class="route-node" cx="655.02" cy="434.57" r="3" /><circle class="route-node" cx="697.94" cy="429.62" r="3" />
+<circle class="route-node" cx="655.02" cy="434.57" r="3.4" /><circle class="route-node" cx="697.94" cy="429.62" r="3.4" />
 </g>
 <g id="territory-haloes" transform="translate(-168 -118.56)">
 <path class="territory-halo" d="M 254.5,242.25 C 253.875,241 254,242.375 253.625,240.25 C 253.25,238.125 252.5,238.375 251.875,237.75 C 251.25,237.125 250.375,237 250.75,235.875 C 251.125,234.75 251.375,234.75 251,233.625 C 250.625,232.5 249,231.875 248.5,230.75 C 248,229.625 248,230.5 248,228.75 C 248,227 248.5,226.75 247,226.25 C 245.5,225.75 244.5,227 243.75,225.375 C 243,223.75 243.125,224.625 241.625,224.375 C 240.125,224.125 239.5,224.25 239,223.25 C 238.5,222.25 238.25,221.375 237.25,221.375 C 236.25,221.375 235,221 234.75,220.375 C 234.5,219.75 233.125,218 232.25,218 C 231.375,218 231.625,218.625 230.25,219.25 C 228.875,219.875 232.75,220.5 229.75,221.25 C 226.75,222 225.375,222.25 224.75,221.75 C 224.125,221.25 221.875,222.875 222.25,221 C 222.625,219.125 222.75,219.375 223.375,218.875 C 224,218.375 225.75,218.25 225,217.75 C 224.25,217.25 224.625,216.375 222,217 C 219.375,217.625 218.625,217.875 217.75,218.5 C 216.875,219.125 216.875,220.375 216.5,221.125 C 216.125,221.875 217.625,221.625 214.75,222.875 C 211.875,224.125 213.375,222.25 210.375,224.875 C 207.375,227.5 208.375,227.75 206.125,228.125 C 203.875,228.5 205.25,228.125 203.5,230 C 201.75,231.875 202,232.75 200.25,232.75 C 198.5,232.75 199.125,235.875 197.5,233.75 C 195.875,231.625 194.75,232.5 196,231.5 C 197.25,230.5 197.5,230.75 198.5,230.5 C 199.5,230.25 199,230.875 200.125,229.25 C 201.25,227.625 201,227 202.75,226.875 C 204.5,226.75 204.25,228.375 205,226 C 205.75,223.625 205,223.75 206.375,222.5 C 207.75,221.25 209.25,220 207.5,219.875 C 205.75,219.75 205.625,219.375 204,220.125 C 202.375,220.875 202.25,221.25 200.75,221 C 199.25,220.75 198.875,220.625 198.875,220 C 198.875,219.375 198.25,217.375 198.25,217.375 C 198.25,217.375 199.5,216.75 197.375,216.25 C 195.25,215.75 195.125,217.375 195.25,215.75 C 195.375,214.125 196.375,214.375 195.5,213.625 C 194.625,212.875 194.375,212.375 193.25,212.875 C 192.125,213.375 190.875,214.625 191.625,212.75 C 192.375,210.875 193.875,210.125 194.375,209.375 C 194.875,208.625 195.625,206.5 195.875,205.375 C 196.125,204.25 194.875,204.875 196.375,203.75 C 197.875,202.625 197.25,202.375 199.125,202.5 C 201,202.625 200.5,202.5 201.75,203.125 C 203,203.75 203.375,204.125 204.125,203.75 C 204.875,203.375 205.625,202.5 206.125,201.875 C 206.625,201.25 207.25,200.875 207.375,200.125 C 207.5,199.375 208.125,198.625 206.75,199.125 C 205.375,199.625 205.875,199.625 204,200 C 202.125,200.375 202.375,201.75 201.625,200.125 C 200.875,198.5 200.75,197.75 200.75,197.75 C 200.75,197.75 200,197.75 200.125,196 C 200.25,194.25 199,191.375 202.375,190.5 C 205.75,189.625 207.875,190.375 208,190.875 C 208.125,191.375 207,191.875 208.5,192 C 210,192.125 210.125,192.5 211,191.25 C 211.875,190 212.875,190.125 211.875,189.625 C 210.875,189.125 210,189.25 209.5,188.25 C 209,187.25 209.5,187 209,185.625 C 208.5,184.25 208.5,184 207.75,183 C 207,182 205,180.5 207.5,179.875 C 210,179.25 212.625,178.625 212.13203,178.98005 C 212.13203,178.98005 214.96046,175.79807 216.72823,176.15162 C 218.496,176.50518 220.61732,176.15162 222.38508,174.73741 C 224.15285,173.3232 226.98128,174.0303 226.98128,174.0303 L 229.1026,175.79807 C 229.1026,175.79807 231.93102,178.6265 233.69879,177.56584 C 235.46656,176.50518 235.46656,179.3336 238.64854,179.68716 C 241.83052,180.04071 243.24473,180.74782 246.42671,181.80848 C 246.42671,181.80848 247.3106,181.45492 247.13382,182.69236 C 246.95704,183.9298 245.18928,213.27473 245.71961,213.62828 L 245.87151,213.87288 L 253.37151,214.74788 C 253.37151,214.74788 253.49651,214.87288 253.99651,216.37288 C 254.49651,217.87288 254.87151,218.87288 255.99651,220.87288 C 257.12151,222.87288 256.12151,228.87288 256.12151,228.87288 L 258.12151,231.62288 C 258.12151,231.62288 259.74651,232.37288 260.37151,232.49788 C 260.99651,232.62288 260.74651,235.74788 260.62151,236.99788 C 260.49651,238.24788 258.99651,237.62288 258.12151,237.87288 C 257.24651,238.12288 256.99651,240.24788 256.87151,241.49788 C 256.74651,242.74788 254.5,242.25 254.5,242.25 z" />
@@ -257,47 +257,47 @@
 </g>
 </g>
 <g id="labels">
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="59.94" y="93.98">Alaska</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.8"><tspan x="137.89" y="65.51">Northwest</tspan><tspan x="137.89" dy="6.8">Territory</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="256.25" y="67.19">Greenland</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="116.94" y="123.82">Alberta</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="172.39" y="138.23">Ontario</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="219.91" y="133.06">Quebec</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.8"><tspan x="124" y="183.63">Western</tspan><tspan x="124" dy="6.8">United States</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.8"><tspan x="179.71" y="193.27">Eastern</tspan><tspan x="179.71" dy="6.8">United States</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.6"><tspan x="124.19" y="246.63">Central</tspan><tspan x="124.19" dy="6.6">America</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="192.54" y="288.28">Venezuela</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="186.25" y="342.69">Peru</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="221.94" y="345.57">Brazil</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="202.33" y="421.63">Argentina</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="322.13" y="107.94">Iceland</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.6"><tspan x="305.18" y="157.46">Great</tspan><tspan x="305.18" dy="6.6">Britain</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.6"><tspan x="381.31" y="106.43">Scandinavia</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="446.36" y="143.49">Ukraine</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.6"><tspan x="375.1" y="169.02">Northern</tspan><tspan x="375.1" dy="6.6">Europe</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.6"><tspan x="380.61" y="222.57">Southern</tspan><tspan x="380.61" dy="6.6">Europe</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.6"><tspan x="322.27" y="225.69">Western</tspan><tspan x="322.27" dy="6.6">Europe</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="353.09" y="309.52">North</tspan><tspan x="353.09" dy="7.2">Africa</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="405.76" y="291.37">Egypt</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="444.38" y="367.94">East</tspan><tspan x="444.38" dy="7.2">Africa</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="403.69" y="376.07">Congo</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="416.32" y="441.19">South</tspan><tspan x="416.32" dy="7.2">Africa</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.4"><tspan x="478.82" y="445.51">Madagascar</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="515.16" y="114.89">Ural</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="549.07" y="87.14">Siberia</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="609.23" y="65.76">Yakutsk</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.8"><tspan x="665.8" y="105.45">Kamchatka</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="602.29" y="130.64">Irkutsk</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="611.76" y="175.91">Mongolia</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.3"><tspan x="680.38" y="184.09">Japan</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.8"><tspan x="500.79" y="195.83">Afghanistan</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="587.22" y="219.71">China</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.7"><tspan x="457.56" y="283.99">Middle</tspan><tspan x="457.56" dy="6.7">East</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="541.15" y="281.56">India</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="6.2"><tspan x="602.74" y="295.73">Siam</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.6"><tspan x="610.75" y="369.01">Indonesia</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.5"><tspan x="675.58" y="346.89">New</tspan><tspan x="675.58" dy="6.5">Guinea</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.4"><tspan x="655.02" y="444.57">Western</tspan><tspan x="655.02" dy="6.4">Australia</tspan></text>
-<text class="territory-label" text-anchor="middle" font-size="5.4"><tspan x="697.94" y="434.62">Eastern</tspan><tspan x="697.94" dy="6.4">Australia</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="59.94" y="93.98">Alaska</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.73"><tspan x="137.89" y="65.51">Northwest</tspan><tspan x="137.89" dy="7.73">Territory</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="256.25" y="67.19">Greenland</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="116.94" y="123.82">Alberta</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="172.39" y="138.23">Ontario</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="219.91" y="133.06">Quebec</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.73"><tspan x="124" y="183.63">Western</tspan><tspan x="124" dy="7.73">United States</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.73"><tspan x="179.71" y="193.27">Eastern</tspan><tspan x="179.71" dy="7.73">United States</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.5"><tspan x="124.19" y="246.63">Central</tspan><tspan x="124.19" dy="7.5">America</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="192.54" y="288.28">Venezuela</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="186.25" y="342.69">Peru</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="221.94" y="345.57">Brazil</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="202.33" y="421.63">Argentina</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="322.13" y="107.94">Iceland</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.5"><tspan x="305.18" y="157.46">Great</tspan><tspan x="305.18" dy="7.5">Britain</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.5"><tspan x="381.31" y="106.43">Scandinavia</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="446.36" y="143.49">Ukraine</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.5"><tspan x="375.1" y="169.02">Northern</tspan><tspan x="375.1" dy="7.5">Europe</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.5"><tspan x="380.61" y="222.57">Southern</tspan><tspan x="380.61" dy="7.5">Europe</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.5"><tspan x="322.27" y="225.69">Western</tspan><tspan x="322.27" dy="7.5">Europe</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="353.09" y="309.52">North</tspan><tspan x="353.09" dy="8.19">Africa</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="405.76" y="291.37">Egypt</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="444.38" y="367.94">East</tspan><tspan x="444.38" dy="8.19">Africa</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="403.69" y="376.07">Congo</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="416.32" y="441.19">South</tspan><tspan x="416.32" dy="8.19">Africa</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.26"><tspan x="478.82" y="445.51">Madagascar</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="515.16" y="114.89">Ural</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="549.07" y="87.14">Siberia</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="609.23" y="65.76">Yakutsk</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.73"><tspan x="665.8" y="105.45">Kamchatka</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="602.29" y="130.64">Irkutsk</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="611.76" y="175.91">Mongolia</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.15"><tspan x="680.38" y="184.09">Japan</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.73"><tspan x="500.79" y="195.83">Afghanistan</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="587.22" y="219.71">China</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.61"><tspan x="457.56" y="283.99">Middle</tspan><tspan x="457.56" dy="7.61">East</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="541.15" y="281.56">India</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="7.19"><tspan x="602.74" y="295.73">Siam</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.5"><tspan x="610.75" y="369.01">Indonesia</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.38"><tspan x="675.58" y="346.89">New</tspan><tspan x="675.58" dy="7.38">Guinea</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.26"><tspan x="655.02" y="444.57">Western</tspan><tspan x="655.02" dy="7.26">Australia</tspan></text>
+<text class="territory-label" text-anchor="middle" font-size="6.26"><tspan x="697.94" y="434.62">Eastern</tspan><tspan x="697.94" dy="7.26">Australia</tspan></text>
 </g>
 </svg>

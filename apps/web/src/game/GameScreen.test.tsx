@@ -40,6 +40,11 @@ describe("GameScreen", () => {
     expect(board!.querySelectorAll(".station-mark")).toHaveLength(0);
     expect(board!.querySelectorAll(".continent-callout")).toHaveLength(6);
     expect(document.getElementById("alaska")).toBeTruthy();
+
+    // UI-4 legibility pass: every territory label is sized for 1280x720 without zoom
+    const labels = [...board!.querySelectorAll("text.territory-label")];
+    expect(labels).toHaveLength(42);
+    for (const l of labels) expect(Number(l.getAttribute("font-size"))).toBeGreaterThanOrEqual(6.1);
   });
 
   it("highlights an own-founded Major City as a legal setup start", () => {

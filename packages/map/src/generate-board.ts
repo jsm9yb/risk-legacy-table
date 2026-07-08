@@ -191,11 +191,11 @@ function routeNodes(fromId: string, toId: string): string {
   if (fromId === "alaska" && toId === "kamchatka") {
     const from = anchor(territory(fromId));
     const to = anchor(territory(toId));
-    return `<circle class="route-node" cx="${fmt(from.x - 16)}" cy="${fmt(from.y + 10)}" r="3" /><circle class="route-node" cx="${fmt(to.x + 23)}" cy="${fmt(to.y - 3)}" r="3" />`;
+    return `<circle class="route-node" cx="${fmt(from.x - 16)}" cy="${fmt(from.y + 10)}" r="3.4" /><circle class="route-node" cx="${fmt(to.x + 23)}" cy="${fmt(to.y - 3)}" r="3.4" />`;
   }
   const from = anchor(territory(fromId));
   const to = anchor(territory(toId));
-  return `<circle class="route-node" cx="${fmt(from.x)}" cy="${fmt(from.y)}" r="3" /><circle class="route-node" cx="${fmt(to.x)}" cy="${fmt(to.y)}" r="3" />`;
+  return `<circle class="route-node" cx="${fmt(from.x)}" cy="${fmt(from.y)}" r="3.4" /><circle class="route-node" cx="${fmt(to.x)}" cy="${fmt(to.y)}" r="3.4" />`;
 }
 
 function wrapName(name: string, maxChars = 12): string[] {
@@ -224,13 +224,15 @@ function lineTspan(line: string, x: number, y: number, size: number, maxWidth: n
   return `<tspan x="${fmt(x)}" ${first ? `y="${fmt(y)}"` : `dy="${fmt(size + 1)}"`}${fit}>${esc(line)}</tspan>`;
 }
 
+const LABEL_SCALE = 1.16; // new (UI-4): legibility pass — labels readable at 1280x720 without zoom
+
 function territoryLabel(t: TerritoryDef): string {
   const a = anchor(t);
   const path = territoryPathData.territories[t.id];
   const tweak = LABEL_TWEAKS[t.id] ?? {};
   const lines = tweak.lines ?? wrapName(t.name);
   const bboxWidth = path.bbox[2] - path.bbox[0];
-  const size = tweak.size ?? (lines.some((line) => line.length > 13) ? 5.8 : 6.2);
+  const size = (tweak.size ?? (lines.some((line) => line.length > 13) ? 5.8 : 6.2)) * LABEL_SCALE;
   const maxWidth = tweak.maxWidth ?? Math.max(22, Math.min(72, bboxWidth - 8));
   const x = a.x + (tweak.dx ?? 0);
   const y = a.y + (tweak.dy ?? 0) + (lines.length === 1 ? 2.5 : -3);
@@ -324,8 +326,8 @@ const svg = `<svg id="risk-board-modern" xmlns="http://www.w3.org/2000/svg" view
   .signature-num { font-family: "IBM Plex Mono", Consolas, monospace; font-weight: 800; fill: #ffffff; stroke: #7f7f7f; stroke-width: 0.35; font-size: 4.8px; opacity: 0.78; }
   .signature-line { stroke: #ffffff; stroke-width: 0.8; stroke-opacity: 0.68; }
   .top-slot { fill: none; stroke: #e8e8e8; stroke-width: 1.7; stroke-linecap: round; opacity: 0.78; }
-  .route-line { fill: none; stroke: #3a3a3a; stroke-width: 1.35; stroke-linecap: round; stroke-opacity: 0.8; }
-  .route-node { fill: #8f8f8f; stroke: #333333; stroke-width: 1.35; }
+  .route-line { fill: none; stroke: #2c2c2c; stroke-width: 1.85; stroke-linecap: round; stroke-opacity: 0.95; }
+  .route-node { fill: #a8a8a8; stroke: #2c2c2c; stroke-width: 1.5; }
   .territory-halo { fill: none; stroke: #f8f8f2; stroke-width: 4.15; stroke-linejoin: round; filter: url(#land-shadow); pointer-events: none; }
   .territory-border { stroke: #f8f8f2; stroke-width: 0.72; stroke-linejoin: round; cursor: pointer; transition: filter 120ms ease, stroke 120ms ease, opacity 120ms ease; }
   .territory-border:hover { filter: brightness(1.08); }

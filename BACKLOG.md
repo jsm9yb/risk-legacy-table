@@ -148,7 +148,7 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 - **Acceptance:** selecting a territory in setup/attack/maneuver updates the inspector; illegal targets explain why they are unavailable when practical; tests cover at least attack-source selection and setup placement guidance; verify loop green.
 
 ### UI-4 - Board legibility pass
-- **Status:** todo
+- **Status:** done
 - **Depends on:** UI-1 · **Blocked by:** —
 - **Scope:** improve the current generated board's readability while it remains the active board: larger territory labels, clearer route lines, stronger owner/troop/HQ/city markers, and more distinguishable selected/legal/attack/move states. Keep the manifest-driven SVG renderer and existing click behavior.
 - **Non-goals:** replacing the board with final art; changing territory anchors or adjacency.
