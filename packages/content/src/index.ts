@@ -19,6 +19,10 @@ export const ContentPackSchema = z.object({
     id: z.string(), name: z.string(), color: z.string(),
     startingPowers: z.array(z.string()).length(2),
   })).length(5),
+  sealedFactions: z.array(z.object({
+    id: z.string(), name: z.string(), color: z.string(), sourceModuleId: z.string(),
+    startingPowers: z.array(z.string()).length(0),
+  })).default([]),
   powers: z.array(z.object({ id: z.string(), name: z.string(), handler: HandlerId, text: z.string() }).merge(Verified).passthrough()), // new (9): passthrough keeps per-power effect data
   scars: z.array(z.object({
     id: z.string(), name: z.string(), target: z.enum(["territory", "faction"]),
@@ -44,6 +48,21 @@ export const ContentPackSchema = z.object({
 export type ContentPack = z.infer<typeof ContentPackSchema>;
 
 export const contentPack: ContentPack = ContentPackSchema.parse(packJson);
+
+export type FactionDefinition = ContentPack["factions"][number] | ContentPack["sealedFactions"][number];
+
+/** Base factions plus any sealed factions whose source module has opened. */
+export function factionDefinitions(unlockedModules: readonly string[] = []): FactionDefinition[] {
+  const unlocked = new Set(unlockedModules);
+  return [
+    ...contentPack.factions,
+    ...contentPack.sealedFactions.filter((faction) => unlocked.has(faction.sourceModuleId)),
+  ];
+}
+
+export function factionDefinitionById(id: string, unlockedModules: readonly string[] = []): FactionDefinition | undefined {
+  return factionDefinitions(unlockedModules).find((faction) => faction.id === id);
+}
 
 /** Cross-validate pack against map manifest + invariants (Slice 3 acceptance checks). */
 export function validateContentPack(pack: ContentPack = contentPack): { errors: string[]; warnings: string[] } {

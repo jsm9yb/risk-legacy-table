@@ -10,7 +10,7 @@ import { contentPack } from "@risk/content";
 import { applyAction, filterStateFor, type Action, type GameState } from "@risk/rules";
 import GameScreen from "../GameScreen.tsx";
 import { territoryName } from "../labels.ts";
-import { atExpandAttack, conquerOutpost } from "../test-fixtures.ts";
+import { atExpandAttack, conquerOutpost, throughSetup } from "../test-fixtures.ts";
 import ResourceCard from "./ResourceCard.tsx";
 
 afterEach(cleanup);
@@ -30,7 +30,8 @@ describe("ResourceCard (UI-9)", () => {
   it("renders a territory face: name banner, continent silhouette, six coin slots with filled pips", () => {
     const { container } = render(<ResourceCard cardId={territoryCard.id} />);
     expect(screen.getByText(territoryName(territoryCard.territoryId))).toBeTruthy();
-    expect(container.querySelector("[data-silhouette]")).toBeTruthy();
+    expect(container.querySelector("[data-territory-art]")).toBeTruthy();
+    expect(container.querySelector("[data-selected-territory]")).toBeTruthy();
     expect(container.querySelectorAll("[data-coin]")).toHaveLength(6);
     expect(container.querySelectorAll('[data-coin="filled"]')).toHaveLength(territoryCard.resources);
   });
@@ -47,11 +48,20 @@ describe("ResourceCard (UI-9)", () => {
   it("renders a coin face as one big coin, and a face-down card as the logo back", () => {
     const coin = render(<ResourceCard cardId={coinCard.id} />);
     expect(coin.container.querySelectorAll('[data-coin="filled"]')).toHaveLength(1);
-    expect(coin.container.querySelector("[data-silhouette]")).toBeNull();
+    expect(coin.container.querySelector("[data-territory-art]")).toBeNull();
 
     const back = render(<ResourceCard faceDown />);
     expect(back.container.querySelector("[data-card-back]")).toBeTruthy();
     expect(back.container.querySelector("[data-coin]")).toBeNull();
+  });
+
+  it("renders board-derived territory art for every territory card", () => {
+    for (const card of contentPack.cards.territoryCards) {
+      const { container, unmount } = render(<ResourceCard cardId={card.id} size="xs" />);
+      expect(container.querySelector("[data-territory-art]")).toBeTruthy();
+      expect(container.querySelector(`[data-selected-territory="${card.territoryId}"]`)).toBeTruthy();
+      unmount();
+    }
   });
 });
 
@@ -76,6 +86,51 @@ describe("card flows (UI-9)", () => {
     expect(current.players[pid].hand).toContain(match.id);
   });
 
+  it("offers Khan's optional reinforcement on a matching Territory-card draw", () => {
+    let { gs, pid } = conquerOutpost(62);
+    gs = applyAction(gs, { type: "phase.endAttacks", playerId: pid });
+    gs = applyAction(gs, { type: "phase.endManeuver", playerId: pid });
+    gs.factionPowers[gs.players[pid].factionId!] = "territory_card_reinforcement";
+    const match = contentPack.cards.territoryCards.find((c) => gs.territories[c.territoryId].controller === pid)!;
+    gs.sideboard.slots[0] = match.id;
+    const before = gs.territories[match.territoryId].troops;
+
+    render(<Harness initial={gs} />);
+    fireEvent.click(screen.getByRole("button", { name: "Take slot 1 and reinforce" }));
+    expect(current.territories[match.territoryId].troops).toBe(before + 1);
+  });
+
+  it("offers Expansionist Supply's optional draw without a conquest", () => {
+    const gs = throughSetup(63);
+    const pid = gs.turnOrder[0];
+    gs.phase = "end_turn";
+    gs.expandedThisTurn = 4;
+    gs.players[pid].conqueredEnemyThisTurn = false;
+    gs.factionPowers[gs.players[pid].factionId!] = "expansionist_supply";
+
+    render(<Harness initial={gs} />);
+    expect(screen.getByText(/EXPANSIONIST SUPPLY/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "END TURN WITHOUT DRAW" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "TAKE COIN" })).toBeTruthy();
+  });
+
+  it("offers End Turn when a mandatory draw has no remaining source", () => {
+    const gs = throughSetup(64);
+    const pid = gs.turnOrder[0];
+    gs.phase = "end_turn";
+    gs.players[pid].conqueredEnemyThisTurn = true;
+    gs.sideboard.coinPile = [];
+    gs.sideboard.slots = contentPack.cards.territoryCards
+      .filter((c) => gs.territories[c.territoryId].controller !== pid)
+      .slice(0, 4)
+      .map((c) => c.id);
+
+    render(<Harness initial={gs} />);
+    expect(screen.getByText(/NO RESOURCE CARD AVAILABLE/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "END TURN" }));
+    expect(current.phase).toBe("start_turn");
+  });
+
   it("never renders other players' card faces from filtered payloads; own hand shows in the strip", () => {
     const { gs, pid } = atExpandAttack(67);
     const other = gs.turnOrder.find((x) => x !== pid)!;
@@ -92,6 +147,7 @@ describe("card flows (UI-9)", () => {
     expect(document.querySelector(`[data-card-id="${mineCard}"]`)).toBeTruthy();
     expect(document.querySelector(`[data-card-id="${theirCard}"]`)).toBeNull();
     // counts stay public in the rail quick look (viewer + the hidden hand both show 1)
-    expect(screen.getAllByText("🂠1")).toHaveLength(2);
+    const cardCounts = [...document.querySelectorAll('[data-metric="cards"]')].map((el) => el.textContent);
+    expect(cardCounts.filter((text) => text === "1")).toHaveLength(2);
   });
 });

@@ -8,7 +8,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { anchor, continentColors, manifest, validateManifest, type TerritoryDef } from "./index.ts";
+import { anchor, continentColors, manifest, validateManifest, visualConnections, type TerritoryDef } from "./index.ts";
 import territoryPathJson from "../data/territory-paths.json" with { type: "json" };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -41,9 +41,9 @@ const TERRITORY_FILL: Record<string, string> = {
   peru: "#f89a1c",
   brazil: "#f89a1c",
   argentina: "#f89a1c",
-  iceland: "#18aaa3",
+  iceland: "#8293c4",
   great_britain: "#8293c4",
-  scandinavia: "#18aaa3",
+  scandinavia: "#8293c4",
   ukraine: "#8293c4",
   northern_europe: "#8293c4",
   southern_europe: "#8293c4",
@@ -131,26 +131,6 @@ const CONTINENT_CALLOUTS: Record<string, {
   asia: { x: 474, y: 28, target: "ural", leadFrom: [558, 46] },
   australia: { x: 528, y: 482, target: "western_australia", leadFrom: [612, 482] },
 };
-
-const WATER_ROUTES: [string, string][] = [
-  ["alaska", "kamchatka"],
-  ["greenland", "iceland"],
-  ["iceland", "great_britain"],
-  ["iceland", "scandinavia"],
-  ["brazil", "north_africa"],
-  ["western_europe", "north_africa"],
-  ["southern_europe", "egypt"],
-  ["egypt", "middle_east"],
-  ["east_africa", "middle_east"],
-  ["mongolia", "japan"],
-  ["kamchatka", "japan"],
-  ["siam", "indonesia"],
-  ["indonesia", "new_guinea"],
-  ["indonesia", "western_australia"],
-  ["new_guinea", "western_australia"],
-  ["new_guinea", "eastern_australia"],
-  ["western_australia", "eastern_australia"],
-];
 
 function fmt(n: number): string {
   return n.toFixed(2).replace(/\.?0+$/, "");
@@ -283,8 +263,9 @@ for (const t of manifest.territories) {
 }
 
 let routes = "";
-for (const [from, to] of WATER_ROUTES) {
-  routes += `<path class="route-line" d="${routePath(from, to)}" />\n${routeNodes(from, to)}\n`;
+for (const [from, to] of visualConnections) {
+  const routeId = `${from}--${to}`;
+  routes += `<path class="route-line" data-route="${routeId}" data-from="${from}" data-to="${to}" d="${routePath(from, to)}" />\n${routeNodes(from, to)}\n`;
 }
 
 const continentCallouts = manifest.continents.map((continent) => continentCallout(continent)).join("\n");
@@ -321,13 +302,15 @@ const svg = `<svg id="risk-board-modern" xmlns="http://www.w3.org/2000/svg" view
   </filter>
 </defs>
 <style>
-  .signature-rail, .top-slot, .continent-callout { pointer-events: none; }
+  .signature-rail, .top-slot { pointer-events: none; }
+  .continent-callout { pointer-events: auto; cursor: pointer; }
   .signature-title { font-family: Impact, "Arial Black", sans-serif; fill: #f5f5f5; stroke: #787878; stroke-width: 1.1; font-size: 10px; letter-spacing: 0.2px; opacity: 0.72; }
   .signature-num { font-family: "IBM Plex Mono", Consolas, monospace; font-weight: 800; fill: #ffffff; stroke: #7f7f7f; stroke-width: 0.35; font-size: 4.8px; opacity: 0.78; }
   .signature-line { stroke: #ffffff; stroke-width: 0.8; stroke-opacity: 0.68; }
   .top-slot { fill: none; stroke: #e8e8e8; stroke-width: 1.7; stroke-linecap: round; opacity: 0.78; }
-  .route-line { fill: none; stroke: #2c2c2c; stroke-width: 1.85; stroke-linecap: round; stroke-opacity: 0.95; }
-  .route-node { fill: #a8a8a8; stroke: #2c2c2c; stroke-width: 1.5; }
+  .route-line { fill: none; stroke: #1b2430; stroke-width: 2; stroke-linecap: round; stroke-opacity: 0.36; pointer-events: stroke; transition: stroke 120ms ease, stroke-opacity 120ms ease, stroke-width 120ms ease; }
+  .route-line:hover, .route-line.route-hot { stroke: #f8f8f2; stroke-width: 3; stroke-opacity: 0.92; }
+  .route-node { fill: #a8a8a8; stroke: #2c2c2c; stroke-width: 1.5; opacity: 0.58; pointer-events: none; }
   .territory-halo { fill: none; stroke: #f8f8f2; stroke-width: 4.15; stroke-linejoin: round; filter: url(#land-shadow); pointer-events: none; }
   .territory-border { stroke: #f8f8f2; stroke-width: 0.72; stroke-linejoin: round; cursor: pointer; transition: filter 120ms ease, stroke 120ms ease, opacity 120ms ease; }
   .territory-border:hover { filter: brightness(1.08); }
@@ -364,5 +347,8 @@ ${labels}</g>
 `;
 
 mkdirSync(join(here, "../assets"), { recursive: true });
-writeFileSync(join(here, "../assets/board.svg"), svg);
-console.log(`board.svg generated: ${manifest.territories.length} territories, ${WATER_ROUTES.length} water routes`);
+// board.svg is the hand-authored production artwork. Keep this generator as a
+// geometry/debugging aid without letting `npm run generate:board` overwrite it.
+const outputPath = join(here, "../assets/board.generated-preview.svg");
+writeFileSync(outputPath, svg);
+console.log(`board.generated-preview.svg generated: ${manifest.territories.length} territories, ${visualConnections.length} visual routes`);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { manifest, validateManifest, continentTerritories } from "./index.ts";
+import { manifest, validateManifest, continentTerritories, territoryById, visualConnections } from "./index.ts";
 
 describe("map manifest", () => {
   it("validates with no errors", () => {
@@ -12,5 +12,15 @@ describe("map manifest", () => {
     expect(Object.fromEntries(manifest.continents.map((c, i) => [c.id, counts[i]]))).toEqual({
       north_america: 9, south_america: 4, europe: 7, africa: 6, asia: 12, australia: 4,
     });
+  });
+  it("keeps visual connections aligned with rules adjacency", () => {
+    const seen = new Set<string>();
+    for (const [from, to] of visualConnections) {
+      const key = [from, to].sort().join("--");
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+      expect(territoryById(from).neighbors).toContain(to);
+      expect(territoryById(to).neighbors).toContain(from);
+    }
   });
 });

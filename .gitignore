@@ -3,3 +3,7 @@ dist/
 *.tsbuildinfo
 .env
 apps/web/dist/
+playwright-report/
+playwright-report-soak/
+test-results/
+tmp/

@@ -3,10 +3,10 @@
 // through the real action API, with a per-roll battle log for sieges, explanatory
 // scar/power badges, an ATTACK AGAIN re-arm, and a per-player auto-defend toggle.
 import { useEffect, useState } from "react";
-import type { Action, GameState } from "@risk/rules";
+import { hasFactionPower, type Action, type CombatModifier, type GameState } from "@risk/rules";
 import { factionById, scarName, territoryName } from "./labels.ts";
 import FactionEmblem from "./FactionEmblem.tsx"; // new (UI-10)
-import { Btn, CenterOverlay, DecisionChip } from "./overlays.tsx";
+import { Btn, CenterOverlay, DecisionChip, TroopPicker } from "./overlays.tsx";
 
 const SCAR_COMBAT_NOTES: Record<string, string> = {
   bunker: "+1 to the defender's highest die",
@@ -16,8 +16,63 @@ const SCAR_COMBAT_NOTES: Record<string, string> = {
 interface RollRecord {
   natural: { att: number[]; def: number[] };
   final: { att: number[]; def: number[] };
+  modifiers?: CombatModifier[];
+  scarModifiers?: { scarId: string; dieIndex: number; delta: number }[];
+  powerModifiers?: { powerId: string; playerId: string; side?: "att" | "def"; dieIndex: number; delta: number }[];
+  comparisons?: { att: number; def: number; winner: "att" | "def" }[];
   attackerLosses: number;
   defenderLosses: number;
+}
+
+type CombatSide = "att" | "def";
+type DieView = { natural: number; final: number; mod: boolean; modLabel?: string };
+
+const PIPS: Record<number, number[]> = {
+  1: [5],
+  2: [1, 9],
+  3: [1, 5, 9],
+  4: [1, 3, 7, 9],
+  5: [1, 3, 5, 7, 9],
+  6: [1, 3, 4, 6, 7, 9],
+};
+
+function PipDie({ natural, final, mod, modLabel, side }: DieView & { side: CombatSide }) {
+  const value = clampDie(final);
+  const title = mod ? `${side === "att" ? "Attack" : "Defense"} die ${natural} to ${value}: ${modLabel ?? "modified"}`
+    : `${side === "att" ? "Attack" : "Defense"} die ${value}`;
+  return (
+    <span
+      data-die-face
+      data-side={side}
+      data-final={value}
+      title={title}
+      className={`die-tumble dice-face ${side === "att" ? "dice-attack" : "dice-defense"} ${mod ? "dice-modified" : ""}`}
+    >
+      <span className="sr-only">{title}</span>
+      {Array.from({ length: 9 }, (_, i) => {
+        const cell = i + 1;
+        return (
+          <span key={cell} className="dice-cell">
+            {PIPS[value].includes(cell) && <span className="dice-pip" />}
+          </span>
+        );
+      })}
+      {mod && <span className="dice-mod-badge">{modLabel ?? "MOD"}</span>}
+    </span>
+  );
+}
+
+function clampDie(value: number) {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(Math.max(Math.round(value), 1), 6);
+}
+
+function resolvedModLabels(r: RollRecord, side: CombatSide, dieIndex: number) {
+  const labels: string[] = [];
+  if (r.modifiers?.some((m) => m.side === side && m.dieIndex === dieIndex)) labels.push("MISSILE");
+  if (side === "def" && r.scarModifiers?.some((m) => m.dieIndex === dieIndex)) labels.push("SCAR");
+  if (r.powerModifiers?.some((m) => (m.side ?? "def") === side && m.dieIndex === dieIndex)) labels.push("POWER");
+  return labels;
 }
 
 function Die({ natural, final, mod }: { natural: number; final: number; mod: boolean }) {
@@ -30,11 +85,89 @@ function Die({ natural, final, mod }: { natural: number; final: number; mod: boo
   );
 }
 
-function DiceRow({ label, dice, rollKey }: { label: string; dice: { natural: number; final: number; mod: boolean }[]; rollKey: number }) {
+function DiceRow({ label, side, dice, rollKey, large = false }: {
+  label: string;
+  side: CombatSide;
+  dice: DieView[];
+  rollKey: number;
+  large?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-2">
+    <div data-dice-row={side} className={`flex items-center gap-2 ${large ? "flex-wrap" : ""}`}>
       <span className="font-mono text-[10px] text-muted w-8">{label}</span>
-      {dice.map((d, i) => <Die key={`${rollKey}-${i}`} {...d} />)}
+      {dice.map((d, i) => <PipDie key={`${rollKey}-${side}-${i}-${d.final}-${d.modLabel ?? ""}`} side={side} {...d} />)}
+    </div>
+  );
+}
+
+function RollOutcome({
+  roll,
+  attName,
+  defName,
+  attDice,
+  defDice,
+  fromTroops,
+  toTroops,
+  rollKey,
+}: {
+  roll: RollRecord;
+  attName: string;
+  defName: string;
+  attDice: DieView[];
+  defDice: DieView[];
+  fromTroops: number;
+  toTroops: number;
+  rollKey: number;
+}) {
+  const attackerWins = roll.comparisons?.filter((c) => c.winner === "att").length ?? roll.defenderLosses;
+  const defenderWins = roll.comparisons?.filter((c) => c.winner === "def").length ?? roll.attackerLosses;
+  const headline = roll.defenderLosses > 0 && roll.attackerLosses > 0
+    ? "Both sides take losses"
+    : roll.defenderLosses > 0
+      ? `${attName} breaks through`
+      : `${defName} holds`;
+
+  return (
+    <div data-roll-outcome className="rounded-sm border border-signal/45 bg-panel-2/80 p-4 shadow-xl shadow-black/20">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <p className="font-mono text-[10px] text-signal tracking-[0.22em]">ROLL RESULT</p>
+          <h4 className="font-display font-bold tracking-widest text-2xl">{headline}</h4>
+        </div>
+        <p className="font-mono text-[10px] text-muted text-right">
+          ATT wins {attackerWins}<br />
+          DEF holds {defenderWins}
+        </p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <DiceRow label="ATT" side="att" dice={attDice} rollKey={rollKey} large />
+        <DiceRow label="DEF" side="def" dice={defDice} rollKey={rollKey} large />
+      </div>
+      <div className="grid gap-2 md:grid-cols-2 mt-4">
+        <CasualtyDelta side="att" label={attName} before={fromTroops + roll.attackerLosses} loss={roll.attackerLosses} />
+        <CasualtyDelta side="def" label={defName} before={toTroops + roll.defenderLosses} loss={roll.defenderLosses} />
+      </div>
+    </div>
+  );
+}
+
+function CasualtyDelta({ side, label, before, loss }: {
+  side: CombatSide;
+  label: string;
+  before: number;
+  loss: number;
+}) {
+  const after = Math.max(0, before - loss);
+  return (
+    <div data-casualty-delta={side} className={`rounded-sm border px-3 py-2 ${
+      loss > 0 ? "border-danger/70 bg-danger/10" : "border-line bg-panel/70"}`}>
+      <p className="font-mono text-[10px] text-muted tracking-widest">{side === "att" ? "ATTACKER" : "DEFENDER"}</p>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm truncate">{label}</span>
+        <span className={`font-mono text-sm whitespace-nowrap ${loss > 0 ? "text-danger" : "text-muted"}`}>
+          {before} -&gt; {after} ({loss > 0 ? `-${loss}` : "0"})
+        </span>
+      </div>
     </div>
   );
 }
@@ -78,20 +211,27 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
     : "defenders";
 
   const decider = stage === "defenders" ? c.defender : stage === "window" ? windowActor ?? c.attacker : c.attacker;
+  const empPlayers = !c.natural && !gs.empTerritories.includes(c.to)
+    ? Object.values(gs.players).filter((player) => player.factionId && gs.factionMissilePowers[player.factionId] === "emp"
+      && player.missiles > 0 && !gs.missilePowersUsedThisTurn.includes(player.id))
+    : [];
+  const showResolvedRoll = !!lastRoll && (stage === "aftermath" || stage === "movein");
 
   // Explanatory badges: scar/power effects that will shape this roll's dice.
-  const hasPower = (pid: string, powerId: string) => {
-    const fid = gs.players[pid].factionId;
-    return !!fid && gs.factionPowers[fid] === powerId;
-  };
+  const hasPower = (pid: string, powerId: string) => hasFactionPower(gs, pid, powerId);
   const fortActive = !!toT.fortification && toT.fortification.remaining > 0;
   const badges: { label: string; note: string }[] = [];
-  for (const sid of toT.scars) if (SCAR_COMBAT_NOTES[sid]) badges.push({ label: scarName(sid), note: SCAR_COMBAT_NOTES[sid] });
+  for (const sid of toT.scars) {
+    if (sid === "ammo_shortage" && hasPower(c.defender, "well_supplied")) continue;
+    if (SCAR_COMBAT_NOTES[sid]) badges.push({ label: scarName(sid), note: SCAR_COMBAT_NOTES[sid] });
+  }
   if (fortActive) badges.push({ label: "Fortification", note: `+1 to each defense die · ${toT.fortification!.remaining}/${toT.fortification!.max} durability` });
   if (hasPower(c.defender, "fortified_hq") && toT.hqFaction === def.factionId && !fortActive)
     badges.push({ label: "Fortified HQ", note: "+1 to each defense die (defender power)" });
   if (hasPower(c.attacker, "lower_die_intimidation") && gs.intimidation && !gs.intimidation.broken && gs.intimidation.territory === c.to)
     badges.push({ label: "Intimidation", note: "−1 to the defender's lowest die (attacker power)" });
+  if (hasPower(c.attacker, "well_armed") && toT.hqFaction)
+    badges.push({ label: "Well-Armed", note: "+1 to every attack die against an HQ" });
   if (hasPower(c.defender, "defensive_stand"))
     badges.push({ label: "Defensive Stand", note: "a natural 6-6 defense locks this territory for the turn" });
 
@@ -99,11 +239,20 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
     const naturals = side === "att" ? c.natural!.att : c.natural!.def;
     return naturals.map((v, i) => {
       const mod = c.modifiers.some((m) => m.side === side && m.dieIndex === i);
-      return { natural: v, final: mod ? 6 : v, mod };
+      return { natural: v, final: mod ? 6 : v, mod, modLabel: mod ? "MISSILE" : undefined };
     });
   };
   const rollDice = (r: RollRecord, side: "att" | "def") =>
-    r.final[side].map((f, i) => ({ natural: r.natural[side][i], final: f, mod: f !== r.natural[side][i] }));
+    r.final[side].map((f, i) => {
+      const labels = resolvedModLabels(r, side, i);
+      const natural = r.natural[side][i];
+      return {
+        natural,
+        final: f,
+        mod: labels.length > 0 || f !== natural,
+        modLabel: labels.join("+") || (f !== natural ? "MOD" : undefined),
+      };
+    });
 
   return (
     <CenterOverlay label="Combat">
@@ -112,11 +261,15 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-display font-bold tracking-widest text-sm text-muted">COMBAT</h3>
           {decider && <DecisionChip name={gs.players[decider].name}
-            color={factionById(gs.players[decider].factionId)?.color} />}
+            color={factionById(gs.players[decider].factionId)?.color} factionId={gs.players[decider].factionId} />}
         </div>
         <div className="grid grid-cols-[1fr_auto_1fr] gap-4 items-center">
           <div className="border-l-4 pl-3 flex items-center gap-2.5" style={{ borderColor: attFaction?.color ?? "var(--color-line)" }}>
-            <FactionEmblem factionId={att.factionId} size="sm" />{/* new (UI-10) */}
+            <FactionEmblem
+              key={`att-${rolls.length}-${lastRoll?.attackerLosses ?? 0}`}
+              factionId={att.factionId}
+              size="sm"
+            />{/* new (UI-10) */}
             <div>
               <div className="font-display font-bold tracking-widest">{att.name}</div>
               <div className="text-xs text-muted">{attFaction?.name}</div>
@@ -130,7 +283,11 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
               <div className="text-xs text-muted">{defFaction?.name}</div>
               <div className="font-mono text-xs mt-1">{territoryName(c.to)} · {toT.troops} troops</div>
             </div>
-            <FactionEmblem factionId={def.factionId} size="sm" />{/* new (UI-10) */}
+            <FactionEmblem
+              key={`def-${rolls.length}-${lastRoll?.defenderLosses ?? 0}`}
+              factionId={def.factionId}
+              size="sm"
+            />{/* new (UI-10) */}
           </div>
         </div>
         {badges.length > 0 && (
@@ -146,6 +303,19 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
       </div>
 
       <div className="px-5 py-4">
+        {empPlayers.length > 0 && (stage === "attackers" || stage === "defenders") && (
+          <div className="border border-signal/50 rounded-sm p-3 mb-3">
+            <p className="font-mono text-[10px] text-signal tracking-widest mb-2">EMP · BEFORE THE ROLL</p>
+            <div className="flex flex-wrap gap-2">
+              {empPlayers.map((player) => (
+                <Btn key={player.id} disabled={!canActFor(player.id)}
+                  onClick={() => dispatch({ type: "missilePower.emp", playerId: player.id })}>
+                  {player.name} · SPEND 1 MISSILE
+                </Btn>
+              ))}
+            </div>
+          </div>
+        )}
         {stage === "attackers" && (
           <div>
             <p className="text-xs text-muted mb-2">{att.name} chooses how many dice to attack with (each die risks one troop).</p>
@@ -178,28 +348,29 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
 
         {stage === "window" && c.natural && (
           <div className="space-y-2">
-            <DiceRow label="ATT" dice={missileDice("att")} rollKey={rolls.length} />
-            <DiceRow label="DEF" dice={missileDice("def")} rollKey={rolls.length} />
+            <DiceRow label="ATT" side="att" dice={missileDice("att")} rollKey={rolls.length} />
+            <DiceRow label="DEF" side="def" dice={missileDice("def")} rollKey={rolls.length} />
             {windowActor && (
               <div className="border border-signal rounded-sm p-3 mt-2">
                 <div className="flex items-center justify-between mb-2">
                   <p className="font-mono text-xs text-signal tracking-widest">MISSILE WINDOW</p>
-                  <DecisionChip name={gs.players[windowActor].name} color={factionById(gs.players[windowActor].factionId)?.color} />
+                  <DecisionChip name={gs.players[windowActor].name} color={factionById(gs.players[windowActor].factionId)?.color}
+                    factionId={gs.players[windowActor].factionId} />
                 </div>
                 <p className="text-xs text-muted mb-2">
-                  {gs.players[windowActor].name} may spend a missile to set one of their own dice to an
+                  {gs.players[windowActor].name} may spend a missile to set any combat die to an
                   unmodifiable 6 ({gs.players[windowActor].missiles} left) — or pass.
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {missileDice(windowActor === c.attacker ? "att" : "def").map((d, i) =>
+                  {(["att", "def"] as const).flatMap((side) => missileDice(side).map((d, i) =>
                     d.mod ? null : (
-                      <Btn key={i} disabled={!canActFor(windowActor)}
-                        ariaLabel={`Missile: set ${windowActor === c.attacker ? "attack" : "defense"} die ${i + 1} to 6`}
-                        onClick={() => dispatch({ type: "combat.useMissile", playerId: windowActor, dieIndex: i })}>
-                        ▲ {d.natural} → 6
+                      <Btn key={`${side}-${i}`} disabled={!canActFor(windowActor)}
+                        ariaLabel={`Missile: set ${side === "att" ? "attack" : "defense"} die ${i + 1} to 6`}
+                        onClick={() => dispatch({ type: "combat.useMissile", playerId: windowActor, side, dieIndex: i })}>
+                        {side === "att" ? "ATT" : "DEF"} ▲ {d.natural} → 6
                       </Btn>
                     )
-                  )}
+                  ))}
                   <Btn disabled={!canActFor(windowActor)} onClick={() => dispatch({ type: "combat.pass", playerId: windowActor })}>PASS</Btn>
                 </div>
               </div>
@@ -208,9 +379,17 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
         )}
 
         {stage === "aftermath" && lastRoll && (
-          <div className="space-y-2">
-            <DiceRow label="ATT" dice={rollDice(lastRoll, "att")} rollKey={rolls.length} />
-            <DiceRow label="DEF" dice={rollDice(lastRoll, "def")} rollKey={rolls.length} />
+          <div className="space-y-3">
+            <RollOutcome
+              roll={lastRoll}
+              attName={att.name}
+              defName={def.name}
+              attDice={rollDice(lastRoll, "att")}
+              defDice={rollDice(lastRoll, "def")}
+              fromTroops={fromT.troops}
+              toTroops={toT.troops}
+              rollKey={rolls.length}
+            />
             <p className="font-mono text-xs">
               <span className="text-muted">casualties:</span>{" "}
               <span className={lastRoll.attackerLosses > 0 ? "text-danger" : "text-muted"}>{att.name} −{lastRoll.attackerLosses}</span>
@@ -225,8 +404,22 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
         )}
 
         {stage === "movein" && c.awaitingMoveIn && (
-          <MoveIn min={c.awaitingMoveIn.min} max={c.awaitingMoveIn.max} disabled={!canActFor(c.attacker)}
-            onCommit={(n) => dispatch({ type: "attack.moveIn", playerId: c.attacker, count: n })} />
+          <div className="space-y-3">
+            {lastRoll && (
+              <RollOutcome
+                roll={lastRoll}
+                attName={att.name}
+                defName={def.name}
+                attDice={rollDice(lastRoll, "att")}
+                defDice={rollDice(lastRoll, "def")}
+                fromTroops={fromT.troops}
+                toTroops={toT.troops}
+                rollKey={rolls.length}
+              />
+            )}
+            <MoveIn min={c.awaitingMoveIn.min} max={c.awaitingMoveIn.max} disabled={!canActFor(c.attacker)}
+              onCommit={(n) => dispatch({ type: "attack.moveIn", playerId: c.attacker, count: n })} />
+          </div>
         )}
 
         {rolls.length > 0 && stage !== "aftermath" && (
@@ -247,13 +440,18 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
 }
 
 function MoveIn({ min, max, disabled, onCommit }: { min: number; max: number; disabled?: boolean; onCommit: (n: number) => void }) {
-  const [n, setN] = useState(max);
   return (
     <div className="space-y-2">
       <p className="font-mono text-xs text-signal">Territory taken — move in {min}–{max} troops.</p>
-      <input type="range" min={min} max={max} value={n} disabled={disabled}
-        onChange={(e) => setN(Number(e.target.value))} className="w-full accent-(--color-signal)" />
-      <Btn tone="primary" disabled={disabled} onClick={() => onCommit(Math.min(Math.max(n, min), max))}>MOVE IN {Math.min(Math.max(n, min), max)}</Btn>
+      <TroopPicker
+        label="Move-in troops"
+        value={min}
+        min={min}
+        max={max}
+        disabled={disabled}
+        confirmLabel="MOVE IN"
+        onChange={(n) => onCommit(Math.min(Math.max(Math.round(n), min), max))}
+      />
     </div>
   );
 }

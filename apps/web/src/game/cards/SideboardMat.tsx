@@ -1,10 +1,10 @@
 // new (UI-9): rail sideboard mat modeled on the rulebook illustration — top row
 // DRAW (face-down stack) · COIN (face-up pile) · MISSION · EVENT (sealed outlines until
 // modules unlock) · DISCARD; bottom row numbered slots 1→4 face-up; red star pool beside.
-import type { GameState } from "@risk/rules";
+import type { GameState, LegacyCard } from "@risk/rules";
 import { redStars } from "@risk/rules";
 import { cardResources } from "../labels.ts";
-import ResourceCard, { STAR_PATH } from "./ResourceCard.tsx";
+import ResourceCard, { CoinFace, STAR_PATH } from "./ResourceCard.tsx";
 import { CARD_TEXTURE_URL } from "./texture.ts";
 
 function MatCell({ label, children }: { label: string; children: React.ReactNode }) {
@@ -23,11 +23,23 @@ function EmptySlot({ sealed }: { sealed?: boolean }) {
   );
 }
 
+function LegacyFace({ card, kind }: { card: LegacyCard; kind: "mission" | "event" }) {
+  return (
+    <span title={`${card.title}: ${card.text}`}
+      className={`block w-11 aspect-[5/7] rounded-[6%] border p-1 overflow-hidden ${
+        kind === "mission" ? "border-signal bg-signal/10" : "border-danger bg-danger/10"}`}>
+      <span className="block font-display font-bold text-[7px] leading-tight text-center uppercase">{card.title}</span>
+      {card.reward && <span className="block font-mono text-[7px] text-center text-signal mt-1">+{card.reward} STAR</span>}
+    </span>
+  );
+}
+
 export default function SideboardMat({ gs }: { gs: GameState }) {
   const sb = gs.sideboard;
   const deckCount = (sb as any).territoryDeckCount ?? sb.territoryDeck.length;
   const coinCount = (sb as any).coinCount ?? sb.coinPile.length;
   const discardTop = sb.discard[sb.discard.length - 1];
+  const eventDeckCount = (gs.legacyCards as any).eventDeckCount ?? gs.legacyCards.eventDeck.length;
   const starsInPlay = gs.turnOrder.reduce((n, pid) => n + redStars(gs, pid).total, 0);
 
   return (
@@ -39,15 +51,19 @@ export default function SideboardMat({ gs }: { gs: GameState }) {
           </MatCell>
           <MatCell label={`coin ${coinCount}`}>
             {coinCount > 0
-              ? <span data-coin-pile className="coin-face block w-8 aspect-square rounded-full relative">
-                  <svg viewBox="0 0 24 24" className="absolute inset-[16%]" aria-hidden="true">
-                    <path d={STAR_PATH} fill="#8a6d1c" opacity="0.55" />
-                  </svg>
-                </span>
+              ? <CoinFace pile className="block w-8 aspect-square rounded-full" />
               : <EmptySlot />}
           </MatCell>
-          <MatCell label="mission"><EmptySlot sealed /></MatCell>
-          <MatCell label="event"><EmptySlot sealed /></MatCell>
+          <MatCell label="mission">
+            {gs.legacyCards.activeMission
+              ? <LegacyFace card={gs.legacyCards.activeMission} kind="mission" />
+              : <EmptySlot sealed />}
+          </MatCell>
+          <MatCell label={`event ${eventDeckCount}`}>
+            {gs.legacyCards.pendingEvent
+              ? <LegacyFace card={gs.legacyCards.pendingEvent} kind="event" />
+              : <EmptySlot sealed={eventDeckCount === 0} />}
+          </MatCell>
           <MatCell label={`discard ${sb.discard.length}`}>
             {discardTop ? <ResourceCard size="xs" cardId={discardTop} resources={cardResources(gs, discardTop)} /> : <EmptySlot />}
           </MatCell>

@@ -43,11 +43,20 @@ describe("combat overlay (UI-8)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Attack with 3 dice" }));
     fireEvent.click(screen.getByLabelText("Auto-defend with max dice"));
     expect(current.log.some((e) => e.type === "DiceRolled")).toBe(true);
+    expect(document.querySelector("[data-roll-outcome]")).toBeTruthy();
+    expect(document.querySelectorAll("[data-die-face]").length).toBeGreaterThan(0);
+    expect(document.querySelector("[data-casualty-delta='att']")).toBeTruthy();
+    expect(document.querySelector("[data-casualty-delta='def']")).toBeTruthy();
 
     // siege loop: ATTACK AGAIN re-arms the same battle until the single defender falls
     for (let i = 0; i < 30; i++) {
-      const moveIn = screen.queryByRole("button", { name: /^MOVE IN/ });
-      if (moveIn) { fireEvent.click(moveIn); break; }
+      const moveInPicker = screen.queryByRole("button", { name: "Choose Move-in troops" });
+      if (moveInPicker) {
+        expect(document.querySelector("[data-roll-outcome]")).toBeTruthy();
+        fireEvent.click(moveInPicker);
+        fireEvent.click(screen.getByRole("button", { name: "MOVE IN" }));
+        break;
+      }
       const again = screen.queryByRole("button", { name: "ATTACK AGAIN" });
       if (again) { fireEvent.click(again); continue; }
       const dice = attackDiceBtn();
@@ -83,6 +92,8 @@ describe("combat overlay (UI-8)", () => {
     fireEvent.click(screen.getByRole("button", { name: "PASS" }));
 
     expect(screen.queryByText("MISSILE WINDOW")).toBeNull();
+    expect(document.querySelector("[data-roll-outcome]")).toBeTruthy();
+    expect(document.querySelectorAll("[data-die-face]").length).toBeGreaterThan(0);
     const resolved = current.log.filter((e) => e.type === "CombatResolved").at(-1)!;
     expect((resolved.data as any).final.att).toContain(6);
   });
@@ -92,7 +103,7 @@ describe("combat overlay (UI-8)", () => {
     render(<Harness initial={gs} />);
 
     const dock = screen.getByRole("dialog", { name: "Start of turn" });
-    fireEvent.click(within(dock).getByRole("button", { name: "CONTINUE" }));
+    fireEvent.click(within(dock).getByRole("button", { name: "BEGIN RECRUITMENT" }));
     expect(current.phase).toBe("join_or_recruit");
     expect(screen.queryByRole("dialog", { name: "Start of turn" })).toBeNull();
   });

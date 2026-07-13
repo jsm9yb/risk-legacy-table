@@ -21,7 +21,7 @@ A feature task is done only when **(a)** its named tests pass, **(b)** the full 
 
 ## Needs a decision
 
-**All five decisions (D1–D5) were resolved 2026-06-13** and recorded in SPEC §5 (scars), §6 (faction powers), §7 (cities/rewards/signatures/carry-over), and §9 (unlock modules). The tasks below are now unblocked. The remaining open inputs are **`content_required`** items inside the unlock modules (host-entered Event/Mission/Power card text), surfaced by the import wizard (task `12`) rather than blocking the engine.
+**All five decisions (D1–D5) were resolved 2026-06-13** and recorded in SPEC §5 (scars), §6 (faction powers), §7 (cities/rewards/signatures/carry-over), and §9 (unlock modules). The canonical sealed content was reconstructed and completed on 2026-07-11. `content_required` now exists only as a compatibility/custom-content path; no standard campaign rule is waiting on unknown text.
 
 Notable reclassifications from the D1–D5 update (ripple into existing code — see affected tasks):
 - **Fortification is not a scar** — it's a winner reward mark (`fortify_city`) on a city. Its combat effect data stays in the pack for the engine to read, but it is never dealt or played.
@@ -32,6 +32,10 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 ---
 
 ## Done (built & verified)
+
+### Presentation runtime migration — done 2026-07-12
+
+Pixi owns the production table; the Presentation Director sequences authoritative transitions; all seven factions have original generated one-/three-piece and HQ atlases; map slots, accessibility, quality/motion settings, audio, camera, save migration, semantic recording, Chromium goldens, and renderer/asset budgets are covered. The React SVG piece layer, `EffectsLayer`, phase flash, and duplicate emblem timing were removed. See `docs/PRESENTATION-RUNTIME-MIGRATION-SPEC.md` and the verification commands in `README.md`.
 
 | id | title | note |
 |---|---|---|
@@ -219,6 +223,6 @@ Notable reclassifications from the D1–D5 update (ripple into existing code —
 
 What starts the next backlog cycle (add tasks here when they become real):
 - **Hub campaign strip** — when the LAN flow persists a last-connected campaign summary, the hub shows game number, signatures, and unlocked packs as opened-envelope icons (deferred from UI-6).
-- **Module mechanics from host-entered text** — the import wizard stores `content_required` card text; the gameplay that consumes it (Pack 1 advanced-draft turns, Pack 2 comeback-power effects, Pack 3 missions/homelands play, Pack 4 lead faction/private missions, Pocket 1 nuclear resolution, Pocket 2 Alien Island) begins when the group actually unlocks a module and supplies real card text.
+- **Optional variants** — the Do Not Open Ever packet remains disabled unless a future, explicitly scoped variant task is approved; it is not part of the canonical campaign.
 - **Networked-play niceties** — reconnection UX, optimistic updates, spectator polish, Ledger render perf on long games.
 - **True socket/Postgres e2e** — the in-test session covers engine+filter+protocol; a scripted 2-laptop LAN checklist would close the loop.

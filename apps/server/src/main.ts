@@ -11,10 +11,10 @@ import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from "node:crypt
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createDb } from "./db/connect.ts";
-import { createGame, applyAction, RuleViolation, initialCampaign, applyGameToCampaign, supplyModuleContent, filterStateFor, type GameState, type Action, type CampaignState } from "@risk/rules"; // new (10b, 1-web-b, 12)
+import { createGame, applyAction, waitingOn, RuleViolation, initialCampaign, applyGameToCampaign, supplyModuleContent, filterStateFor, type GameState, type Action, type CampaignState } from "@risk/rules"; // new (10b, 1-web-b, 12)
 import { contentPack, validateContentPack } from "@risk/content";
 import { corsOriginFor, parseCorsOrigins } from "./http.ts";
-import { legacyDone, prepareSessionState } from "./session.ts";
+import { SessionActionQueue, legacyDone, prepareSessionState } from "./session.ts";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const ORIGINS = parseCorsOrigins(process.env.CORS_ORIGINS ?? "http://localhost:5173");
@@ -129,9 +129,19 @@ app.get("/api/campaigns", async (req, res) => {
     .select(["campaigns.id", "campaigns.world_name", "campaigns.game_number", "campaigns.invite_code", "campaign_members.role", "campaigns.owner_id"])
     .where("campaign_members.user_id", "=", me.id)
     .execute();
+  const activeRows = rows.length
+    ? await db.selectFrom("game_sessions")
+      .select(["campaign_id", "id"])
+      .where("campaign_id", "in", rows.map((r) => r.id))
+      .where("status", "=", "active")
+      .execute()
+    : [];
+  const activeByCampaign = new Map(activeRows.map((r) => [r.campaign_id, r.id]));
   res.json(rows.map((r) => ({
     id: r.id, worldName: r.world_name, gameNumber: r.game_number, role: r.role,
     inviteCode: r.owner_id === me.id ? r.invite_code : undefined,
+    activeSessionId: activeByCampaign.get(r.id),
+    hasActiveGame: activeByCampaign.has(r.id),
   })));
 });
 
@@ -198,8 +208,39 @@ interface LiveSession {
   campaignId: string;
   players: { id: string; name: string }[];
   campaign?: CampaignState; // new (10b): the snapshot this session was seeded from
+  phaseCheckpoints?: { state: GameState; actionSeq: number }[];
+  rewindLocked?: boolean;
 }
 const live = new Map<string, LiveSession>();
+
+function locksRewind(action: Action) {
+  return action.type === "attack.declare" || action.type === "scar.play" || action.type === "end.draw"
+    || action.type === "reward.choose" || action.type === "module.supplyContent" || action.type === "mission.foundWorldCapital"
+    || action.type === "mission.complete" || action.type === "event.resolve"
+    || action.type === "mission.choose"
+    || action.type === "privateMission.capture" || action.type === "privateMission.activate"
+    || action.type === "alien.placeIsland" || action.type === "comeback.choose";
+}
+
+function ensureRewindState(session: LiveSession) {
+  session.phaseCheckpoints ??= [{ state: structuredClone(session.state), actionSeq: 0 }];
+  session.rewindLocked ??= false;
+  return session.phaseCheckpoints;
+}
+
+function rewindStatus(session: LiveSession, userId: string) {
+  const checkpoints = ensureRewindState(session);
+  const active = waitingOn(session.state) === userId;
+  const safe = active && !session.rewindLocked && session.state.phase !== "game_over";
+  const phaseStart = checkpoints.at(-1)?.state;
+  return {
+    canReset: safe && !!phaseStart && phaseStart.eventSeq !== session.state.eventSeq,
+    canBack: safe && checkpoints.length > 1,
+    reason: session.rewindLocked
+      ? "Rewind is locked after an attack, Scar play, or hidden card draw."
+      : active ? "Reset this phase or return to the start of the previous phase." : "Only the active player can rewind.",
+  };
+}
 
 async function loadSession(sessionId: string): Promise<LiveSession | null> {
   const cached = live.get(sessionId);
@@ -213,10 +254,30 @@ async function loadSession(sessionId: string): Promise<LiveSession | null> {
   const players = seats.map((s) => ({ id: s.id, name: s.display_name }));
   const campaign = row.campaign_state ? (JSON.parse(row.campaign_state) as CampaignState) : undefined; // new (10b): replay with the creation-time snapshot
   let state = createGame({ gameId: sessionId, seed: Number(row.seed), players, campaign }); // new
-  const actions = await db.selectFrom("game_actions").selectAll()
-    .where("session_id", "=", sessionId).where("kind", "=", "action").orderBy("seq").execute();
-  for (const a of actions) state = applyAction(state, JSON.parse(a.payload) as Action);
-  const sess = { state, campaignId: row.campaign_id, players, campaign }; // new
+  const rows = await db.selectFrom("game_actions").selectAll()
+    .where("session_id", "=", sessionId).orderBy("seq").execute();
+  const suppressed = new Set<number>();
+  for (const row of rows.filter((entry) => entry.kind === "correction")) {
+    const correction = JSON.parse(row.payload) as { supersedes?: number[] | number };
+    const seqs = Array.isArray(correction.supersedes) ? correction.supersedes : [correction.supersedes];
+    for (const seq of seqs) if (typeof seq === "number") suppressed.add(seq);
+  }
+  let phaseCheckpoints = [{ state: structuredClone(state), actionSeq: 0 }];
+  let rewindLocked = false;
+  for (const row of rows.filter((entry) => entry.kind === "action" && !suppressed.has(entry.seq))) {
+    const action = JSON.parse(row.payload) as Action;
+    const previous = state;
+    state = applyAction(state, action);
+    const turnChanged = state.turnNumber !== previous.turnNumber || state.activeIdx !== previous.activeIdx;
+    if (turnChanged) {
+      phaseCheckpoints = [{ state: structuredClone(state), actionSeq: row.seq }];
+      rewindLocked = false;
+    } else if (state.phase !== previous.phase) {
+      phaseCheckpoints.push({ state: structuredClone(state), actionSeq: row.seq });
+    }
+    if (locksRewind(action) || state.phase === "game_over") rewindLocked = true;
+  }
+  const sess = { state, campaignId: row.campaign_id, players, campaign, phaseCheckpoints, rewindLocked }; // new
   live.set(sessionId, sess);
   return sess;
 }
@@ -229,8 +290,23 @@ const filterState = filterStateFor; // new (1-web-b): moved to packages/rules so
 const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: ORIGINS } });
 
-interface LobbyMember { userId: string; name: string; role: string; ready: boolean; connected: boolean }
+function broadcastGameState(sessionId: string, session: LiveSession) {
+  const room = io.sockets.adapter.rooms.get(`game:${sessionId}`) ?? new Set<string>();
+  for (const sid of room) {
+    const sock = io.sockets.sockets.get(sid);
+    const viewer = (sock?.data as any)?.user;
+    const seated = session.players.some((player) => player.id === viewer?.id);
+    sock?.emit("game:state", {
+      sessionId,
+      state: filterState(session.state, seated ? viewer.id : null),
+      rewind: viewer ? rewindStatus(session, viewer.id) : undefined,
+    });
+  }
+}
+
+interface LobbyMember { userId: string; name: string; role: string; ready: boolean; connected: boolean; seat: number | null }
 const lobbies = new Map<string, Map<string, LobbyMember>>(); // campaignId -> members
+const sessionActions = new SessionActionQueue();
 
 io.use(async (socket, next) => {
   const me = await userFromToken(socket.handshake.auth?.token);
@@ -242,23 +318,61 @@ io.use(async (socket, next) => {
 io.on("connection", (socket) => {
   const user = (socket.data as any).user as { id: string; display_name: string };
 
+  const leaveLobby = (campaignId: string) => {
+    socket.leave(`lobby:${campaignId}`);
+    const lobby = lobbies.get(campaignId);
+    const member = lobby?.get(user.id);
+    if (!lobby || !member) return;
+    member.connected = false;
+    member.ready = false;
+    io.to(`lobby:${campaignId}`).emit("lobby:state", [...lobby.values()]);
+  };
+
   socket.on("lobby:join", async ({ campaignId }, ack) => {
     const member = await db.selectFrom("campaign_members").selectAll()
       .where("campaign_id", "=", campaignId).where("user_id", "=", user.id).executeTakeFirst();
     if (!member) return ack?.({ error: "not a campaign member" });
+    for (const room of socket.rooms) {
+      if (room.startsWith("lobby:") && room !== `lobby:${campaignId}`) leaveLobby(room.slice("lobby:".length));
+    }
     socket.join(`lobby:${campaignId}`);
     const lobby = lobbies.get(campaignId) ?? new Map();
     lobbies.set(campaignId, lobby);
-    lobby.set(user.id, { userId: user.id, name: user.display_name, role: member.role, ready: lobby.get(user.id)?.ready ?? false, connected: true });
+    lobby.set(user.id, {
+      userId: user.id,
+      name: user.display_name,
+      role: member.role,
+      ready: lobby.get(user.id)?.ready ?? false,
+      connected: true,
+      seat: lobby.get(user.id)?.seat ?? null,
+    });
     io.to(`lobby:${campaignId}`).emit("lobby:state", [...lobby.values()]);
     ack?.({ ok: true, members: [...lobby.values()] });
   });
 
+  socket.on("lobby:leave", ({ campaignId }) => leaveLobby(campaignId));
+
   socket.on("lobby:ready", ({ campaignId, ready }) => {
     const m = lobbies.get(campaignId)?.get(user.id);
-    if (!m || m.role === "spectator") return;
+    if (!m || !m.connected || m.role === "spectator") return;
+    if (ready && m.seat === null) return;
     m.ready = !!ready;
     io.to(`lobby:${campaignId}`).emit("lobby:state", [...lobbies.get(campaignId)!.values()]);
+  });
+
+  socket.on("lobby:seat", ({ campaignId, seat }, ack) => {
+    const lobby = lobbies.get(campaignId);
+    const member = lobby?.get(user.id);
+    const requested = Number(seat);
+    if (!lobby || !member || member.role === "spectator") return ack?.({ error: "players only" });
+    if (!Number.isInteger(requested) || requested < 1 || requested > 5) return ack?.({ error: "choose seat 1-5" });
+    if ([...lobby.values()].some((candidate) => candidate.userId !== user.id && candidate.seat === requested)) {
+      return ack?.({ error: "seat already taken" });
+    }
+    member.seat = requested;
+    member.ready = false;
+    io.to(`lobby:${campaignId}`).emit("lobby:state", [...lobby.values()]);
+    ack?.({ ok: true });
   });
 
   socket.on("game:create", async ({ campaignId }, ack) => {
@@ -266,7 +380,9 @@ io.on("connection", (socket) => {
     if (!c) return ack?.({ error: "no campaign" });
     if (c.owner_id !== user.id) return ack?.({ error: "host only" });
     const lobby = lobbies.get(campaignId);
-    const players = [...(lobby?.values() ?? [])].filter((m) => m.role !== "spectator" && m.ready);
+    const players = [...(lobby?.values() ?? [])]
+      .filter((m) => m.role !== "spectator" && m.connected && m.ready && m.seat !== null)
+      .sort((a, b) => a.seat! - b.seat!);
     if (players.length < 3) return ack?.({ error: "need 3+ ready players (starter rules: 3-5)" }); // new (BUG-1): matches the engine's createGame minimum — a 2p session would crash on replay
     if (players.length > 5) return ack?.({ error: "max 5 players" });
     const active = await db.selectFrom("game_sessions").select("id")
@@ -298,7 +414,11 @@ io.on("connection", (socket) => {
       console.error(e);
       return ack?.({ error: "internal error" });
     }
-    live.set(sessionId, prepared);
+    live.set(sessionId, {
+      ...prepared,
+      phaseCheckpoints: [{ state: structuredClone(prepared.state), actionSeq: 0 }],
+      rewindLocked: false,
+    });
     await audit(campaignId, sessionId, user.id, "GameSessionCreated", { seed, players: players.map((p) => p.userId) });
     io.to(`lobby:${campaignId}`).emit("game:created", { sessionId });
     ack?.({ ok: true, sessionId });
@@ -310,33 +430,65 @@ io.on("connection", (socket) => {
     const member = await db.selectFrom("campaign_members").selectAll()
       .where("campaign_id", "=", sess.campaignId).where("user_id", "=", user.id).executeTakeFirst();
     if (!member) return ack?.({ error: "not a campaign member" });
+    for (const room of socket.rooms) {
+      if (room.startsWith("game:") && room !== `game:${sessionId}`) socket.leave(room);
+    }
     socket.join(`game:${sessionId}`);
     const isSeated = sess.players.some((p) => p.id === user.id);
-    ack?.({ ok: true, state: filterState(sess.state, isSeated ? user.id : null), seated: isSeated });
+    ack?.({
+      ok: true,
+      state: filterState(sess.state, isSeated ? user.id : null),
+      seated: isSeated,
+      contentHost: member.role === "host",
+      rewind: rewindStatus(sess, user.id),
+    });
   });
 
-  socket.on("game:action", async ({ sessionId, action }, ack) => {
-    const sess = await loadSession(sessionId);
-    if (!sess) return ack?.({ error: "no session" });
-    const a = action as Action;
-    if (a.playerId !== user.id) return ack?.({ error: "cannot act for another player" });
-    try {
+  socket.on("game:leave", ({ sessionId }) => socket.leave(`game:${sessionId}`));
+
+  socket.on("game:action", ({ sessionId, action }, ack) => {
+    void sessionActions.run(sessionId, async () => {
+      const sess = await loadSession(sessionId);
+      if (!sess) return ack?.({ error: "no session" });
+      const a = action as Action;
+      const hostManaged = a.type === "module.supplyContent" || a.type === "mission.foundWorldCapital"
+        || a.type === "mission.complete" || a.type === "event.resolve"
+        || a.type === "privateMission.capture" || a.type === "privateMission.activate"
+        || a.type === "faction.claimPrivateMission"
+        || a.type === "alien.placeIsland";
+      if (hostManaged) {
+        const membership = await db.selectFrom("campaign_members").select("role")
+          .where("campaign_id", "=", sess.campaignId).where("user_id", "=", user.id).executeTakeFirst();
+        if (membership?.role !== "host") return ack?.({ error: "host only" });
+      } else if (a.playerId !== user.id) return ack?.({ error: "cannot act for another player" });
       const prev = sess.state; // new (10b): pre-action state gates the one-shot completion/fold blocks
       const next = applyAction(prev, a);
-      const seq = (await db.selectFrom("game_actions").select(db.fn.countAll().as("n"))
-        .where("session_id", "=", sessionId).executeTakeFirst())!.n as unknown as number;
+      const previousAction = await db.selectFrom("game_actions").select("seq")
+        .where("session_id", "=", sessionId).orderBy("seq", "desc").executeTakeFirst();
+      const actionSeq = (previousAction?.seq ?? 0) + 1;
       await db.insertInto("game_actions").values({
-        session_id: sessionId, seq: Number(seq) + 1, actor_id: user.id, kind: "action", payload: JSON.stringify(a), reason: null,
+        session_id: sessionId, seq: actionSeq,
+        actor_id: user.id, kind: "action", payload: JSON.stringify(a), reason: null,
       }).execute();
-      sess.state = next;
-      // Per-viewer hidden-state filtering: emit individually
-      const room = io.sockets.adapter.rooms.get(`game:${sessionId}`) ?? new Set();
-      for (const sid of room) {
-        const sock = io.sockets.sockets.get(sid);
-        const viewer = (sock?.data as any)?.user;
-        const seated = sess.players.some((p) => p.id === viewer?.id);
-        sock?.emit("game:state", filterState(sess.state, seated ? viewer.id : null));
+      if (a.type === "module.supplyContent") {
+        await db.insertInto("content_overrides").values({
+          id: randomUUID(), campaign_id: sess.campaignId, author_id: user.id,
+          path: `${a.moduleId}.${a.item}`, value: JSON.stringify(a.content),
+          reason: "in-game sealed-content pause",
+        }).execute();
+        await audit(sess.campaignId, sessionId, user.id, "ModuleContentSupplied", { moduleId: a.moduleId, item: a.item });
       }
+      sess.state = next;
+      const checkpoints = ensureRewindState(sess);
+      const turnChanged = next.turnNumber !== prev.turnNumber || next.activeIdx !== prev.activeIdx;
+      if (turnChanged) {
+        sess.phaseCheckpoints = [{ state: structuredClone(next), actionSeq }];
+        sess.rewindLocked = false;
+      } else if (next.phase !== prev.phase) {
+        checkpoints.push({ state: structuredClone(next), actionSeq });
+      }
+      if (locksRewind(a) || next.phase === "game_over") sess.rewindLocked = true;
+      broadcastGameState(sessionId, sess);
       if (next.phase === "game_over" && next.winner && prev.phase !== "game_over") { // new: fire once at the winning action (reward.choose actions follow inside game_over)
         for (const [fid, result] of Object.entries(next.results ?? {})) {
           const pid = Object.values(next.players).find((p) => p.factionId === fid)?.id;
@@ -355,11 +507,54 @@ io.on("connection", (socket) => {
         writeFileSync(join(BACKUP_DIR, `export-${sess.campaignId}-${sessionId}.json`), JSON.stringify({ campaignId: sess.campaignId, sessionId, finalState: next, campaignState: folded }, null, 2)); // new: now includes the folded campaign
       }
       ack?.({ ok: true });
-    } catch (e) {
+    }).catch((e) => {
       if (e instanceof RuleViolation) return ack?.({ error: e.message });
       console.error(e);
       ack?.({ error: "internal error" });
-    }
+    });
+  });
+
+  socket.on("game:rewind", ({ sessionId, mode }, ack) => {
+    void sessionActions.run(sessionId, async () => {
+      const sess = await loadSession(sessionId);
+      if (!sess) return ack?.({ error: "no session" });
+      const status = rewindStatus(sess, user.id);
+      const back = mode === "back";
+      if (back ? !status.canBack : !status.canReset) return ack?.({ error: status.reason ?? "rewind unavailable" });
+
+      const checkpoints = ensureRewindState(sess);
+      const targetIndex = back ? checkpoints.length - 2 : checkpoints.length - 1;
+      const target = checkpoints[targetIndex];
+      const rows = await db.selectFrom("game_actions").selectAll()
+        .where("session_id", "=", sessionId).orderBy("seq").execute();
+      const suppressed = new Set<number>();
+      for (const row of rows.filter((entry) => entry.kind === "correction")) {
+        const correction = JSON.parse(row.payload) as { supersedes?: number[] | number };
+        const seqs = Array.isArray(correction.supersedes) ? correction.supersedes : [correction.supersedes];
+        for (const seq of seqs) if (typeof seq === "number") suppressed.add(seq);
+      }
+      const supersedes = rows
+        .filter((row) => row.kind === "action" && row.seq > target.actionSeq && !suppressed.has(row.seq))
+        .map((row) => row.seq);
+      if (supersedes.length === 0) return ack?.({ error: "nothing to rewind" });
+      await db.insertInto("game_actions").values({
+        session_id: sessionId,
+        seq: (rows.at(-1)?.seq ?? 0) + 1,
+        actor_id: user.id,
+        kind: "correction",
+        payload: JSON.stringify({ supersedes, mode, targetPhase: target.state.phase }),
+        reason: back ? "player returned to previous phase" : "player reset current phase",
+      }).execute();
+      sess.state = structuredClone(target.state);
+      sess.phaseCheckpoints = checkpoints.slice(0, targetIndex + 1);
+      sess.rewindLocked = false;
+      await audit(sess.campaignId, sessionId, user.id, "GamePhaseRewound", { mode, supersedes, phase: target.state.phase });
+      broadcastGameState(sessionId, sess);
+      ack?.({ ok: true });
+    }).catch((error) => {
+      console.error(error);
+      ack?.({ error: "internal error" });
+    });
   });
 
   socket.on("disconnect", () => {
@@ -367,6 +562,7 @@ io.on("connection", (socket) => {
       const m = lobby.get(user.id);
       if (m) {
         m.connected = false;
+        m.ready = false;
         io.to(`lobby:${campaignId}`).emit("lobby:state", [...lobby.values()]);
       }
     }

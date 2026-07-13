@@ -1,6 +1,6 @@
 // new: task 10b — cross-game campaign persistence (SPEC §7, §10)
 import { describe, it, expect } from "vitest";
-import { createGame, applyAction, isLegalStart } from "./engine.ts";
+import { createGame, applyAction, isLegalStart, waitingOn } from "./engine.ts";
 import { initialCampaign, applyGameToCampaign, type CampaignState } from "./campaign.ts";
 import type { GameState } from "./types.ts";
 import { contentPack, cityPopulation } from "@risk/content";
@@ -47,10 +47,44 @@ describe("campaign state (10b)", () => {
     });
     expect(c.board.scars).toEqual([]);
     expect(c.signatures).toEqual({});
+    expect(c.factionPowerChoices).toEqual({});
+    expect(c.board.cardModifications).toHaveLength(12);
+    expect(c.board.cardModifications.every((mod) => mod.resources === 2)).toBe(true);
+  });
+
+  it("keeps permanent legacy state isolated between campaigns", () => {
+    const first = initialCampaign("First World");
+    first.factionPowerChoices.khan_industries = "territory_card_reinforcement";
+    first.board.scars.push({ territoryId: "ural", scarId: "bunker" });
+    first.board.cities.push({ territoryId: "peru", type: "major", name: "Old City", foundedByPlayerId: "u1" });
+    first.inventories.scarInstances.bunker = 0;
+    first.unlockedModules.push("pack_1_advanced_draft_biohazards");
+
+    const second = initialCampaign("Second World");
+    expect(second.factionPowerChoices).toEqual({});
+    expect(second.board.scars).toEqual([]);
+    expect(second.board.cities).toEqual([]);
+    expect(second.inventories.scarInstances.bunker).toBe(3);
+    expect(second.unlockedModules).toEqual([]);
+  });
+
+  it("validates custom before-Game-1 powers and exactly 12 resource stickers capped at 3", () => {
+    const powers = Object.fromEntries(contentPack.factions.map((faction) => [faction.id, faction.startingPowers[0]]));
+    const c = initialCampaign("Custom", {
+      factionPowerChoices: powers,
+      resourceStickerCardIds: ["0", "0", "1", "1", "2", "2", "3", "3", "4", "4", "5", "5"],
+    });
+    expect(c.factionPowerChoices).toEqual(powers);
+    expect(c.board.cardModifications).toHaveLength(6);
+    expect(c.board.cardModifications.every((mod) => mod.resources === 3)).toBe(true);
+    expect(() => initialCampaign("Bad", { resourceStickerCardIds: Array(12).fill("0") })).toThrow(/above 3/);
+    expect(() => initialCampaign("Bad", { resourceStickerCardIds: ["0"] })).toThrow(/exactly 12/);
+    expect(() => initialCampaign("Bad", { factionPowerChoices: {} })).toThrow(/starting power/);
   });
 
   it("applyGameToCampaign folds a finished game's legacy outputs into the campaign", () => {
-    let s = seatAll(createGame({ gameId: "g1", seed: 42, players: P }));
+    const initial = initialCampaign("Terra");
+    let s = seatAll(createGame({ gameId: "g1", seed: 42, players: P, campaign: initial }));
     const winner = s.turnOrder[0];
     // Play a known Bunker onto ural through the real action (consumes the physical instance)
     s.players[winner].scarHand = [{ instanceId: "bunker#1", scarId: "bunker" }];
@@ -66,18 +100,29 @@ describe("campaign state (10b)", () => {
     s = applyAction(s, { type: "reward.choose", playerId: heldOn[1], reward: { kind: "upgrade_territory_card", cardId: cardDef.id } });
     expect(s.rewards!.committed).toBe(true);
 
-    const camp = applyGameToCampaign(initialCampaign("Terra"), s);
+    const camp = applyGameToCampaign(initial, s);
     expect(camp.gameNumber).toBe(1);
     expect(camp.signatures[winner]).toBe(1);
     expect(camp.board.scars).toEqual([{ territoryId: "ural", scarId: "bunker" }]);
     expect(camp.board.cities).toEqual([{ territoryId: minorTid, type: "minor", name: "Linden", foundedByPlayerId: heldOn[0] }]);
     expect(camp.board.continentNames["asia"]).toEqual({ name: "Khanate", namedBy: winner });
-    expect(camp.board.cardModifications).toEqual([{ cardId: cardDef.id, resources: cardDef.resources + 1 }]);
+    const startingResources = initial.board.cardModifications.find((mod) => mod.cardId === cardDef.id)?.resources ?? cardDef.resources;
+    expect(camp.board.cardModifications.find((mod) => mod.cardId === cardDef.id)?.resources).toBe(startingResources + 1);
+    for (const mod of initial.board.cardModifications.filter((mod) => mod.cardId !== cardDef.id)) {
+      expect(camp.board.cardModifications).toContainEqual(mod); // all twelve before-Game-1 stickers persist
+    }
     expect(camp.inventories.minorCities).toBe(8);
     expect(camp.inventories.scarInstances).toEqual({ bunker: 2, ammo_shortage: 3 }); // played bunker consumed; unplayed dealt scars return
     expect(camp.foundedMinorCities).toBe(1);
     const winnerFaction = s.players[winner].factionId!;
     expect(camp.factionResults[winnerFaction]).toEqual(["won"]);
+    expect(camp.factionHistory[winnerFaction]).toEqual([{
+      gameNumber: 1,
+      playerId: winner,
+      playerName: s.players[winner].name,
+      startingTerritoryId: s.players[winner].startingTerritoryId,
+      result: "won",
+    }]);
     expect(camp.factionResults["imperial_balkania"]).toEqual(["unused"]); // 3p game: 2 factions unused
   });
 
@@ -93,6 +138,9 @@ describe("campaign state (10b)", () => {
     camp.board.cardModifications = [{ cardId: "0", resources: 3 }, { cardId: "5", destroyed: true }];
     camp.inventories.minorCities = 8;
     camp.inventories.scarInstances = { bunker: 1, ammo_shortage: 0 };
+    camp.factionHistory = {
+      khan_industries: [{ gameNumber: 1, playerId: "u1", playerName: "Ada", startingTerritoryId: "alaska", result: "won" }],
+    };
 
     const s = createGame({ gameId: "g2", seed: 7, players: P, campaign: camp });
     expect(s.gameNumber).toBe(2);
@@ -102,6 +150,7 @@ describe("campaign state (10b)", () => {
     expect(s.players["u2"].missiles).toBe(0);
     expect(s.players["u2"].redStarTokens).toBe(1);
     expect(s.signatures).toEqual({ u1: 2, u2: 0, u3: 0 });
+    expect(s.factionHistory.khan_industries).toEqual(camp.factionHistory.khan_industries);
     // board legacy
     expect(s.territories["ural"].scars).toEqual(["ammo_shortage"]);
     expect(s.territories["peru"].city).toEqual({ type: "major", population: cityPopulation("major"), name: "Novagrad", foundedByPlayerId: "u2" });
@@ -155,6 +204,41 @@ describe("campaign state (10b)", () => {
     expect(after.gameNumber).toBe(16);
     const winnerFaction = s.players[s.winner!].factionId!;
     expect(after.factionResults[winnerFaction]).toEqual(["won"]);
+  });
+
+  it("completes Game 15 with the official most-wins tie roll and persists the final world name", () => {
+    const camp = initialCampaign("Terra");
+    camp.gameNumber = 14;
+    let s = seatAll(createGame({ gameId: "g15", seed: 15, players: P, campaign: camp }));
+    const winner = s.turnOrder[0];
+    const tiedPlayer = s.turnOrder[1];
+    s.signatures = { [winner]: 3, [tiedPlayer]: 4, [s.turnOrder[2]]: 2 }; // winner's new signature creates a 4-4 tie
+    s.continents.africa = { name: "Tied Player's Reach", namedBy: tiedPlayer };
+    s = winNow(s);
+    for (const playerId of s.rewards!.order) {
+      s = applyAction(s, {
+        type: "reward.choose",
+        playerId,
+        reward: playerId === winner
+          ? { kind: "name_continent", continentId: "asia", name: "Winner's Reach" }
+          : { kind: "pass" },
+      });
+    }
+
+    expect(s.rewards?.committed).toBe(true);
+    expect(s.worldCompletion?.name).toBeUndefined();
+    expect(s.log.some((event) => event.type === "WorldNamingRoll")).toBe(true);
+    const namer = s.worldCompletion!.namingPlayerId;
+    expect(waitingOn(s)).toBe(namer);
+    const wrong = s.turnOrder.find((playerId) => playerId !== namer)!;
+    expect(() => applyAction(s, { type: "world.name", playerId: wrong, name: "Stolen" })).toThrow(/selected player/);
+    s = applyAction(s, { type: "world.name", playerId: namer, name: "Aeternum" });
+    expect(waitingOn(s)).toBeUndefined();
+
+    const completed = applyGameToCampaign(camp, s);
+    expect(completed.worldName).toBe("Aeternum");
+    expect(completed.completedWorld).toEqual({ namedByPlayerId: namer, completedAtGame: 15 });
+    expect(createGame({ gameId: "g16", seed: 16, players: P, campaign: completed }).worldName).toBe("Aeternum");
   });
 
   it("round-trips: game 1 fold seeds game 2 (winner's signature becomes a missile)", () => {

@@ -5,8 +5,8 @@
 // unlocks → aftermath (per-faction results + world-change recap).
 import { useState } from "react";
 import { manifest } from "@risk/map";
-import { contentPack, ruleValue } from "@risk/content";
-import type { Action, GameState } from "@risk/rules";
+import { ruleValue } from "@risk/content";
+import { territoryCardDefinitions, type Action, type GameState } from "@risk/rules";
 import type { UiState } from "./GameScreen.tsx";
 import { cardResources, continentName, factionById, scarName, territoryName } from "./labels.ts";
 import FactionEmblem from "./FactionEmblem.tsx";
@@ -20,10 +20,15 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
   ui: UiState;
   setUi: (fn: (u: UiState) => UiState) => void;
 }) {
-  const [step, setStep] = useState<"victory" | "signing" | "rewards">("victory");
+  // A sealed-content pause temporarily unmounts this flow. Rewards are already
+  // committed at that point, so resume after the ritual instead of replaying it.
+  const [step, setStep] = useState<"victory" | "signing" | "rewards">(
+    () => gs.rewards?.committed ? "rewards" : "victory",
+  );
   const [envelopeDone, setEnvelopeDone] = useState(false);
   const [torn, setTorn] = useState(false);
   const [closed, setClosed] = useState(false);
+  const [completedWorldName, setCompletedWorldName] = useState("");
 
   const winner = gs.winner!;
   const winnerP = gs.players[winner];
@@ -37,8 +42,9 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
   if (closed) {
     return (
       <button onClick={() => setClosed(false)}
-        className="absolute bottom-4 right-3 lg:right-[356px] z-30 bg-panel border border-signal rounded-sm px-3 py-1.5 font-mono text-xs text-signal hover:brightness-110">
-        AFTERMATH ▴
+        className="fixed left-3 top-24 z-30 w-44 bg-panel border border-signal rounded-sm px-4 py-3 text-left shadow-xl hover:brightness-110">
+        <span className="block font-mono text-[9px] uppercase tracking-widest text-muted">Game complete</span>
+        <span className="block font-display font-bold tracking-widest text-sm text-signal">VIEW AFTERMATH</span>
       </button>
     );
   }
@@ -93,6 +99,33 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
   // step === "rewards": modal sequence while open, then envelope reveal, then aftermath.
   if (rewardsOpen) {
     return <RewardModal gs={gs} dispatch={dispatch} canActFor={canActFor} setUi={setUi} />;
+  }
+
+  if (gs.worldCompletion && !gs.worldCompletion.name) {
+    const namingPlayer = gs.players[gs.worldCompletion.namingPlayerId];
+    const canName = canActFor(gs.worldCompletion.namingPlayerId) && completedWorldName.trim().length > 0;
+    return (
+      <TakeoverOverlay label="Name the completed world">
+        <div className="flex flex-col items-center text-center gap-4 pt-8 max-w-lg mx-auto">
+          <p className="font-mono text-[10px] text-muted uppercase tracking-widest">The fifteenth war is complete</p>
+          <h2 className="font-display font-bold tracking-widest text-3xl text-signal">NAME THE WORLD</h2>
+          <DecisionChip name={namingPlayer.name} color={factionById(namingPlayer.factionId)?.color}
+            factionId={namingPlayer.factionId} />
+          <p className="text-sm text-muted">
+            The player with the most victories names the completed world. This replaces its campaign name permanently.
+          </p>
+          <input aria-label="Completed world name" placeholder="enter the world's final name"
+            value={completedWorldName} onChange={(event) => setCompletedWorldName(event.target.value)}
+            disabled={!canActFor(gs.worldCompletion.namingPlayerId)}
+            className="w-full max-w-sm bg-ink border border-line rounded-sm px-3 py-2 text-center" />
+          <Btn tone="primary" disabled={!canName} onClick={() => dispatch({
+            type: "world.name",
+            playerId: gs.worldCompletion!.namingPlayerId,
+            name: completedWorldName,
+          })}>SEAL THE NAME</Btn>
+        </div>
+      </TakeoverOverlay>
+    );
   }
 
   if (revealed.length > 0 && !envelopeDone) {
@@ -171,7 +204,9 @@ function recapLine(gs: GameState, type: string, playerId?: string, data?: Record
     case "ContinentBonusChanged": return `${continentName(data?.continentId as string)} bonus permanently ${(data?.delta as number) > 0 ? "+1" : "−1"} (${who}).`;
     case "CityFortified": return `${who} fortified the city in ${territoryName(data?.territory as string)}.`;
     case "TerritoryCardUpgraded": return `${who} upgraded a Resource card to ${data?.resources} resources.`;
+    case "TerritoryCardDestroyed": return `${who} permanently destroyed the ${territoryName(data?.territory as string)} Territory card.`;
     case "ModuleRevealed": return `SEALED PACK OPENED — ${data?.name ?? data?.moduleId}.`;
+    case "WorldNamed": return `${who} completed and named the world “${data?.name}”.`;
     case "EndGameRewardsSkipped": return `Starter rewards have ended (game ${data?.gameNumber}).`;
     default: return null;
   }
@@ -199,7 +234,7 @@ function Envelope({ torn }: { torn: boolean }) {
 // ---------- Reward modal (sticker sheet) ----------
 
 interface RewardDef {
-  kind: NonNullable<UiState["rewardTarget"]>["kind"] | "upgrade_territory_card" | "pass";
+  kind: NonNullable<UiState["rewardTarget"]>["kind"] | "upgrade_territory_card" | "destroy_territory_card" | "pass";
   title: string;
   desc: string;
   left?: number;
@@ -212,13 +247,13 @@ function RewardModal({ gs, dispatch, canActFor, setUi }: {
   canActFor: (pid: string) => boolean;
   setUi: (fn: (u: UiState) => UiState) => void;
 }) {
-  const [pickingUpgrade, setPickingUpgrade] = useState(false);
+  const [pickingCards, setPickingCards] = useState<"upgrade" | "destroy" | null>(null);
   const r = gs.rewards!;
   const claimant = r.order[r.nextIdx];
   const p = gs.players[claimant];
   const isWinner = r.nextIdx === 0;
   const live = canActFor(claimant);
-  const terrs = Object.values(gs.territories);
+  const terrs = manifest.territories.map((territory) => gs.territories[territory.id]);
 
   const unnamed = manifest.continents.filter((c) => !gs.continents[c.id]?.name).length;
   const marks = Object.values(gs.continents).map((c) => c.bonusMark);
@@ -228,11 +263,13 @@ function RewardModal({ gs, dispatch, canActFor, setUi }: {
   const anyCity = terrs.some((t) => !!t.city);
   const cityless = terrs.some((t) => !t.city);
   const maxRes = ruleValue<number>("cardUpgradeMaxResources");
-  const upgradable = contentPack.cards.territoryCards.filter((c) =>
+  const territoryCards = territoryCardDefinitions(!!gs.alienIsland);
+  const upgradable = territoryCards.filter((c) =>
     gs.territories[c.territoryId].controller === claimant &&
     !gs.sideboard.destroyed.includes(c.id) &&
     cardResources(gs, c.id) < maxRes);
   const ownCityless = terrs.some((t) => t.controller === claimant && !t.city);
+  const destroyable = territoryCards.filter((card) => !gs.sideboard.destroyed.includes(card.id));
 
   const winnerRewards: RewardDef[] = [
     { kind: "name_continent", title: "Name a Continent", desc: "Permanently name an unnamed continent. +1 recruit there whenever you control it.", left: unnamed, reason: unnamed === 0 ? "all continents are named" : undefined },
@@ -240,6 +277,7 @@ function RewardModal({ gs, dispatch, canActFor, setUi }: {
     { kind: "cancel_scar", title: "Cancel a Scar", desc: "Destroy a scar on the board, permanently.", left: gs.inventories.cancelStickers, reason: gs.inventories.cancelStickers === 0 ? "no cancel stickers left" : !scarred ? "no scars on the board" : undefined },
     { kind: "change_continent_bonus", title: "Change a Continent Bonus", desc: "Mark a continent +1 or −1, permanently. Each mark exists once; each continent changes once.", left: bonusLeft, reason: bonusLeft === 0 ? "both bonus marks are used" : unmarkedContinents === 0 ? "every continent already changed" : undefined },
     { kind: "fortify_city", title: "Fortify a City", desc: "Set (or reset) a city's Fortification at full durability: +1 to each defense die.", left: gs.inventories.fortifyMarks, reason: gs.inventories.fortifyMarks === 0 ? "no Fortification marks left" : !anyCity ? "no cities on the board" : undefined },
+    { kind: "destroy_territory_card", title: "Destroy a Territory Card", desc: "Permanently remove one Territory card from this campaign. That territory can never provide a matching face-up card again.", left: destroyable.length, reason: destroyable.length === 0 ? "all Territory cards are already destroyed" : undefined },
   ];
   const heldOnRewards: RewardDef[] = [
     { kind: "found_minor_city", title: "Found a Minor City", desc: "Place a Minor City in a territory you control at game end.", left: gs.inventories.minorCities, reason: gs.inventories.minorCities === 0 ? "no Minor Cities left" : !ownCityless ? "no eligible territory under your control" : undefined },
@@ -250,7 +288,8 @@ function RewardModal({ gs, dispatch, canActFor, setUi }: {
 
   const choose = (def: RewardDef) => {
     if (def.kind === "pass") return dispatch({ type: "reward.choose", playerId: claimant, reward: { kind: "pass" } });
-    if (def.kind === "upgrade_territory_card") return setPickingUpgrade(true);
+    if (def.kind === "upgrade_territory_card") return setPickingCards("upgrade");
+    if (def.kind === "destroy_territory_card") return setPickingCards("destroy");
     setUi((u) => ({ ...u, rewardTarget: { kind: def.kind as NonNullable<UiState["rewardTarget"]>["kind"], playerId: claimant, delta: 1 } }));
   };
 
@@ -260,10 +299,10 @@ function RewardModal({ gs, dispatch, canActFor, setUi }: {
         <h3 className="font-display font-bold tracking-widest text-sm">
           SPOILS OF WAR — {isWinner ? "WINNER" : "HELD ON"} ({r.nextIdx + 1}/{r.order.length})
         </h3>
-        <DecisionChip name={p.name} color={factionById(p.factionId)?.color} />
+        <DecisionChip name={p.name} color={factionById(p.factionId)?.color} factionId={p.factionId} />
       </div>
       <div className="px-5 py-4">
-        {!pickingUpgrade ? (
+        {!pickingCards ? (
           <div className="grid grid-cols-1 gap-2">
             {sheet.map((def) => (
               <button key={def.kind} disabled={!live || !!def.reason} onClick={() => choose(def)}
@@ -286,18 +325,25 @@ function RewardModal({ gs, dispatch, canActFor, setUi }: {
           </div>
         ) : (
           <div>
-            <p className="text-xs text-muted mb-2">Pick a territory card you control — the new coin is added permanently.</p>
+            <p className="text-xs text-muted mb-2">
+              {pickingCards === "upgrade"
+                ? "Pick a Territory card you control. One coin is added permanently."
+                : "Pick any Territory card. It is permanently removed from this campaign and cannot return."}
+            </p>
             <div className="flex flex-wrap gap-2 max-h-72 overflow-y-auto">
-              {upgradable.map((c) => (
+              {(pickingCards === "upgrade" ? upgradable : destroyable).map((c) => (
                 <ResourceCard key={c.id} size="md" cardId={c.id} resources={cardResources(gs, c.id)}
                   onClick={live ? () => {
-                    dispatch({ type: "reward.choose", playerId: claimant, reward: { kind: "upgrade_territory_card", cardId: c.id } });
-                    setPickingUpgrade(false);
+                    dispatch({ type: "reward.choose", playerId: claimant, reward: {
+                      kind: pickingCards === "upgrade" ? "upgrade_territory_card" : "destroy_territory_card",
+                      cardId: c.id,
+                    } });
+                    setPickingCards(null);
                   } : undefined} />
               ))}
             </div>
             <div className="pt-3">
-              <Btn onClick={() => setPickingUpgrade(false)}>BACK</Btn>
+              <Btn onClick={() => setPickingCards(null)}>BACK</Btn>
             </div>
           </div>
         )}

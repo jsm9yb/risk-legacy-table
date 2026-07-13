@@ -50,6 +50,22 @@
       ]
     }
   ],
+  "sealedFactions": [
+    {
+      "id": "mutants",
+      "name": "Mutants",
+      "color": "#9aa83f",
+      "sourceModuleId": "pocket_1_nuclear_war_mutants",
+      "startingPowers": []
+    },
+    {
+      "id": "aliens",
+      "name": "Aliens",
+      "color": "#6dced1",
+      "sourceModuleId": "pocket_2_alien_landing",
+      "startingPowers": []
+    }
+  ],
   "powers": [
     {
       "id": "fortified_hq",
@@ -189,6 +205,61 @@
       },
       "verification": "confirmed",
       "text": "Pack 2 scar. At the controller's end of turn, gain 1 troop if still controlled. Playable once Pack 2 unlocks (SPEC section 5, confirmed)."
+    },
+    {
+      "id": "weakness_cautious",
+      "name": "Cautious",
+      "target": "faction",
+      "handler": "alterRecruitment",
+      "source": "pocket2",
+      "starterPlayable": false,
+      "instances": 1,
+      "verification": "confirmed",
+      "text": "Recruited troops may be placed into no more than two territories."
+    },
+    {
+      "id": "weakness_purist",
+      "name": "Purist",
+      "target": "faction",
+      "handler": "alterRecruitment",
+      "source": "pocket2",
+      "starterPlayable": false,
+      "instances": 1,
+      "verification": "confirmed",
+      "text": "This faction cannot hold more than two Coin cards."
+    },
+    {
+      "id": "weakness_short_sighted",
+      "name": "Short-Sighted",
+      "target": "faction",
+      "handler": "extraManeuver",
+      "source": "pocket2",
+      "starterPlayable": false,
+      "instances": 1,
+      "verification": "confirmed",
+      "text": "This faction may maneuver only to a neighboring territory."
+    },
+    {
+      "id": "weakness_city_shy",
+      "name": "Unpopular",
+      "target": "faction",
+      "handler": "legalStartOverride",
+      "source": "pocket2",
+      "starterPlayable": false,
+      "instances": 1,
+      "verification": "confirmed",
+      "text": "Lose one additional troop when expanding into an empty city."
+    },
+    {
+      "id": "weakness_primitive",
+      "name": "Primitive",
+      "target": "faction",
+      "handler": "alterRecruitment",
+      "source": "pocket2",
+      "starterPlayable": false,
+      "instances": 1,
+      "verification": "confirmed",
+      "text": "Do not count population when recruiting troops."
     },
     {
       "id": "fortification",
@@ -653,10 +724,10 @@
         ],
         "scars": 3,
         "events": [
-          "urban_panic",
-          "civil_engineers",
-          "city_collapse",
-          "minor_city_shortage"
+          "fortify_x2",
+          "control_the_people_x2",
+          "riots_x1",
+          "resistance_x2"
         ]
       },
       "factionsAdded": [],
@@ -668,8 +739,8 @@
         "onRecruitmentCalculated"
       ],
       "scarSource": "pack1",
-      "contentRequired": ["draft", "events"],
-      "implementationStatus": "content_seeded",
+      "contentRequired": [],
+      "implementationStatus": "playable",
       "locked": true
     },
     {
@@ -683,12 +754,12 @@
       ],
       "cardsAdded": {
         "powers": [
-          "border_recruiters",
-          "underground_network",
-          "siege_doctrine",
-          "mobile_command",
-          "contract_army",
-          "stockpiled_ammunition"
+          "resourceful",
+          "stealthy",
+          "well_armed",
+          "mobile",
+          "convincing",
+          "well_supplied"
         ],
         "scars": 3
       },
@@ -701,8 +772,8 @@
         "onPlayerEliminated"
       ],
       "scarSource": "pack2",
-      "contentRequired": ["powers"],
-      "implementationStatus": "content_seeded",
+      "contentRequired": [],
+      "implementationStatus": "playable",
       "locked": true
     },
     {
@@ -716,15 +787,17 @@
       ],
       "cardsAdded": {
         "missions": [
-          "claim_the_homeland",
-          "defend_the_people",
-          "supply_corridor",
-          "found_the_world_capital",
-          "break_the_giant",
-          "national_identity"
+          "imperial_might",
+          "unexpected_attack",
+          "amphibious_onslaught",
+          "urban_assault",
+          "reign_of_terror",
+          "superior_infrastructure",
+          "explore_the_world",
+          "the_world_is_ready"
         ],
         "events": [
-          "largest_population_themed"
+          "join_the_cause_x3"
         ]
       },
       "factionsAdded": [],
@@ -735,7 +808,8 @@
         "onGameEnd",
         "onMissionCompleted"
       ],
-      "implementationStatus": "content_seeded",
+      "contentRequired": [],
+      "implementationStatus": "playable",
       "locked": true
     },
     {
@@ -751,12 +825,12 @@
       ],
       "cardsAdded": {
         "privateMissions": [
-          "silent_coup",
-          "secure_the_capital",
-          "trade_monopoly",
-          "urban_dominion",
-          "continental_mandate",
-          "decapitation_strike"
+          "wide_border",
+          "forced_occupation",
+          "guerilla_warfare",
+          "advanced_training",
+          "urban_troop_surge",
+          "advanced_tactics"
         ]
       },
       "factionsAdded": [],
@@ -769,7 +843,8 @@
         "onGameEnd",
         "onMissionCompleted"
       ],
-      "implementationStatus": "content_seeded",
+      "contentRequired": [],
+      "implementationStatus": "playable",
       "locked": true
     },
     {
@@ -784,23 +859,26 @@
       ],
       "cardsAdded": {
         "missilePowers": [
-          "last_warning",
-          "dead_zone_strike",
-          "hardened_silos",
-          "fallout_march"
+          "recon",
+          "bad_intel",
+          "rally",
+          "emp",
+          "interference"
         ],
         "events": [
-          "mutant_themed"
+          "the_mutants_evolve_x2",
+          "agent_of_chaos_x3",
+          "fallout_x3"
         ]
       },
       "factionsAdded": [
         {
           "id": "mutants",
           "evolutions": [
-            "rad_hardened",
-            "swarm_adaptation",
-            "toxic_memory",
-            "broken_diplomacy"
+            "unnatural_strength",
+            "mindshackle",
+            "defensive_cloning",
+            "mass_hypnosis"
           ]
         }
       ],
@@ -811,7 +889,8 @@
         "onMissilePlayed",
         "onCombatRollPendingResolution"
       ],
-      "implementationStatus": "content_seeded",
+      "contentRequired": [],
+      "implementationStatus": "playable",
       "locked": true
     },
     {
@@ -826,10 +905,9 @@
       ],
       "cardsAdded": {
         "events": [
-          "strange_lights",
-          "contact_protocol",
-          "island_surge",
-          "technology_leak"
+          "die_humans_x3",
+          "beam_down_x2",
+          "mysterious_island_x2"
         ],
         "scars": [
           "weakness_yellow"
@@ -838,12 +916,7 @@
       "factionsAdded": [
         {
           "id": "aliens",
-          "powers": [
-            "orbital_drop",
-            "abduction_sweep",
-            "atmospheric_shield",
-            "signal_beacon"
-          ]
+          "powers": []
         }
       ],
       "stateAdded": [
@@ -852,7 +925,9 @@
       "rulesHooks": [
         "onRecruitmentCalculated"
       ],
-      "implementationStatus": "content_seeded",
+      "scarSource": "pocket2",
+      "contentRequired": [],
+      "implementationStatus": "playable",
       "locked": true
     },
     {

@@ -20,7 +20,7 @@ export default function ScarCard({ scarId, size = "sm", onClick, selected }: {
       </span>
       <span className="relative flex-1 m-[6%] rounded-[3%] overflow-hidden border border-danger/40 bg-[#1a0d0e]">
         {art
-          ? <img src={art} alt={`${name} scar`} className="absolute inset-0 w-full h-full object-cover" />
+          ? <img src={art} alt={`${name} scar`} className="absolute inset-0 w-full h-full object-contain p-[5%]" />
           : <span className="absolute inset-0 flex items-center justify-center font-display font-bold text-danger text-[2.5em]">!</span>}
       </span>
     </span>

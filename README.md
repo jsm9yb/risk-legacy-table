@@ -2,14 +2,24 @@
 
 Private, non-commercial digital table for one game group's Risk Legacy campaign. Built from `risk-legacy-web-rebuild-plan.md`.
 
+## Studio table runtime
+
+This is the standalone sibling project that executes [the Presentation Runtime Migration Specification](docs/PRESENTATION-RUNTIME-MIGRATION-SPEC.md) without modifying `risk-legacy-web`.
+
+PixiJS owns the board, generated one-/three-troop miniatures, HQs, permanent marks, camera, interaction treatments, and effects. React owns decisions, cards, HUD, settings, and the synchronized accessible board. A Presentation Director keeps Presented State behind Authoritative State long enough to explain recruitment, movement, battle, conquest, scars, module reveals, legacy rituals, and victory in causal order.
+
+The generated faction sheets live in `apps/web/src/assets/table/pieces`; transparent masters and export notes live in `art-source`. Production atlases are 78–122 KB each versus a 700 KB budget. The Balanced board source rasterizes near a 2250-pixel long edge, while High uses 3000 and Low 1500.
+
+For focused visual QA, open `/?table-demo=1`. The fixture uses the production Pixi runtime and exercises every faction, interaction intent, battle, conquest, scars, modules, and victory.
+
 ## Layout
 
 ```
-packages/map        42-territory manifest (adjacency, continents, anchors), board SVG generator + validation
+packages/map        rules geometry plus validated presentation slots, markers, routes, camera focus, and board source
 packages/content    canonical content pack (factions, powers, scars, 52 resource cards, payout table, rule constants, sealed unlock gates) + zod validation
 packages/rules      deterministic seeded rules engine (event-emitting, replayable) + vitest suite
 apps/server         Express + Socket.IO + Kysely/Postgres: accounts, campaigns/invites, lobbies, append-only action ledger, hidden-state filtering, auto campaign export on game end
-apps/web            Vite/React/Tailwind war-room UI: hub + fully playable local hot-seat sandbox
+apps/web            React decision UI plus lazy Pixi table, accessibility mirror, generated atlases, and Playwright E2E
 tools/simulator     seeded full-game CLI harness through the real action API
 ```
 
@@ -17,11 +27,18 @@ tools/simulator     seeded full-game CLI harness through the real action API
 
 ```bash
 npm install
-npm test                 # 100 tests (engine, campaign, unlocks, content, map, server via pg-mem, web via jsdom)
+npm test                 # engine, campaign matrix, unlocks, content, map, server via pg-mem, and web UI
 npm run lint             # tsc typecheck, all projects
 npm run validate:content # blocks on errors; prints verify-pending warnings
 npm run sim -- 1234 4    # full seeded 4-player game in the terminal
+npm run campaign:fixtures # materialize 18 campaign-stage QA snapshots
 npm run dev:web          # hot-seat sandbox at http://localhost:5173
+npm run validate:presentation-map
+npm run test:presentation
+npm run test:visual      # Chromium goldens: factions, marks, tiers, motion, desktop/tablet/phone
+npm run perf:table       # 150+ piece, battle, diagnostics, and resize renderer budgets
+npm run perf:table:soak  # 30-minute active/idle heap and resource endurance gate
+npm run assets:table:report
 ```
 
 ## LAN deployment (Mac mini)
@@ -35,9 +52,13 @@ npm run dev:web          # hot-seat sandbox at http://localhost:5173
    ```
 2. Backups: completed games auto-write campaign export JSON to `BACKUP_DIR`. Add a nightly `pg_dump` cron on the host for the second backup direction.
 
-## Board SVG contract
+## Table presentation contract
 
-The repo renders `packages/map/assets/board.svg` as the web board art. It is generated from normalized territory paths plus the map manifest and keeps the runtime contract stable: root id `risk-board-modern`, viewBox `0 0 749.819 519.068`, and 42 `path.territory-border` elements whose ids are the canonical territory ids. The web `Board` component binds clicks and highlights to those paths, while the map manifest remains the source of truth for adjacency and game rules.
+The hand-authored `packages/map/assets/board.svg`, canonical territory ids, adjacency, and `0 0 749.819 519.068` coordinates remain fixed. `GameTable` lazy-loads the Pixi adapter only on game entry. `packages/map/data/presentation.json` supplies authored territory profiles, and `packages/map/src/presentation.ts` expands and validates piece, marker, overflow, label-avoidance, and camera slots. The synchronized DOM adapter exposes exact state and legal actions without rendering visual pieces.
+
+## Legacy board source
+
+The production Pixi scene rasterizes the hand-authored SVG at a quality-tier-specific resolution and builds pointer masks from canonical territory paths. `npm run generate:board` writes `board.generated-preview.svg` for geometry debugging and never overwrites the production artwork.
 
 ## Confirmed core rules
 
@@ -55,7 +76,7 @@ These were verified against the rulebook and corrected in pack **v2**. Values li
 
 Scar effects are confirmed in data **and wired into the engine** (Slice 8): Bunker (+1 highest def die), Ammo Shortage (−1 highest def die), Biohazard (−1 troop at controller's end of turn; territory vacated if it was the last), Fortification (+1 each def die, +2 expand, durability 10 marked on 3-attacker rolls, expires at 0). Missile-set dice stay unmodifiable — scars never alter a missile 6. Starter scars (Bunker, Ammo Shortage) are now **placeable in play** via the `scar.play` action, so these effects are reachable in a real game. Defense dice are clamped to 1..6 after scar modifiers.
 
-All ten **faction starting powers** (SPEC §6) are implemented and `confirmed`: a faction's power is chosen on its first play (`setup.choose` powerId), attaches to the faction permanently, carries across games via the campaign, and every application emits `FactionPowerApplied`. **Still genuinely pending:** module-gated content only (e.g. the Pack 2 Mercenary scar) — unlocked by the module engine (BACKLOG task 11).
+All ten **faction starting powers** (SPEC §6) are implemented and `confirmed`: before Game 1 the campaign stores one validated power for every faction, the power attaches to the faction permanently, and every application emits `FactionPowerApplied`. The same initializer places the official 12 starting Resource stickers (maximum 3 resources per Territory card).
 
 Already enforced: 4 Red Stars to win with immediate board lock, defender wins ties, missiles = unmodifiable 6 with sequential post-roll windows, conquest move-in min = surviving attackers / max = all-but-one, 4-slot face-up sideboard with slot-4 discard on coin draw, mandatory matching face-up territory card, deck reshuffle from discard, first coin-pile depletion red-star award (tie = none), knockout vs. elimination with automatic resource-card transfer, HQs as independent pieces keyed to original faction, Won/Held-On/Eliminated auto-classification.
 
@@ -63,4 +84,4 @@ Already enforced: 4 Red Stars to win with immediate board lock, defender wins ti
 
 Live task status, dependencies, and what to build next live in **[BACKLOG.md](BACKLOG.md)**; dated history is in [PROGRESS.md](PROGRESS.md); design intent in [SPEC.md](SPEC.md).
 
-High level: the **base single game is complete and playable hot-seat** with **all ten faction powers**, **placeable starter scars**, **in-engine end-game rewards/signatures**, **cross-game campaign persistence** (engine `CampaignState` + server `campaigns.state`), and the **unlock-module engine** (Pack 1 + Pack 2 trigger/reveal live; Mercenary wired; sealed content pauses on host-entered text). The simulator chains two campaign games end-to-end — a game-1 elimination unlocks Pack 2 and game 2 deals Mercenary scars from the folded campaign. The rule decisions D1–D5 are all resolved (SPEC §5–§10). **Networked play is reachable through the browser**: hub → CONNECT → register/login → campaigns/invites → lobby (with the **sealed-content import wizard** for `content_required` unlocks) → the networked game screen on the per-viewer filtered Socket.IO protocol (`game:join`, `game:action`, `game:state`), sharing the same `GameScreen` as the hot-seat sandbox. Effects render via **PixiJS** at the `EffectsLayer` seam (graceful fallback without WebGL). The tactical SVG board art is active; remaining future work is queued in BACKLOG.
+High level: the **canonical campaign is executable from Game 1 through post-Game-15 play**. That includes all ten starting faction powers, scars, end-game rewards/signatures, campaign persistence, all four Packs, both Pockets, public and Private Missions, every standard sealed Event, Mutants/evolutions/Missile Powers, Aliens/Weaknesses/Ruins, and Alien Island's topology and Territory card. Eighteen campaign-stage fixtures exercise every trigger boundary and active module, legal setup, Red Star victory/reward flow, game-to-campaign fold, persisted JSON, and next-game creation; all 18 also round-trip through the browser save store and PostgreSQL snapshots. The simulator chains two games end-to-end. **Networked play is reachable through the browser**: hub → CONNECT → register/login → campaigns/invites → lobby → shared game screen. A compatibility import wizard remains for custom/legacy card overrides. The optional Do Not Open Ever packet is intentionally disabled. Verification and provenance live in [the rulebook audit](docs/RULEBOOK-CAMPAIGN-AUDIT.md) and [sealed-content source audit](docs/SEALED-CONTENT-SOURCE-AUDIT.md).

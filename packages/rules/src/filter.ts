@@ -22,6 +22,22 @@ export type FilteredGameState = GameState & FilteredExtras;
  */
 export function filterStateFor(state: GameState, viewerId: PlayerId | null): FilteredGameState {
   const s = structuredClone(state) as FilteredGameState;
+  s.legacyCards ??= {
+    eventDeck: [], eventDiscard: [], eventBox: [], ongoingEvents: [],
+    missionDeck: [], missionBox: [], privateMissionPool: [],
+  };
+  s.legacyCards.privateMissionPool ??= [];
+  s.factionMissilePowers ??= {};
+  s.factionWeaknesses ??= {};
+  s.mutantEvolutionChoices ??= [];
+  s.missilePowersUsedThisTurn ??= [];
+  s.empTerritories ??= [];
+  s.badIntelDeniedContinents ??= [];
+  s.blockedResourceDraws ??= [];
+  s.customConnections ??= [];
+  s.privateMissionProgress ??= {
+    tradedResources: 0, highValueTerritoryCards: 0, forcedOccupation: false, wideBorderAtStart: false,
+  };
   for (const p of Object.values(s.players)) {
     (p as any).handCount = p.hand.length; // public resource card count
     if (p.id !== viewerId) {
@@ -34,6 +50,27 @@ export function filterStateFor(state: GameState, viewerId: PlayerId | null): Fil
   s.sideboard.territoryDeck = [];
   (s.sideboard as any).coinCount = s.sideboard.coinPile.length;
   s.sideboard.coinPile = [];
+  // Event/Mission deck order is hidden; only the face-up/pending cards and counts
+  // are public. Discard/box contents are already known from prior reveals.
+  (s.legacyCards as any).eventDeckCount = s.legacyCards.eventDeck.length;
+  (s.legacyCards as any).missionDeckCount = s.legacyCards.missionDeck.length;
+  (s.legacyCards as any).privateMissionPoolCount = s.legacyCards.privateMissionPool.length;
+  s.legacyCards.eventDeck = [];
+  if (state.missionChoice?.playerId !== viewerId) s.legacyCards.missionDeck = [];
+  s.legacyCards.privateMissionPool = [];
+  const viewerFaction = viewerId ? state.players[viewerId]?.factionId : undefined;
+  for (const [factionId, mission] of Object.entries(s.capturedPrivateMissions ?? {})) {
+    if (factionId === viewerFaction) continue;
+    s.capturedPrivateMissions[factionId] = {
+      id: `hidden:${factionId}`,
+      sourceModuleId: mission.sourceModuleId,
+      title: "Private Mission",
+      text: "",
+    };
+  }
+  // Host-entered sealed text may contain private missions or other hidden cards.
+  // Clients only need the public requirement names; authoritative content stays server-side.
+  s.hostContent = {};
   // Quick-look pane payload (Q48): tokens, board stars, totals
   s.quickLook = Object.values(state.players).map((p) => ({
     id: p.id, name: p.name, factionId: p.factionId,

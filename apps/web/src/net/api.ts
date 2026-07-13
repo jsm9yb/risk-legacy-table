@@ -3,7 +3,15 @@
 
 export interface AuthUser { id: string; username: string; displayName: string }
 export interface AuthResult { token: string; user: AuthUser }
-export interface CampaignSummary { id: string; worldName: string; gameNumber: number; role: string; inviteCode?: string }
+export interface CampaignSummary {
+  id: string;
+  worldName: string;
+  gameNumber: number;
+  role: string;
+  inviteCode?: string;
+  activeSessionId?: string;
+  hasActiveGame?: boolean;
+}
 export interface ContentRequirement { moduleId: string; items: string[] } // new (12)
 export interface CampaignLegacy { worldName: string; gameNumber: number; unlockedModules: string[]; contentRequired: ContentRequirement[] } // new (12)
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createGame, applyAction, recruitBreakdown, redStars, waitingOn, isLegalStart, RuleViolation } from "./engine.ts";
+import { endTurnDecision } from "./decisions.ts";
 import { initialCampaign, applyGameToCampaign } from "./campaign.ts"; // new (9)
 import type { GameState } from "./types.ts";
 import { manifest } from "@risk/map";
@@ -33,12 +34,46 @@ function setupGame(seed = 42): GameState {
   return s;
 }
 
+function setupCampaignGame(campaign: ReturnType<typeof initialCampaign>, seed = 42): GameState {
+  let s = createGame({ gameId: `campaign-${seed}`, seed, players: P, campaign });
+  while (s.advancedDraft && !s.advancedDraft.completed) {
+    const playerId = waitingOn(s)!;
+    const picks = s.advancedDraft.picks[playerId];
+    if (!picks.factionId) s = applyAction(s, { type: "draft.pick", playerId, category: "faction", value: s.advancedDraft.available.factions[0] });
+    else if (picks.turnOrder === undefined) s = applyAction(s, { type: "draft.pick", playerId, category: "turnOrder", value: s.advancedDraft.available.turnOrder[0] });
+    else if (picks.placementOrder === undefined) s = applyAction(s, { type: "draft.pick", playerId, category: "placementOrder", value: s.advancedDraft.available.placementOrder[0] });
+    else if (picks.startingTroops === undefined) s = applyAction(s, { type: "draft.pick", playerId, category: "startingTroops", value: s.advancedDraft.available.startingTroops[0] });
+    else s = applyAction(s, { type: "draft.pick", playerId, category: "startingCoinCards", value: s.advancedDraft.available.startingCoinCards[0] });
+  }
+  const starts = ["alaska", "brazil", "western_australia"];
+  for (const [idx, pid] of [...s.setup!.chooserOrder].entries()) {
+    const factionId = s.advancedDraft?.picks[pid].factionId ?? ["khan_industries", "die_mechaniker", "saharan_republic"][P.findIndex((player) => player.id === pid)];
+    s = applyAction(s, {
+      type: "setup.choose",
+      playerId: pid,
+      factionId,
+      territoryId: starts[idx],
+      powerId: s.factionPowers[factionId] ? undefined : TEST_POWERS[factionId],
+    });
+  }
+  return s;
+}
+
 describe("setup", () => {
   it("rolls chooser order deterministically and seats all players", () => {
     const a = createGame({ gameId: "g", seed: 7, players: P });
     const b = createGame({ gameId: "g", seed: 7, players: P });
     expect(a.setup!.chooserOrder).toEqual(b.setup!.chooserOrder);
     expect(a.setup!.chooserOrder).toHaveLength(3);
+  });
+  it("uses the high roller first, then continues clockwise in table order", () => {
+    const s = createGame({ gameId: "g", seed: 17, players: P });
+    const decidingRoll = s.log.filter((event) => event.type === "SetupOrderRoll").at(-1)!;
+    const round = decidingRoll.data!.round as { id: string; roll: number }[];
+    const first = round.find((entry) => entry.roll === Math.max(...round.map((entry) => entry.roll)))!.id;
+    const tableOrder = P.map((player) => player.id);
+    const firstIdx = tableOrder.indexOf(first);
+    expect(s.setup!.chooserOrder).toEqual([...tableOrder.slice(firstIdx), ...tableOrder.slice(0, firstIdx)]);
   });
   it("places starting troops + HQ automatically, records unused factions, enters start_turn", () => {
     const s = setupGame();
@@ -207,6 +242,8 @@ describe("combat", () => {
     expect(s.players[def].knockedOut).toBe(true);
     expect(s.players[att].hand).toEqual(expect.arrayContaining(["0", "1"]));
     expect(s.players[def].hand).toEqual([]);
+    expect(redStars(s, att).board).toBe(2); // own HQ + captured enemy HQ
+    expect(s.log.some((event) => event.type === "RedStarGained" && event.data?.source === "captured_hq")).toBe(true);
   });
 });
 
@@ -263,6 +300,122 @@ describe("end turn and sideboard", () => {
     expect(s.players[pid].hand).toContain(slot0);
     expect(s.sideboard.slots.every((x) => x !== null)).toBe(true); // refilled
     expect(s.phase).toBe("start_turn"); // turn advanced
+  });
+
+  it("slides face-up cards right and reveals the new card in slot 1", () => {
+    let territoryDraw = setupGame(331);
+    const territoryPlayer = territoryDraw.turnOrder[0];
+    territoryDraw.players[territoryPlayer].conqueredEnemyThisTurn = true;
+    territoryDraw.phase = "end_turn";
+    const beforeTerritory = [...territoryDraw.sideboard.slots];
+    const territoryTop = territoryDraw.sideboard.territoryDeck[0];
+    const chosen = await_card(beforeTerritory[2]!);
+    territoryDraw.territories[chosen.territoryId!].controller = territoryPlayer;
+    territoryDraw = applyAction(territoryDraw, { type: "end.draw", playerId: territoryPlayer, choice: { slot: 2 } });
+    expect(territoryDraw.sideboard.slots).toEqual([territoryTop, beforeTerritory[0], beforeTerritory[1], beforeTerritory[3]]);
+
+    let coinDraw = setupGame(332);
+    const coinPlayer = coinDraw.turnOrder[0];
+    coinDraw.players[coinPlayer].conqueredEnemyThisTurn = true;
+    coinDraw.phase = "end_turn";
+    for (const cardId of coinDraw.sideboard.slots) {
+      coinDraw.territories[await_card(cardId!).territoryId!].controller = undefined;
+    }
+    const beforeCoin = [...coinDraw.sideboard.slots];
+    const coinTop = coinDraw.sideboard.territoryDeck[0];
+    coinDraw = applyAction(coinDraw, { type: "end.draw", playerId: coinPlayer, choice: { coin: true } });
+    expect(coinDraw.sideboard.slots).toEqual([coinTop, beforeCoin[0], beforeCoin[1], beforeCoin[2]]);
+    expect(coinDraw.sideboard.discard).toContain(beforeCoin[3]);
+  });
+
+  it("runs Scar, Resource draw, and even-slot Event timing in rulebook order", () => {
+    const campaign = initialCampaign("Events World");
+    campaign.unlockedModules.push("pack_1_advanced_draft_biohazards");
+    campaign.hostContent["pack_1_advanced_draft_biohazards.draft"] = { cards: ["QA draft"] };
+    campaign.hostContent["pack_1_advanced_draft_biohazards.events"] = [{
+      id: "supply-shock", title: "Supply Shock", text: "Resolve using the physical card.",
+    }];
+    let s = setupCampaignGame(campaign, 333);
+    const pid = s.turnOrder[s.activeIdx];
+    const scarred = Object.entries(s.territories).find(([, territory]) => territory.controller === pid)![0];
+    s.territories[scarred].scars = ["biohazard"];
+    s.territories[scarred].troops = 2;
+    s.players[pid].conqueredEnemyThisTurn = true;
+    s.phase = "maneuver";
+
+    const evenCard = s.sideboard.territoryDeck.find((cardId) => !s.sideboard.slots.includes(cardId))!;
+    s.sideboard.territoryDeck = [evenCard, ...s.sideboard.territoryDeck.filter((cardId) => cardId !== evenCard)];
+    s.cardModifications[evenCard] = { resources: 2 };
+    const chosenId = s.sideboard.slots[0]!;
+    s.territories[await_card(chosenId).territoryId!].controller = pid;
+
+    s = applyAction(s, { type: "phase.endManeuver", playerId: pid });
+    s = applyAction(s, { type: "end.draw", playerId: pid, choice: { slot: 0 } });
+    expect(s.legacyCards.pendingEvent).toMatchObject({ title: "Supply Shock" });
+    expect(s.phase).toBe("end_turn");
+    expect(waitingOn(s)).toBeUndefined();
+    expect(() => applyAction(s, { type: "end.turn", playerId: pid })).toThrow(/Event card/);
+    const timing = ["ScarAttrition", "ResourceCardDrawn", "EventCardDrawn"]
+      .map((type) => s.log.find((event) => event.type === type)!.seq);
+    expect(timing[0]).toBeLessThan(timing[1]);
+    expect(timing[1]).toBeLessThan(timing[2]);
+
+    const nextPlayer = s.turnOrder[(s.activeIdx + 1) % s.turnOrder.length];
+    s = applyAction(s, { type: "event.resolve", playerId: "host", destination: "box", note: "Resolved at the table" });
+    expect(s.legacyCards.pendingEvent).toBeUndefined();
+    expect(s.legacyCards.eventBox).toHaveLength(1);
+    expect(s.turnOrder[s.activeIdx]).toBe(nextPlayer);
+  });
+
+  it("offers one face-up Mission as a host-confirmed alternative to a Resource draw", () => {
+    const campaign = initialCampaign("Missions World");
+    campaign.unlockedModules.push("pack_3_homelands_missions");
+    campaign.hostContent["pack_3_homelands_missions.missions"] = [
+      { id: "bridgehead", title: "Bridgehead", text: "Physical completion condition", reward: 1 },
+      { id: "overlord", title: "Overlord", text: "Physical completion condition", reward: 2 },
+    ];
+    campaign.hostContent["pack_3_homelands_missions.events"] = [];
+    let s = setupCampaignGame(campaign, 334);
+    const pid = s.turnOrder[s.activeIdx];
+    s.players[pid].redStarTokens = 0;
+    s.phase = "end_turn";
+    const mission = s.legacyCards.activeMission!;
+    const reward = mission.reward!;
+    expect(() => applyAction(s, {
+      type: "mission.complete", playerId: "host", claimantPlayerId: pid, reward: reward === 1 ? 2 : 1,
+    })).toThrow(/reward does not match/);
+
+    const beforePlayer = pid;
+    s = applyAction(s, { type: "mission.complete", playerId: "host", claimantPlayerId: pid, reward });
+    expect(s.players[pid].redStarTokens).toBe(reward);
+    expect(s.legacyCards.missionBox).toContainEqual(mission);
+    expect(s.legacyCards.activeMission?.id).not.toBe(mission.id);
+    expect(s.turnOrder[s.activeIdx]).not.toBe(beforePlayer);
+    expect(s.log.some((event) => event.type === "ResourceCardDrawn" && event.playerId === pid)).toBe(false);
+  });
+
+  it("allows the turn to end when every Resource-card draw source is exhausted", () => {
+    let s = setupGame(34);
+    const pid = s.turnOrder[0];
+    s.phase = "end_turn";
+    s.players[pid].conqueredEnemyThisTurn = true;
+    s.sideboard.coinPile = [];
+    s.sideboard.slots = contentPack.cards.territoryCards
+      .filter((c) => s.territories[c.territoryId].controller !== pid)
+      .slice(0, 4)
+      .map((c) => c.id);
+
+    expect(endTurnDecision(s, pid)).toMatchObject({
+      eligibleForDraw: true,
+      drawAvailable: false,
+      drawRequired: false,
+      canEndTurn: true,
+    });
+
+    s = applyAction(s, { type: "end.turn", playerId: pid });
+    expect(s.phase).toBe("start_turn");
+    expect(s.turnOrder[s.activeIdx]).not.toBe(pid);
+    expect(s.log.some((e) => e.type === "ResourceDrawUnavailable" && e.playerId === pid)).toBe(true);
   });
 });
 
@@ -714,7 +867,7 @@ describe("faction powers (9)", () => { // new: whole describe block
     let s = applyAction(s0, { type: "attack.declare", playerId: att, from: "ukraine", to: "ural" });
     s = roll(s, att, def);
     let r = lastResolved(s);
-    expect(r.powerModifiers).toEqual([{ powerId: "lower_die_intimidation", playerId: att, dieIndex: 1, delta: -1 }]);
+    expect(r.powerModifiers).toEqual([{ powerId: "lower_die_intimidation", playerId: att, side: "def", dieIndex: 1, delta: -1 }]);
     expect(r.final.def[1]).toBe(Math.max(1, r.natural.def[1] - 1)); // lower die -1, clamped
     expect(r.final.def[0]).toBe(r.natural.def[0]);
     // keep attacking the SAME territory: still applies
@@ -842,17 +995,14 @@ describe("faction powers (9)", () => { // new: whole describe block
     expect(s.log.some((e) => e.type === "FactionPowerApplied" && e.data?.powerId === "unconnected_maneuver")).toBe(true);
   });
 
-  it("power choices made in-game fold into the campaign", () => {
+  it("attaches powers chosen during Game 1 only to that campaign", () => {
     const s = setupGame(512);
     const camp = initialCampaign("Terra");
     const g = { ...s, winner: s.turnOrder[0], gameNumber: 1 } as GameState; // minimal finished shape for the fold
     g.results = {};
     const folded = applyGameToCampaign(camp, g);
-    expect(folded.factionPowerChoices).toEqual({
-      khan_industries: "territory_card_reinforcement",
-      die_mechaniker: "defensive_stand",
-      saharan_republic: "unconnected_maneuver",
-    });
+    expect(camp.factionPowerChoices).toEqual({});
+    expect(folded.factionPowerChoices).toEqual(s.factionPowers);
   });
 });
 
@@ -944,6 +1094,18 @@ describe("end-game rewards & signatures (10a)", () => { // new: whole describe b
     const s2 = applyAction(s, { type: "reward.choose", playerId: winner, reward: { kind: "fortify_city", territoryId: "ural" } });
     expect(s2.territories["ural"].fortification).toEqual({ max: 10, remaining: 10 });
     expect(s2.inventories.fortifyMarks).toBe(4);
+  });
+
+  it("winner can permanently destroy a Territory card", () => {
+    const { s, winner } = wonGame(412);
+    const target = contentPack.cards.territoryCards.find((card) => !s.sideboard.destroyed.includes(card.id))!;
+    const s2 = applyAction(s, { type: "reward.choose", playerId: winner, reward: { kind: "destroy_territory_card", cardId: target.id } });
+    expect(s2.sideboard.destroyed).toContain(target.id);
+    expect(s2.sideboard.territoryDeck).not.toContain(target.id);
+    expect(s2.sideboard.discard).not.toContain(target.id);
+    expect(s2.sideboard.slots).not.toContain(target.id);
+    expect(s2.log.some((event) => event.type === "TerritoryCardDestroyed" && event.data?.cardId === target.id)).toBe(true);
+    expect(() => applyAction(s, { type: "reward.choose", playerId: winner, reward: { kind: "destroy_territory_card", cardId: "42" } })).toThrow(/territory card/i);
   });
 
   it("held-on players found Minor Cities on controlled territories, clockwise after the winner", () => {

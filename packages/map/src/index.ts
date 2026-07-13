@@ -18,6 +18,7 @@ export interface MapManifest {
 
 export const manifest = manifestJson as unknown as MapManifest;
 const territoryPathData = territoryPathJson as unknown as {
+  sourceTransform: readonly [number, number];
   territories: Record<string, {
     d: string;
     anchor: readonly [number, number];
@@ -34,9 +35,9 @@ export function anchor(t: TerritoryDef): { x: number; y: number } {
 
 /** Raw board-art geometry for a territory (path + bbox in board viewBox coordinates) — reused
  * by the resource-card silhouettes (UI-9) so cards and board share one source of truth. */ // new
-export function territoryPath(id: string): { d: string; bbox: readonly [number, number, number, number] } | undefined { // new
+export function territoryPath(id: string): { d: string; bbox: readonly [number, number, number, number]; sourceTransform: readonly [number, number] } | undefined { // new
   const t = territoryPathData.territories[id]; // new
-  return t ? { d: t.d, bbox: t.bbox } : undefined; // new
+  return t ? { d: t.d, bbox: t.bbox, sourceTransform: territoryPathData.sourceTransform } : undefined; // new
 } // new
 
 /** Continent identity colors (board callouts + card silhouette fills share this palette). */ // new
@@ -48,6 +49,29 @@ export const continentColors: Record<string, string> = { // new
   asia: "#5b8038", // new
   australia: "#755b65", // new
 }; // new
+
+export const visualConnections: readonly (readonly [string, string])[] = [
+  ["alaska", "kamchatka"],
+  ["greenland", "iceland"],
+  ["great_britain", "iceland"],
+  ["great_britain", "scandinavia"],
+  ["great_britain", "northern_europe"],
+  ["great_britain", "western_europe"],
+  ["iceland", "scandinavia"],
+  ["brazil", "north_africa"],
+  ["western_europe", "north_africa"],
+  ["southern_europe", "egypt"],
+  ["egypt", "middle_east"],
+  ["east_africa", "middle_east"],
+  ["mongolia", "japan"],
+  ["kamchatka", "japan"],
+  ["siam", "indonesia"],
+  ["indonesia", "new_guinea"],
+  ["indonesia", "western_australia"],
+  ["new_guinea", "western_australia"],
+  ["new_guinea", "eastern_australia"],
+  ["western_australia", "eastern_australia"],
+] as const;
 
 export function territoryById(id: string): TerritoryDef {
   const t = manifest.territories.find((t) => t.id === id);
@@ -79,3 +103,5 @@ export function validateManifest(m: MapManifest = manifest): string[] {
   if (m.continents.length !== 6) errors.push(`Expected 6 continents, found ${m.continents.length}`);
   return errors;
 }
+
+export * from "./presentation.ts";

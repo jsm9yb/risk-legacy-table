@@ -2,6 +2,8 @@
 
 A private, non-commercial digital table for one group's Risk Legacy campaign. This document is the design specification: the system to build, the rules it must enforce, and the order in which to build it. It describes intended behavior, not progress. Rule decisions resolved with the group are recorded here; live task status lives in [BACKLOG.md](BACKLOG.md).
 
+**Presentation runtime (2026-07-12):** the production play surface is a lazy-loaded PixiJS retained scene governed by `docs/PRESENTATION-RUNTIME-MIGRATION-SPEC.md`. React owns decisions and accessibility; Pixi owns the board, pieces, marks, interaction overlays, camera, and semantic motion. The renderer may interpolate between authoritative states but never owns game rules or mutates campaign state.
+
 ---
 
 ## 1. Scope
@@ -176,14 +178,14 @@ Build one slice at a time, test-first: write the failing test that encodes the s
 | 9 | Faction powers | Executable handlers for the ten powers (§6). |
 | 10 | End-game & carry-over | City founding, reward placement, board signatures (§7), and cross-game `CampaignState` persistence. |
 | 11 | Unlock engine | Reveal/activation of sealed modules (§9) using the manifest and global hooks. |
-| 12 | Import wizard | Host entry of Mission/Event/Power card text as modules unlock (`content_required`). |
+| 12 | Import wizard | Compatibility path for custom or legacy host-supplied module cards (`content_required`); canonical sealed content is built in. |
 | 13 | Polish | PixiJS effects layer at the stable `EffectsLayer` seam. |
 
 ---
 
 ## 9. Sealed module manifest
 
-Each module is seeded as locked content with: `id`, `name`, `trigger`, `openCondition`, `revealTiming`, `permanentRules`, `cardsAdded`, `factionsAdded`, `stateAdded`, `rulesHooks`, `locked`. Sealed Event/Mission/Power **card text is host-entered** when unknown; such content stays `content_required` until supplied.
+Each module is seeded as locked content with: `id`, `name`, `trigger`, `openCondition`, `revealTiming`, `permanentRules`, `cardsAdded`, `factionsAdded`, `stateAdded`, `rulesHooks`, `locked`. Canonical Pack 1-4 and Pocket 1-2 inventories and executable rules are built in from the sealed-content source audit. `content_required` remains only for custom/legacy host-supplied content.
 
 | Module | Open condition | Reveal | Unlocks |
 |---|---|---|---|
@@ -197,12 +199,12 @@ Each module is seeded as locked content with: `id`, `name`, `trigger`, `openCond
 
 ### Resolved unlock mechanics (D5)
 
-- **Pack 1.** Advanced setup **replaces** base roll setup and **blocks until draft card values are entered**. Biohazard targets any unscarred territory; at controller end-of-turn before draw, remove 1 troop and vacate if last.
-- **Pack 2.** Eliminated faction chooses one comeback power, attached permanently to the faction. Mercenary targets any unscarred territory; at controller end-of-turn, add 1 troop if still controlled.
-- **Pack 3.** A faction's **Homeland** is computed from starting-location history over the first 15 games: most-started continent, ties broken by the most recent start among tied continents. At end-of-turn draw, a faction may claim face-up Territory cards from its homeland continent as if eligible, even without controlling that territory — still max one resource draw, and no draw without a draw entitlement.
-- **Pack 4.** Unlocks immediately when the World Capital is placed (a city, population 5). Lead Faction = most wins (ties by most recent win); during setup the Lead Faction player gets **3 bonus troops** in the World Capital if it is unoccupied (no HQ). Private Missions are host-entered, capturable into a faction slot, with a once-per-game Red Star activation.
-- **Pocket 1.** Unlocks during combat after the **3rd** missile committed to the same roll, before casualty resolution. The nuclear event hits the defending territory: remove troops, remove HQ for the game, remove city, remove any existing scar, destroy the territory card, place the Fallout scar/mark; combat ends without normal casualties/move-in unless exact text overrides. Mutants become selectable next game once host-entered powers/evolutions exist.
-- **Pocket 2.** Creates the Alien Island off-board territory with two host/chosen sea-line connections to coastal territories. Aliens become selectable next game once host-entered powers exist. Alien events and Weakness scars are `content_required`.
+- **Pack 1.** Advanced setup replaces base setup with a five-category snake draft: Faction, Turn Order, Starting Placement, Starting Troops (6/8/8/10/10), and Starting Coin cards (0/0/1/1/2). Begin clockwise from the high roller and reverse after every draft round; placement and turns follow their independently drafted order cards. Join the War uses half that player's drafted starting troops. Biohazard targets any unscarred territory; at controller end-of-turn before draw, remove 1 troop and vacate if last.
+- **Pack 2.** Eliminated faction chooses one comeback power, attached permanently to the faction. Executable powers are Resourceful (city expansion draw), Stealthy (recruit into one empty unmarked territory), Well-Armed (+1 attack dice against HQ), Mobile (move one controlled HQ at start of turn), Convincing (+1 extra Mercenary reinforcement), and Well-Supplied (ignore Ammo Shortage while defending). Mercenary targets any unscarred territory; at controller end-of-turn, add 1 troop if still controlled.
+- **Pack 3.** A faction's **Homeland** is its uniquely most-used starting continent over the first 15 games; a tie means no Homeland. At end-of-turn draw, a faction may claim a face-up Territory card from its Homeland as if eligible, even without controlling it — still max one Resource draw and no draw without a draw entitlement. All eight public Missions and three Join the Cause Events are executable.
+- **Pack 4.** Unlocks immediately when the World Capital is placed (a city, population 5). Lead Faction is the unique most-winning faction among factions playing this game; a tie means no Lead. The Lead chooses the public Mission and begins future games with **3 troops** in the World Capital in addition to its chosen start. All six Private Missions enter the public deck, can award/capture into an empty red faction slot, and can later be activated once per game under the one-Mission-per-turn rule.
+- **Pocket 1.** Unlocks during combat after the **3rd** Missile committed to the same roll, before casualty resolution. The opening removes the committed attacking troops, wipes the defending territory, destroys its Territory card, places Fallout, rolls troop losses in every land-adjacent territory, and discards Resource cards for resulting knockouts. Mutants, their Private Mission, five Missile Powers, four evolution paths, and eight Events are executable.
+- **Pocket 2.** Creates Alien Island with two sea-line connections, shuffles its Territory card into the Resource deck, applies Alien Collaborator to the triggering faction's yellow slot, and treats the collaborator plus arriving Alien troops as one faction for the opening game. Aliens are independently selectable in later games. All five Weaknesses, the Alien Private Mission, Ruins, and seven Alien Events are executable.
 - **Unlock processing order.** If multiple modules unlock from one action/reward, queue and process in order: **Pack 1, Pack 2, Pack 3, Pack 4, Pocket 1, Pocket 2, optional variants**. Pause at any `content_required` unlock before continuing.
 
 Global hooks for the unlock engine: `onMinorCityFounded`, `onPlayerStartTurn`, `onPlayerEliminated`, `onGameEnd`, `onBoardSigned`, `onMissionCompleted`, `onMissilePlayed`, `onCombatRollPendingResolution`, `onRecruitmentCalculated`, `onFactionDraftStarted`.
@@ -220,8 +222,8 @@ type CampaignState = {
   worldName: string;
   gameNumber: number;             // starter reward changes stop after Game 15
   unlockedModules: string[];
-  contentRequired: { moduleId: string; items: string[] }[]; // unlocks paused on host-entered card text (import wizard clears these)
-  hostContent: Record<string, unknown>; // host-entered card text, keyed `${moduleId}.${item}`
+  contentRequired: { moduleId: string; items: string[] }[]; // compatibility/custom content pause
+  hostContent: Record<string, unknown>; // custom/legacy host content keyed `${moduleId}.${item}`
   optionalVariantId?: string;
   signatures: Record<RealPlayerId, number>;
   factionPowerChoices: Record<FactionId, PowerId>;

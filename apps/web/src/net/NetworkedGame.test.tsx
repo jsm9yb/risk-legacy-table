@@ -5,11 +5,11 @@ import "../test-shims.ts";
 import { describe, it, expect, afterEach } from "vitest";
 import { render, within, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
 import {
-  createGame, applyAction, waitingOn, isLegalStart, filterStateFor,
+  createGame, applyAction, waitingOn, isLegalStart, neighborsOf, filterStateFor,
   type GameState, type Action,
 } from "@risk/rules";
 import { contentPack } from "@risk/content";
-import { manifest, territoryById } from "@risk/map";
+import { manifest } from "@risk/map";
 import NetworkedGame, { type GameSocket } from "./NetworkedGame.tsx";
 
 afterEach(cleanup);
@@ -18,13 +18,15 @@ type Handler = (...args: any[]) => void;
 
 class FakeGameSocket implements GameSocket {
   handlers = new Map<string, Handler>();
-  constructor(private session: FakeSession, private viewerId: string) {}
+  emitted: { event: string; payload: any }[] = [];
+  constructor(private session: FakeSession, private viewerId: string, private contentHost = false) {}
   on(event: string, h: Handler) { this.handlers.set(event, h); }
   off(event: string) { this.handlers.delete(event); }
-  pushState(state: unknown) { this.handlers.get("game:state")?.(state); }
+  pushState(sessionId: string, state: unknown, rewind?: unknown) { this.handlers.get("game:state")?.({ sessionId, state, rewind }); }
   emit(event: string, payload: any, ack?: (res: any) => void) {
+    this.emitted.push({ event, payload });
     if (event === "game:join") {
-      ack?.({ ok: true, state: filterStateFor(this.session.state, this.viewerId), seated: true });
+      ack?.({ ok: true, state: filterStateFor(this.session.state, this.viewerId), seated: true, contentHost: this.contentHost });
     }
     if (event === "game:action") {
       const a = payload.action as Action;
@@ -37,6 +39,7 @@ class FakeGameSocket implements GameSocket {
         ack?.({ error: (e as Error).message });
       }
     }
+    if (event === "game:rewind") ack?.({ ok: true });
     return true;
   }
 }
@@ -50,8 +53,8 @@ class FakeSession {
   constructor(seed: number, players: { id: string; name: string }[]) {
     this.state = createGame({ gameId: "net-1", seed, players });
   }
-  connect(viewerId: string): FakeGameSocket {
-    const s = new FakeGameSocket(this, viewerId);
+  connect(viewerId: string, contentHost = false): FakeGameSocket {
+    const s = new FakeGameSocket(this, viewerId, contentHost);
     this.sockets.set(viewerId, s);
     return s;
   }
@@ -63,7 +66,7 @@ class FakeSession {
         if (p.hand.length > 0 || p.scarHand.length > 0) this.hiddenViolations++; // leak!
         if (((p as any).handCount ?? 0) > 0) this.sawHiddenHand = true; // the check was meaningful
       }
-      sock.pushState(f);
+      sock.pushState(this.state.gameId, f);
     }
   }
 }
@@ -73,6 +76,7 @@ function pickAction(s: GameState): Action | null {
   const pid = waitingOn(s);
   if (!pid) return null;
   const p = s.players[pid];
+  if (s.comebackChoice) return { type: "comeback.choose", playerId: pid, optionId: s.comebackChoice.options[0].id };
   if (s.phase === "setup") {
     const faction = contentPack.factions.find((f) => !Object.values(s.players).some((x) => x.factionId === f.id))!;
     const start = manifest.territories.find((t) => isLegalStart(s, t.id, true, faction.id))!;
@@ -105,11 +109,11 @@ function pickAction(s: GameState): Action | null {
       }
       if (s.recruit && s.recruit.remaining > 0) {
         const mine = owned();
-        const nextToHq = mine.find(([tid]) => territoryById(tid).neighbors.some((n) => {
+        const nextToHq = mine.find(([tid]) => neighborsOf(s, tid).some((n) => {
           const x = s.territories[n];
           return x.hqFaction && x.controller && x.controller !== pid;
         }));
-        const frontier = mine.find(([tid]) => territoryById(tid).neighbors.some((n) => s.territories[n].controller && s.territories[n].controller !== pid));
+        const frontier = mine.find(([tid]) => neighborsOf(s, tid).some((n) => s.territories[n].controller && s.territories[n].controller !== pid));
         return { type: "recruit.place", playerId: pid, territoryId: (nextToHq ?? frontier ?? mine[0])[0], count: s.recruit.remaining };
       }
       return { type: "recruit.done", playerId: pid };
@@ -119,7 +123,7 @@ function pickAction(s: GameState): Action | null {
       const cands: { from: string; to: string; hq: boolean; margin: number }[] = [];
       for (const [tid, t] of owned()) {
         if (t.troops < 3) continue;
-        for (const n of territoryById(tid).neighbors) {
+        for (const n of neighborsOf(s, tid)) {
           const nt = s.territories[n];
           if (nt.controller && nt.controller !== pid && nt.troops <= t.troops - 2 && !s.blockedAttackTargets.includes(n)) {
             cands.push({ from: tid, to: n, hq: !!nt.hqFaction, margin: t.troops - nt.troops });
@@ -130,14 +134,14 @@ function pickAction(s: GameState): Action | null {
       if (cands[0]) return { type: "attack.declare", playerId: pid, from: cands[0].from, to: cands[0].to };
       // no attack -> grow toward enemies through empty, unmarked territories
       const expandable = owned()
-        .filter(([tid, t]) => t.troops >= 4 && territoryById(tid).neighbors.some((n) => {
+        .filter(([tid, t]) => t.troops >= 4 && neighborsOf(s, tid).some((n) => {
           const nt = s.territories[n];
           return !nt.controller && nt.troops === 0 && !nt.city && nt.scars.length === 0;
         }))
         .sort((x, y) => y[1].troops - x[1].troops)[0];
       if (expandable) {
         const [tid, t] = expandable;
-        const to = territoryById(tid).neighbors.find((n) => {
+        const to = neighborsOf(s, tid).find((n) => {
           const nt = s.territories[n];
           return !nt.controller && nt.troops === 0 && !nt.city && nt.scars.length === 0;
         })!;
@@ -163,6 +167,87 @@ function pickAction(s: GameState): Action | null {
 }
 
 describe("networked game (1-web-b)", () => {
+  it("clears campaign-local setup choices when the session changes", () => {
+    const players = [{ id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" }];
+    const session = new FakeSession(94, players);
+    const chooser = waitingOn(session.state)!;
+    const socket = session.connect(chooser);
+    const view = render(<NetworkedGame socket={socket} sessionId="net-1" viewerId={chooser} onExit={() => {}} />);
+    const faction = contentPack.factions[0];
+
+    fireEvent.click(within(view.container).getByText(faction.name));
+    expect(view.container.querySelector(".physical-faction-card-wrap.is-selected")).toBeTruthy();
+
+    view.rerender(<NetworkedGame socket={socket} sessionId="net-2" viewerId={chooser} onExit={() => {}} />);
+    expect(view.container.querySelector(".physical-faction-card-wrap.is-selected")).toBeNull();
+    expect(socket.emitted).toContainEqual({ event: "game:leave", payload: { sessionId: "net-1" } });
+    expect(socket.emitted).toContainEqual({ event: "game:join", payload: { sessionId: "net-2" } });
+  });
+
+  it("lets only the connected campaign host satisfy an in-game sealed-content pause", async () => {
+    const players = [{ id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" }];
+    const session = new FakeSession(95, players);
+    session.state.unlockedModules.push("pack_2_comeback_mercenaries");
+    session.state.contentRequired = [{ moduleId: "pack_2_comeback_mercenaries", items: ["powers"] }];
+    const hostSocket = session.connect("u1", true);
+    const view = render(<NetworkedGame socket={hostSocket} sessionId="net-1" viewerId="u1" onExit={() => {}} />);
+
+    const field = await within(view.container).findByLabelText("Sealed content: pack_2_comeback_mercenaries.powers");
+    fireEvent.change(field, { target: { value: "Host-entered comeback powers" } });
+    fireEvent.click(within(view.container).getByRole("button", { name: "SAVE & RESUME" }));
+    await waitFor(() => expect(session.state.contentRequired).toEqual([]));
+    expect(session.state.hostContent["pack_2_comeback_mercenaries.powers"]).toBe("Host-entered comeback powers");
+  });
+
+  it("lets the network host capture a Private Mission while keeping the pool text filtered", async () => {
+    const players = [{ id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" }];
+    const session = new FakeSession(951, players);
+    while (session.state.phase === "setup") session.state = applyAction(session.state, pickAction(session.state)!);
+    session.state.unlockedModules.push("pack_4_lead_faction_private_missions");
+    session.state.legacyCards.privateMissionPool = [{
+      id: "pack4:private:silent-coup",
+      sourceModuleId: "pack_4_lead_faction_private_missions",
+      title: "Silent Coup",
+      text: "Secret physical condition",
+    }];
+    const hostSocket = session.connect("u1", true);
+    const view = render(<NetworkedGame socket={hostSocket} sessionId="net-1" viewerId="u1" onExit={() => {}} />);
+
+    const button = await within(view.container).findByRole("button", { name: "HOST: PRIVATE MISSIONS" });
+    expect(within(view.container).queryByText("Secret physical condition")).toBeNull();
+    fireEvent.click(button);
+    const modal = within(view.container).getByRole("dialog", { name: "Private missions" });
+    fireEvent.change(within(modal).getByLabelText("Private Mission title"), { target: { value: "Silent Coup" } });
+    fireEvent.click(within(modal).getByRole("button", { name: "CAPTURE MISSION" }));
+
+    await waitFor(() => expect(Object.keys(session.state.capturedPrivateMissions)).toHaveLength(1));
+    expect(session.state.legacyCards.privateMissionPool).toEqual([]);
+  });
+
+  it("ignores stale room updates and leaves its session on unmount", () => {
+    const players = [{ id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" }];
+    const session = new FakeSession(96, players);
+    const socket = session.connect("u1");
+    const view = render(<NetworkedGame socket={socket} sessionId="net-1" viewerId="u1" onExit={() => {}} />);
+
+    const stale = createGame({ gameId: "other", seed: 2, players: [
+      { id: "u1", name: "Wrong board" }, { id: "u2", name: "Other" }, { id: "u3", name: "Third" },
+    ] });
+    act(() => socket.pushState("other", filterStateFor(stale, "u1")));
+    expect(within(view.container).queryByText("Wrong board")).toBeNull();
+
+    act(() => socket.pushState("net-1", filterStateFor(session.state, "u1"), {
+      canReset: true, canBack: true, reason: "safe checkpoint",
+    }));
+    fireEvent.click(within(view.container).getByRole("button", { name: "RESET PHASE" }));
+    fireEvent.click(within(view.container).getByRole("button", { name: "← BACK A PHASE" }));
+    expect(socket.emitted).toContainEqual({ event: "game:rewind", payload: { sessionId: "net-1", mode: "reset" } });
+    expect(socket.emitted).toContainEqual({ event: "game:rewind", payload: { sessionId: "net-1", mode: "back" } });
+
+    view.unmount();
+    expect(socket.emitted).toContainEqual({ event: "game:leave", payload: { sessionId: "net-1" } });
+  });
+
   it("two clients play one session to game_over with consistent, hidden-state-correct views", async () => {
     const players = [{ id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" }];
     const session = new FakeSession(97, players);

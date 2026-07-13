@@ -1,7 +1,7 @@
 // new (UI-9): shared test fixtures — real-engine game states for component tests.
 import { contentPack } from "@risk/content";
-import { applyAction, createGame, isLegalStart, waitingOn, type Action, type GameState } from "@risk/rules";
-import { manifest, territoryById } from "@risk/map";
+import { applyAction, createGame, isLegalStart, neighborsOf, resourceCardDefinition, waitingOn, type Action, type GameState } from "@risk/rules";
+import { manifest } from "@risk/map";
 
 /** Drive setup with real actions: three players pick factions, powers, and legal starts. */
 export function throughSetup(seed: number): GameState {
@@ -35,7 +35,7 @@ export function atExpandAttack(seed: number) {
   gs = applyAction(gs, { type: "recruit.place", playerId: pid, territoryId: mine, count: gs.recruit!.remaining });
   gs = applyAction(gs, { type: "recruit.done", playerId: pid });
   const enemy = gs.turnOrder.find((x) => x !== pid)!;
-  const target = territoryById(mine).neighbors.find((n) => !gs.territories[n].controller)!;
+  const target = neighborsOf(gs, mine).find((n) => !gs.territories[n].controller)!;
   gs.territories[target] = { controller: enemy, troops: 1, scars: [] };
   return { gs, pid, mine, target, enemy };
 }
@@ -46,9 +46,19 @@ function pickAction(s: GameState): Action | null {
   if (!pid || s.phase === "game_over") return null;
   const p = s.players[pid];
   if (s.phase === "setup") {
+    if (s.advancedDraft && !s.advancedDraft.completed) {
+      const picks = s.advancedDraft.picks[pid];
+      if (!picks.factionId) return { type: "draft.pick", playerId: pid, category: "faction", value: s.advancedDraft.available.factions[0] };
+      if (picks.turnOrder === undefined) return { type: "draft.pick", playerId: pid, category: "turnOrder", value: s.advancedDraft.available.turnOrder[0] };
+      if (picks.placementOrder === undefined) return { type: "draft.pick", playerId: pid, category: "placementOrder", value: s.advancedDraft.available.placementOrder[0] };
+      if (picks.startingTroops === undefined) return { type: "draft.pick", playerId: pid, category: "startingTroops", value: s.advancedDraft.available.startingTroops[0] };
+      return { type: "draft.pick", playerId: pid, category: "startingCoinCards", value: s.advancedDraft.available.startingCoinCards[0] };
+    }
     const faction = contentPack.factions.find((f) => !Object.values(s.players).some((x) => x.factionId === f.id))!;
-    const start = manifest.territories.find((t) => isLegalStart(s, t.id, true, faction.id, pid))!;
-    return { type: "setup.choose", playerId: pid, factionId: faction.id, territoryId: start.id, powerId: s.factionPowers[faction.id] ? undefined : faction.startingPowers[0] };
+    const draftedFaction = s.advancedDraft?.picks[pid]?.factionId;
+    const selectedFaction = draftedFaction ? contentPack.factions.find((f) => f.id === draftedFaction)! : faction;
+    const start = manifest.territories.find((t) => isLegalStart(s, t.id, true, selectedFaction.id, pid))!;
+    return { type: "setup.choose", playerId: pid, factionId: selectedFaction.id, territoryId: start.id, powerId: s.factionPowers[selectedFaction.id] ? undefined : selectedFaction.startingPowers[0] };
   }
   const c = s.combat;
   if (c) {
@@ -69,11 +79,11 @@ function pickAction(s: GameState): Action | null {
       }
       if (s.recruit && s.recruit.remaining > 0) {
         const mine = owned();
-        const nextToHq = mine.find(([tid]) => territoryById(tid).neighbors.some((n) => {
+        const nextToHq = mine.find(([tid]) => neighborsOf(s, tid).some((n) => {
           const x = s.territories[n];
           return x.hqFaction && x.controller && x.controller !== pid;
         }));
-        const frontier = mine.find(([tid]) => territoryById(tid).neighbors.some((n) => s.territories[n].controller && s.territories[n].controller !== pid));
+        const frontier = mine.find(([tid]) => neighborsOf(s, tid).some((n) => s.territories[n].controller && s.territories[n].controller !== pid));
         return { type: "recruit.place", playerId: pid, territoryId: (nextToHq ?? frontier ?? mine[0])[0], count: s.recruit.remaining };
       }
       return { type: "recruit.done", playerId: pid };
@@ -82,7 +92,7 @@ function pickAction(s: GameState): Action | null {
       const cands: { from: string; to: string; hq: boolean; margin: number }[] = [];
       for (const [tid, t] of owned()) {
         if (t.troops < 3) continue;
-        for (const n of territoryById(tid).neighbors) {
+        for (const n of neighborsOf(s, tid)) {
           const nt = s.territories[n];
           if (nt.controller && nt.controller !== pid && nt.troops <= t.troops - 2 && !s.blockedAttackTargets.includes(n)) {
             cands.push({ from: tid, to: n, hq: !!nt.hqFaction, margin: t.troops - nt.troops });
@@ -92,14 +102,14 @@ function pickAction(s: GameState): Action | null {
       cands.sort((x, y) => Number(y.hq) - Number(x.hq) || y.margin - x.margin);
       if (cands[0]) return { type: "attack.declare", playerId: pid, from: cands[0].from, to: cands[0].to };
       const expandable = owned()
-        .filter(([tid, t]) => t.troops >= 4 && territoryById(tid).neighbors.some((n) => {
+        .filter(([tid, t]) => t.troops >= 4 && neighborsOf(s, tid).some((n) => {
           const nt = s.territories[n];
           return !nt.controller && nt.troops === 0 && !nt.city && nt.scars.length === 0;
         }))
         .sort((x, y) => y[1].troops - x[1].troops)[0];
       if (expandable) {
         const [tid, t] = expandable;
-        const to = territoryById(tid).neighbors.find((n) => {
+        const to = neighborsOf(s, tid).find((n) => {
           const nt = s.territories[n];
           return !nt.controller && nt.troops === 0 && !nt.city && nt.scars.length === 0;
         })!;
@@ -112,8 +122,8 @@ function pickAction(s: GameState): Action | null {
     case "end_turn": {
       if (!p.conqueredEnemyThisTurn) return { type: "end.turn", playerId: pid };
       const slot = s.sideboard.slots.findIndex((id) => {
-        const cd = id && contentPack.cards.territoryCards.find((x) => x.id === id);
-        return cd && s.territories[cd.territoryId].controller === pid;
+        const cd = id ? resourceCardDefinition(id) : undefined;
+        return cd?.kind === "territory" && s.territories[cd.territoryId].controller === pid;
       });
       if (slot >= 0) return { type: "end.draw", playerId: pid, choice: { slot } };
       if (s.sideboard.coinPile.length > 0) return { type: "end.draw", playerId: pid, choice: { coin: true } };

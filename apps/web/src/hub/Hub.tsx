@@ -1,93 +1,140 @@
-// new (UI-6): game-first hub — the first screen is the game table, not a status page.
-// Dimmed board art backdrop, the world name in display type, the five faction emblems,
-// and two player-facing entries: PLAY AT THIS TABLE (hot-seat) and JOIN THE WAR ROOM (LAN).
 import { useState } from "react";
 import { contentPack } from "@risk/content";
 import type { LocalConfig } from "../App.tsx";
 import boardSvg from "../../../../packages/map/assets/board.svg?raw";
 import FactionEmblem from "../game/FactionEmblem.tsx";
+import { clearLocalCampaign, loadLocalCampaign } from "../local/campaignStore.ts";
 
-export default function Hub({ onStart, onLan }: { onStart: (cfg: LocalConfig) => void; onLan: () => void }) { // new (1-web-a)
-  const [names, setNames] = useState<string[]>(["Player 1", "Player 2", "Player 3"]);
-  const [seed, setSeed] = useState<string>(() => String(Math.floor(Math.random() * 1e9)));
+export default function Hub({ onStart, onResume, onLan }: {
+  onStart: (cfg: LocalConfig) => void;
+  onResume: () => void;
+  onLan: () => void;
+}) {
+  const [stage, setStage] = useState<"select" | "configure">("select");
+  const [worldName, setWorldName] = useState("An Unnamed World");
+  const [names, setNames] = useState(["Player 1", "Player 2", "Player 3"]);
+  const [seed, setSeed] = useState(() => String(Math.floor(Math.random() * 1e9)));
+  const [localSave, setLocalSave] = useState(() => loadLocalCampaign());
+  const [pending, setPending] = useState<"replace" | "delete" | null>(null);
 
-  const setName = (i: number, v: string) => setNames((n) => n.map((x, j) => (j === i ? v : x)));
+  const config = (): LocalConfig => ({
+    seed: Number(seed) || 1,
+    worldName: worldName.trim() || "An Unnamed World",
+    players: names.map((name, index) => ({ id: `seat${index + 1}`, name: name.trim() || `Player ${index + 1}` })),
+  });
+  const start = () => localSave ? setPending("replace") : onStart(config());
 
   return (
     <div className="relative min-h-full flex flex-col overflow-hidden">
-      {/* dimmed full-bleed board backdrop — the table under everything */}
       <div aria-hidden className="board-backdrop absolute inset-0 opacity-[0.13] pointer-events-none select-none"
         dangerouslySetInnerHTML={{ __html: boardSvg }} />
-
       <header className="relative border-b border-line px-8 py-5 flex items-baseline gap-4">
         <h1 className="font-display font-extrabold tracking-wide text-3xl text-signal">WAR ROOM</h1>
         <span className="font-mono text-xs text-muted uppercase tracking-widest">Risk Legacy · private campaign table</span>
       </header>
 
-      <main className="relative flex-1 w-full max-w-5xl mx-auto px-8 py-10">
-        <div className="text-center mb-10">
+      <main className="relative flex-1 w-full max-w-5xl mx-auto px-6 lg:px-8 py-10">
+        <div className="text-center mb-9">
           <p className="font-mono text-[10px] text-muted uppercase tracking-widest mb-2">This world is yours to scar</p>
-          <h2 className="font-display font-extrabold tracking-widest text-4xl lg:text-5xl">AN UNNAMED WORLD</h2>
+          <h2 className="font-display font-extrabold tracking-widest text-4xl lg:text-5xl">
+            {stage === "select" ? "SELECT A CAMPAIGN" : "MUSTER THE TABLE"}
+          </h2>
           <div className="flex justify-center gap-3 mt-5">
-            {contentPack.factions.map((f) => <FactionEmblem key={f.id} factionId={f.id} size="md" />)}
+            {contentPack.factions.map((faction) => <FactionEmblem key={faction.id} factionId={faction.id} size="md" />)}
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-[1fr_360px] gap-6">
-          <section className="bg-panel/95 border border-line rounded-sm p-6">
-            <h2 className="font-display font-bold text-xl tracking-wide mb-1">PLAY AT THIS TABLE</h2>
-            <p className="text-muted text-sm mb-5">One screen, pass the device — everyone fights for the same board.</p>
-
-            <div className="space-y-2 mb-5">
-              {names.map((n, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-muted w-14">SEAT {i + 1}</span>
-                  <input
-                    value={n}
-                    onChange={(e) => setName(i, e.target.value)}
-                    className="flex-1 bg-ink border border-line rounded-sm px-3 py-1.5 text-sm focus:border-signal outline-none"
-                  />
-                  {names.length > 2 && (
-                    <button onClick={() => setNames((x) => x.filter((_, j) => j !== i))}
-                      className="text-muted hover:text-danger text-sm px-2" aria-label={`Remove seat ${i + 1}`}>✕</button>
-                  )}
+        {stage === "select" ? (
+          <div className="grid md:grid-cols-2 gap-5">
+            {localSave && (
+              <section className="md:col-span-2 bg-panel/95 border border-signal/60 rounded-sm p-6">
+                <p className="font-mono text-[10px] text-signal uppercase tracking-widest">Saved campaign</p>
+                <div className="flex flex-wrap items-center gap-4 mt-1">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-display font-black tracking-widest text-2xl">{localSave.metadata.worldName}</h3>
+                    <p className="font-mono text-xs text-muted">Game {localSave.activeGame?.gameNumber ?? localSave.campaignState.gameNumber + 1} · {localSave.players.length} seats</p>
+                  </div>
+                  <button type="button" onClick={onResume} className="font-display font-bold tracking-widest text-sm bg-signal text-ink px-5 py-2 rounded-sm">
+                    {localSave.activeGame ? "RESUME" : "NEXT GAME"}
+                  </button>
+                  <button type="button" onClick={() => setPending("delete")} className="font-mono text-xs text-muted hover:text-danger">DELETE SAVE</button>
                 </div>
-              ))}
-            </div>
-            {names.length < 5 && (
-              <button onClick={() => setNames((n) => [...n, `Player ${n.length + 1}`])}
-                className="text-sm text-signal hover:underline mb-5 block">+ Add seat ({names.length}/5)</button>
+              </section>
             )}
-
-            <div className="flex items-center gap-2 mb-6">
-              <span className="font-mono text-xs text-muted w-14">DICE</span>
-              <input value={seed} onChange={(e) => setSeed(e.target.value.replace(/\D/g, ""))}
-                aria-label="Dice seed"
-                className="w-40 bg-ink border border-line rounded-sm px-3 py-1.5 font-mono text-sm focus:border-signal outline-none" />
-              <button onClick={() => setSeed(String(Math.floor(Math.random() * 1e9)))}
-                className="text-xs text-muted hover:text-text">reroll</button>
-            </div>
-
-            <button
-              onClick={() => onStart({ seed: Number(seed) || 1, players: names.map((n, i) => ({ id: `seat${i + 1}`, name: n.trim() || `Player ${i + 1}` })) })}
-              className="font-display font-bold tracking-widest text-lg bg-signal text-ink px-8 py-2.5 rounded-sm hover:brightness-110"
-            >
-              START GAME
+            <button type="button" onClick={() => setStage("configure")}
+              className="bg-panel/95 border border-line rounded-sm p-6 text-left hover:border-signal min-h-44">
+              <span className="font-mono text-[10px] text-muted uppercase tracking-widest">Local · pass this device</span>
+              <span className="block font-display font-black tracking-widest text-2xl mt-2">NEW CAMPAIGN</span>
+              <span className="block text-sm text-muted mt-2">Name the world, fill three to five seats, then begin Game 1.</span>
+              <span className="block font-display font-bold tracking-widest text-signal mt-5">SET UP →</span>
             </button>
+            <button type="button" onClick={onLan}
+              className="bg-panel/95 border border-line rounded-sm p-6 text-left hover:border-signal min-h-44">
+              <span className="font-mono text-[10px] text-muted uppercase tracking-widest">LAN · one screen per player</span>
+              <span className="block font-display font-black tracking-widest text-2xl mt-2">JOIN THE WAR ROOM</span>
+              <span className="block text-sm text-muted mt-2">Select a shared campaign, take an explicit seat, and ready up.</span>
+              <span className="block font-display font-bold tracking-widest text-signal mt-5">CONNECT →</span>
+            </button>
+          </div>
+        ) : (
+          <section className="bg-panel/95 border border-line rounded-sm p-6 max-w-3xl mx-auto">
+            <div className="flex items-center gap-3 mb-6">
+              <button type="button" onClick={() => setStage("select")} className="font-mono text-xs text-muted hover:text-text">← CAMPAIGNS</button>
+              <h3 className="font-display font-black tracking-widest text-xl ml-auto">PLAY AT THIS TABLE</h3>
+            </div>
+            <label className="block mb-6">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Campaign world</span>
+              <input aria-label="World name" value={worldName} onChange={(event) => setWorldName(event.target.value)}
+                className="mt-1 w-full bg-ink border border-line rounded-sm px-4 py-2 font-display font-bold tracking-wide text-xl focus:border-signal outline-none" />
+            </label>
+            <div className="mb-6">
+              <div className="font-mono text-[10px] uppercase tracking-widest text-muted mb-2">Seat order</div>
+              <div className="space-y-2">
+                {names.map((name, index) => (
+                  <div key={index} className="grid grid-cols-[72px_1fr_auto] items-center gap-2">
+                    <label htmlFor={`seat-${index + 1}-name`} className="font-display font-bold tracking-widest text-sm text-signal">SEAT {index + 1}</label>
+                    <input id={`seat-${index + 1}-name`} value={name}
+                      onChange={(event) => setNames((current) => current.map((entry, candidate) => candidate === index ? event.target.value : entry))}
+                      className="bg-ink border border-line rounded-sm px-3 py-2 text-sm focus:border-signal outline-none" />
+                    <button type="button" aria-label={`Remove seat ${index + 1}`} disabled={names.length <= 3}
+                      onClick={() => setNames((current) => current.filter((_, candidate) => candidate !== index))}
+                      className="w-8 text-muted hover:text-danger disabled:opacity-20">×</button>
+                  </div>
+                ))}
+              </div>
+              {names.length < 5 && <button type="button" onClick={() => setNames((current) => [...current, `Player ${current.length + 1}`])}
+                className="font-mono text-xs text-signal mt-3">+ ADD SEAT ({names.length}/5)</button>}
+            </div>
+            <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5">
+              <label htmlFor="dice-seed" className="font-mono text-xs text-muted">DICE SEED</label>
+              <input id="dice-seed" value={seed} onChange={(event) => setSeed(event.target.value.replace(/\D/g, ""))}
+                className="w-40 bg-ink border border-line rounded-sm px-3 py-1.5 font-mono text-sm focus:border-signal outline-none" />
+              <button type="button" onClick={() => setSeed(String(Math.floor(Math.random() * 1e9)))} className="text-xs text-muted">reroll</button>
+              <button type="button" onClick={start} className="ml-auto font-display font-black tracking-widest text-lg bg-signal text-ink px-7 py-2.5 rounded-sm">START GAME</button>
+            </div>
           </section>
+        )}
 
-          <section className="bg-panel/95 border border-line rounded-sm p-6 h-fit">
-            <h2 className="font-display font-bold text-xl tracking-wide mb-1">JOIN THE WAR ROOM</h2>
-            <p className="text-sm text-muted mb-4">
-              Your group's campaign lives on the house network — sign in from any laptop to join
-              the lobby, take your faction, and play on a synced board.
-            </p>
-            <button onClick={onLan}
-              className="font-display font-bold tracking-widest text-sm border border-signal text-signal px-4 py-1.5 rounded-sm hover:bg-signal hover:text-ink">
-              CONNECT
-            </button>{/* new (1-web-a) */}
-          </section>
-        </div>
+        {pending && (
+          <div role="dialog" aria-modal="true" aria-label="Confirm campaign change" className="fixed inset-0 z-50 bg-ink/80 grid place-items-center p-5">
+            <div className="bg-panel border border-danger rounded-sm p-6 max-w-md w-full">
+              <h3 className="font-display font-black tracking-widest text-xl text-danger">{pending === "delete" ? "DELETE CAMPAIGN?" : "REPLACE CAMPAIGN?"}</h3>
+              <p className="text-sm text-muted mt-2">The existing local campaign and its permanent board history will be removed. This cannot be undone.</p>
+              <div className="flex gap-2 justify-end mt-5">
+                <button type="button" onClick={() => setPending(null)} className="border border-line rounded-sm px-3 py-1.5 text-sm">CANCEL</button>
+                <button type="button" onClick={() => {
+                  clearLocalCampaign();
+                  setLocalSave(null);
+                  const action = pending;
+                  setPending(null);
+                  if (action === "replace") onStart(config());
+                }} className="bg-danger text-ink rounded-sm px-3 py-1.5 font-display font-bold tracking-widest text-sm">
+                  {pending === "delete" ? "DELETE PERMANENTLY" : "REPLACE LOCAL SAVE"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

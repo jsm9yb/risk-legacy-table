@@ -5,7 +5,7 @@ import { io, type Socket } from "socket.io-client";
 import { api, type AuthResult, type CampaignSummary, type ContentRequirement } from "./api.ts";
 import NetworkedGame from "./NetworkedGame.tsx"; // new (1-web-b)
 
-interface LobbyMember { userId: string; name: string; role: string; ready: boolean; connected: boolean }
+interface LobbyMember { userId: string; name: string; role: string; ready: boolean; connected: boolean; seat: number | null }
 
 function Field({ label, value, onChange, type = "text", testId }: { label: string; value: string; onChange: (v: string) => void; type?: string; testId?: string }) {
   return (
@@ -17,9 +17,15 @@ function Field({ label, value, onChange, type = "text", testId }: { label: strin
   );
 }
 
-function Btn({ onClick, children, tone = "default" }: { onClick: () => void; children: React.ReactNode; tone?: "default" | "primary" }) {
+function Btn({ onClick, children, tone = "default", disabled }: {
+  onClick: () => void;
+  children: React.ReactNode;
+  tone?: "default" | "primary";
+  disabled?: boolean;
+}) {
   const cls = tone === "primary" ? "bg-signal text-ink hover:brightness-110" : "border border-line hover:border-signal";
-  return <button onClick={onClick} className={`px-3 py-1.5 rounded-sm text-sm font-medium ${cls}`}>{children}</button>;
+  return <button type="button" onClick={onClick} disabled={disabled}
+    className={`px-3 py-1.5 rounded-sm text-sm font-medium disabled:opacity-40 disabled:pointer-events-none ${cls}`}>{children}</button>;
 }
 
 export default function LanApp({ onExit }: { onExit: () => void }) {
@@ -48,6 +54,8 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
 
   const enterLobby = (campaign: CampaignSummary) => {
     setError(null);
+    setSessionId(null);
+    setContentRequired([]);
     socketRef.current?.emit("lobby:join", { campaignId: campaign.id }, (res: any) => {
       if (res?.error) return setError(res.error);
       setLobby({ campaign, members: res?.members ?? [] });
@@ -57,7 +65,7 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
 
   // new (1-web-b): a created session takes over the whole screen with the networked game
   if (auth && sessionId && socketRef.current) {
-    return <NetworkedGame socket={socketRef.current} sessionId={sessionId} viewerId={auth.user.id}
+    return <NetworkedGame key={sessionId} socket={socketRef.current} sessionId={sessionId} viewerId={auth.user.id}
       onExit={() => { setSessionId(null); setLobby(null); refreshCampaigns(auth); }} />;
   }
 
@@ -77,22 +85,31 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
 
         {auth && !lobby && (
           <CampaignsPanel serverUrl={serverUrl} auth={auth} campaigns={campaigns}
-            onRefresh={() => refreshCampaigns(auth)} onOpen={enterLobby} onError={fail} />
+            onRefresh={() => refreshCampaigns(auth)} onOpen={enterLobby} onResume={(id) => setSessionId(id)} onError={fail} />
         )}
 
         {auth && lobby && (
           <>
             {lobby.campaign.role === "host" && contentRequired.length > 0 && ( // new (12): import wizard for paused unlocks
-              <ContentWizard serverUrl={serverUrl} auth={auth} campaignId={lobby.campaign.id}
+              <ContentWizard key={lobby.campaign.id} serverUrl={serverUrl} auth={auth} campaignId={lobby.campaign.id}
                 entries={contentRequired} onUpdated={setContentRequired} onError={fail} />
             )}
             <LobbyPanel auth={auth} lobby={lobby}
+              onSeat={(seat) => socketRef.current?.emit("lobby:seat", { campaignId: lobby.campaign.id, seat }, (res: any) => {
+                if (res?.error) setError(res.error);
+                else setError(null);
+              })}
               onReady={(ready) => socketRef.current?.emit("lobby:ready", { campaignId: lobby.campaign.id, ready })}
               onLaunch={() => socketRef.current?.emit("game:create", { campaignId: lobby.campaign.id }, (res: any) => {
                 if (res?.error) return setError(res.error);
                 if (res?.sessionId) setSessionId(res.sessionId);
               })}
-              onBack={() => { setLobby(null); setSessionId(null); refreshCampaigns(auth); }} />
+              onBack={() => {
+                socketRef.current?.emit("lobby:leave", { campaignId: lobby.campaign.id });
+                setLobby(null);
+                setSessionId(null);
+                refreshCampaigns(auth);
+              }} />
           </>
         )}
       </main>
@@ -123,9 +140,9 @@ function AuthPanel({ serverUrl, setServerUrl, onAuthed, onError }: {
   );
 }
 
-function CampaignsPanel({ serverUrl, auth, campaigns, onRefresh, onOpen, onError }: {
+function CampaignsPanel({ serverUrl, auth, campaigns, onRefresh, onOpen, onResume, onError }: {
   serverUrl: string; auth: AuthResult; campaigns: CampaignSummary[] | null;
-  onRefresh: () => void; onOpen: (c: CampaignSummary) => void; onError: (e: unknown) => void;
+  onRefresh: () => void; onOpen: (c: CampaignSummary) => void; onResume: (sessionId: string) => void; onError: (e: unknown) => void;
 }) {
   const [worldName, setWorldName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -144,7 +161,14 @@ function CampaignsPanel({ serverUrl, auth, campaigns, onRefresh, onOpen, onError
                 <span className="text-sm">{c.worldName}</span>
                 <span className="font-mono text-xs text-muted">game {c.gameNumber} · {c.role}</span>
                 {c.inviteCode && <span className="font-mono text-xs text-muted">invite: <span className="text-signal">{c.inviteCode}</span></span>}
-                <span className="ml-auto"><Btn tone="primary" onClick={() => onOpen(c)}>OPEN LOBBY</Btn></span>
+                {c.hasActiveGame && <span className="font-mono text-xs text-signal">active game</span>}
+                <span className="ml-auto">
+                  {c.activeSessionId ? (
+                    <Btn tone="primary" onClick={() => onResume(c.activeSessionId!)}>RESUME GAME</Btn>
+                  ) : (
+                    <Btn tone="primary" onClick={() => onOpen(c)}>OPEN LOBBY</Btn>
+                  )}
+                </span>
               </div>
             ))}
           </div>
@@ -184,7 +208,7 @@ function ContentWizard({ serverUrl, auth, campaignId, entries, onUpdated, onErro
         return (
           <div key={key} className="mb-4">
             <p className="font-mono text-xs text-muted mb-1">{e.moduleId} · <span className="text-signal">{item}</span></p>
-            <textarea data-testid={`content-${key}`} value={text[key] ?? ""}
+            <textarea data-testid={`content-${key}`} aria-label={`${e.moduleId} ${item}`} value={text[key] ?? ""}
               onChange={(ev) => setText((t) => ({ ...t, [key]: ev.target.value }))}
               className="w-full bg-ink border border-line rounded-sm px-3 py-2 text-sm font-mono h-20 focus:border-signal outline-none mb-1" />
             <Btn onClick={() =>
@@ -198,13 +222,14 @@ function ContentWizard({ serverUrl, auth, campaignId, entries, onUpdated, onErro
   );
 }
 
-function LobbyPanel({ auth, lobby, onReady, onLaunch, onBack }: {
+function LobbyPanel({ auth, lobby, onSeat, onReady, onLaunch, onBack }: {
   auth: AuthResult; lobby: { campaign: CampaignSummary; members: LobbyMember[] };
-  onReady: (ready: boolean) => void; onLaunch: () => void; onBack: () => void;
+  onSeat: (seat: number) => void; onReady: (ready: boolean) => void; onLaunch: () => void; onBack: () => void;
 }) {
   const me = lobby.members.find((m) => m.userId === auth.user.id);
   const isHost = me?.role === "host";
-  const readyCount = lobby.members.filter((m) => m.role !== "spectator" && m.ready).length;
+  const readyCount = lobby.members.filter((m) => m.role !== "spectator" && m.connected && m.ready).length;
+  const canLaunch = readyCount >= 3 && readyCount <= 5;
   return (
     <section className="bg-panel border border-line rounded-sm p-6">
       <div className="flex items-baseline gap-3 mb-4">
@@ -216,16 +241,40 @@ function LobbyPanel({ auth, lobby, onReady, onLaunch, onBack }: {
           <div key={m.userId} className="flex items-center gap-3 font-mono text-xs">
             <span className={m.connected ? "" : "opacity-40"}>{m.name}</span>
             <span className="text-muted">{m.role}</span>
+            {m.role !== "spectator" && <span className="text-muted">seat {m.seat ?? "unassigned"}</span>}
             {m.role !== "spectator" && <span className={m.ready ? "text-signal" : "text-muted"}>{m.ready ? "READY" : "not ready"}</span>}
           </div>
         ))}
       </div>
+      {me?.role !== "spectator" && (
+        <div className="mb-5">
+          <h3 className="font-mono text-[10px] uppercase tracking-widest text-muted mb-2">Choose your seat</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {[1, 2, 3, 4, 5].map((seat) => {
+              const occupant = lobby.members.find((member) => member.seat === seat);
+              const mine = occupant?.userId === auth.user.id;
+              return (
+                <button key={seat} type="button" disabled={!!occupant && !mine} onClick={() => onSeat(seat)}
+                  className={`border rounded-sm px-3 py-3 text-left disabled:opacity-40 ${mine ? "border-signal bg-signal/10" : "border-line hover:border-signal"}`}>
+                  <span className="block font-display font-bold tracking-widest text-sm">SEAT {seat}</span>
+                  <span className="block font-mono text-[10px] text-muted truncate">{occupant?.name ?? "available"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="flex gap-2">
         {me && me.role !== "spectator" && (
-          <Btn tone="primary" onClick={() => onReady(!me.ready)}>{me.ready ? "UNREADY" : "READY"}</Btn>
+          <Btn tone="primary" disabled={me.seat === null} onClick={() => onReady(!me.ready)}>{me.ready ? "UNREADY" : me.seat === null ? "CHOOSE A SEAT" : "READY"}</Btn>
         )}
-        {isHost && <Btn onClick={onLaunch}>LAUNCH GAME ({readyCount} ready)</Btn>}
+        {isHost && <Btn onClick={onLaunch} disabled={!canLaunch}>LAUNCH GAME ({readyCount} ready)</Btn>}
       </div>{/* new (1-web-b): game:created now mounts NetworkedGame instead of a banner */}
+      {isHost && !canLaunch && (
+        <p className="font-mono text-xs text-muted mt-3">
+          {readyCount < 3 ? `${3 - readyCount} more connected player${3 - readyCount === 1 ? "" : "s"} must ready.` : "At most 5 players may join."}
+        </p>
+      )}
     </section>
   );
 }

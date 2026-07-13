@@ -34,7 +34,7 @@ export default function HandStrip({ gs, player, ui, setUi, selectable, scarPlaya
     }));
 
   return (
-    <div className="border-t border-line bg-panel px-4 py-2 flex items-center gap-4 min-h-[104px]">
+    <div className="border-t border-line bg-panel px-4 py-2 flex flex-wrap sm:flex-nowrap items-center gap-4 min-h-[104px] min-w-0 w-full overflow-hidden">
       <div className="font-mono text-xs space-y-0.5 shrink-0">
         <div className="flex items-center gap-1.5">
           {faction
@@ -46,7 +46,7 @@ export default function HandStrip({ gs, player, ui, setUi, selectable, scarPlaya
         {recruitRemaining !== undefined && <div className="text-signal">to place: {recruitRemaining}</div>}
         {selectable && <div className="text-signal">selected: {ui.selectedCards.length}</div>}
       </div>
-      <div className="flex items-center gap-2 overflow-x-auto py-1">
+      <div className="flex flex-1 min-w-0 items-center gap-2 overflow-x-auto py-1">
         {p.hand.length === 0 ? (
           <span className="font-mono text-[10px] text-muted">no resource cards</span>
         ) : (
@@ -59,12 +59,16 @@ export default function HandStrip({ gs, player, ui, setUi, selectable, scarPlaya
         {p.scarHand.map((h) => ( // new (UI-12): held scars as full-art cards; click to play
           <ScarCard key={h.instanceId} scarId={h.scarId} size="sm"
             selected={ui.scarTarget?.instanceId === h.instanceId}
-            onClick={scarPlayable
-              ? () => setUi((u) => ({ ...u, scarTarget: { playerId: player!, instanceId: h.instanceId, scarId: h.scarId } }))
+            onClick={player
+              ? () => setUi((u) => ({
+                ...u,
+                scarDialog: { playerId: player!, instanceId: h.instanceId, scarId: h.scarId },
+                scarTarget: undefined,
+              }))
               : undefined} />
         ))}
       </div>
-      {actions && <div className="ml-auto shrink-0 max-w-[55%]">{actions}</div>}{/* new (UI-2) */}
+      {actions && <div className="w-full sm:w-auto sm:ml-auto sm:shrink-0 sm:max-w-[55%] min-w-0 overflow-x-auto pt-1 sm:pt-0">{actions}</div>}{/* new (UI-2) */}
     </div>
   );
 }

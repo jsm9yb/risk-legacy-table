@@ -3,9 +3,9 @@
  * policy through the real engine API (same actions a client would send).
  * Usage: npm run sim -- [seed] [players]
  */
-import { createGame, applyAction, waitingOn, redStars, isLegalStart, initialCampaign, applyGameToCampaign, type GameState, type Action } from "@risk/rules"; // new: isLegalStart; campaign chain (10b)
+import { createGame, applyAction, waitingOn, redStars, isLegalStart, neighborsOf, initialCampaign, applyGameToCampaign, type GameState, type Action } from "@risk/rules"; // new: isLegalStart; campaign chain (10b)
 import { contentPack } from "@risk/content";
-import { territoryById, manifest } from "@risk/map";
+import { manifest } from "@risk/map";
 
 const seed = Number(process.argv[2] ?? 1234);
 const playerCount = Math.min(5, Math.max(3, Number(process.argv[3] ?? 4))); // new: 3-5 players
@@ -21,11 +21,25 @@ function pickAction(s: GameState): Action | null {
   if (!pid) return null;
   const p = s.players[pid];
 
+  if (s.comebackChoice) {
+    return { type: "comeback.choose", playerId: pid, optionId: s.comebackChoice.options[0].id };
+  }
+
   if (s.phase === "setup") {
+    if (s.advancedDraft && !s.advancedDraft.completed) {
+      const picks = s.advancedDraft.picks[pid];
+      if (!picks.factionId) return { type: "draft.pick", playerId: pid, category: "faction", value: s.advancedDraft.available.factions[0] };
+      if (picks.turnOrder === undefined) return { type: "draft.pick", playerId: pid, category: "turnOrder", value: s.advancedDraft.available.turnOrder[0] };
+      if (picks.placementOrder === undefined) return { type: "draft.pick", playerId: pid, category: "placementOrder", value: s.advancedDraft.available.placementOrder[0] };
+      if (picks.startingTroops === undefined) return { type: "draft.pick", playerId: pid, category: "startingTroops", value: s.advancedDraft.available.startingTroops[0] };
+      return { type: "draft.pick", playerId: pid, category: "startingCoinCards", value: s.advancedDraft.available.startingCoinCards[0] };
+    }
     const faction = contentPack.factions.find((f) => !Object.values(s.players).some((x) => x.factionId === f.id))!;
-    const start = manifest.territories.find((t) => isLegalStart(s, t.id, true, faction.id))!; // new: HQ-adjacency-aware
-    const powerId = s.factionPowers[faction.id] ? undefined : faction.startingPowers[0]; // new (9): first play picks the faction's first power
-    return { type: "setup.choose", playerId: pid, factionId: faction.id, territoryId: start.id, powerId };
+    const draftedFaction = s.advancedDraft?.picks[pid]?.factionId;
+    const selectedFaction = draftedFaction ? contentPack.factions.find((f) => f.id === draftedFaction)! : faction;
+    const start = manifest.territories.find((t) => isLegalStart(s, t.id, true, selectedFaction.id))!; // new: HQ-adjacency-aware
+    const powerId = s.factionPowers[selectedFaction.id] ? undefined : selectedFaction.startingPowers[0]; // new (9): first play picks the faction's first power
+    return { type: "setup.choose", playerId: pid, factionId: selectedFaction.id, territoryId: start.id, powerId };
   }
   const c = s.combat;
   if (c) {
@@ -47,10 +61,10 @@ function pickAction(s: GameState): Action | null {
         const mine = owned(s, pid);
         // new: prefer a territory adjacent to an enemy HQ, else any frontier, else anything
         const nextToHq = mine.find(([tid]) =>
-          territoryById(tid).neighbors.some((n) => { const x = s.territories[n]; return x.hqFaction && x.controller && x.controller !== pid; })
+          neighborsOf(s, tid).some((n) => { const x = s.territories[n]; return x.hqFaction && x.controller && x.controller !== pid; })
         );
         const frontier = mine.find(([tid]) =>
-          territoryById(tid).neighbors.some((n) => s.territories[n].controller && s.territories[n].controller !== pid)
+          neighborsOf(s, tid).some((n) => s.territories[n].controller && s.territories[n].controller !== pid)
         );
         const target = nextToHq ?? frontier ?? mine[0];
         return { type: "recruit.place", playerId: pid, territoryId: target[0], count: s.recruit.remaining };
@@ -63,7 +77,7 @@ function pickAction(s: GameState): Action | null {
       const cands: Cand[] = [];
       for (const [tid, t] of owned(s, pid)) {
         if (t.troops < 3) continue;
-        for (const n of territoryById(tid).neighbors) {
+        for (const n of neighborsOf(s, tid)) {
           const nt = s.territories[n];
           if (nt.controller && nt.controller !== pid && nt.troops <= t.troops - 2) {
             cands.push({ from: tid, to: n, hq: !!nt.hqFaction, margin: t.troops - nt.troops });
@@ -74,11 +88,11 @@ function pickAction(s: GameState): Action | null {
       if (cands[0]) return { type: "attack.declare", playerId: pid, from: cands[0].from, to: cands[0].to };
       // new: no attack available -> expand into an empty neighbor from the strongest stack to grow toward enemies
       const expandable = owned(s, pid)
-        .filter(([tid, t]) => t.troops >= 4 && territoryById(tid).neighbors.some((n) => !s.territories[n].controller && s.territories[n].troops === 0))
+        .filter(([tid, t]) => t.troops >= 4 && neighborsOf(s, tid).some((n) => !s.territories[n].controller && s.territories[n].troops === 0))
         .sort((a, b) => b[1].troops - a[1].troops)[0];
       if (expandable) {
         const [tid, t] = expandable;
-        const to = territoryById(tid).neighbors.find((n) => !s.territories[n].controller && s.territories[n].troops === 0)!;
+        const to = neighborsOf(s, tid).find((n) => !s.territories[n].controller && s.territories[n].troops === 0)!;
         return { type: "attack.expand", playerId: pid, from: tid, to, troops: Math.floor(t.troops / 2) };
       }
       return { type: "phase.endAttacks", playerId: pid };
@@ -103,9 +117,25 @@ function pickAction(s: GameState): Action | null {
 
 const MAX = 6000; // new: bounded for a fast sanity run
 
+function resolvePendingContent(state: GameState): GameState {
+  while (state.contentRequired.length > 0) {
+    const requirement = state.contentRequired[0];
+    const item = requirement.items[0];
+    state = applyAction(state, {
+      type: "module.supplyContent",
+      playerId: state.turnOrder[0],
+      moduleId: requirement.moduleId,
+      item,
+      content: `Simulator host content for ${requirement.moduleId}.${item}`,
+    });
+  }
+  return state;
+}
+
 function playToWinner(state: GameState): { state: GameState; steps: number } { // new: refactored so a chained game 2 can reuse it
   let steps = 0;
   while (state.phase !== "game_over" && steps < MAX) {
+    state = resolvePendingContent(state);
     const a = pickAction(state);
     if (!a) break;
     try {
@@ -124,8 +154,11 @@ function playToWinner(state: GameState): { state: GameState; steps: number } { /
 function resolveRewards(state: GameState): GameState { // new: refactored into a function for the chained game
   let guard = 0;
   while (state.rewards && !state.rewards.committed && guard++ < 10) {
+    state = resolvePendingContent(state);
+    const rewards = state.rewards;
+    if (!rewards || rewards.committed) break;
     const pid = waitingOn(state)!; // current reward claimant
-    const isWinner = state.rewards.order[0] === pid;
+    const isWinner = rewards.order[0] === pid;
     if (isWinner) {
       const unnamed = manifest.continents.find((c) => !state.continents[c.id]?.name)!;
       state = applyAction(state, { type: "reward.choose", playerId: pid, reward: { kind: "name_continent", continentId: unnamed.id, name: `${state.players[pid].name}'s ${unnamed.name}` } });
@@ -136,7 +169,7 @@ function resolveRewards(state: GameState): GameState { // new: refactored into a
         : { type: "reward.choose", playerId: pid, reward: { kind: "pass" } });
     }
   }
-  return state;
+  return resolvePendingContent(state);
 }
 
 const g1 = playToWinner(s); // new

@@ -1,5 +1,5 @@
 {
-  "name": "risk-legacy",
+  "name": "risk-legacy-table",
   "private": true,
   "version": "0.1.0",
   "workspaces": [
@@ -14,12 +14,21 @@
     "validate:content": "node --experimental-strip-types packages/content/src/validate.ts",
     "generate:board": "node --experimental-strip-types packages/map/src/generate-board.ts",
     "sim": "node --experimental-strip-types tools/simulator/src/run.ts",
+    "campaign:fixtures": "node --experimental-strip-types tools/simulator/src/campaign-fixtures.ts",
+    "validate:presentation-map": "npx vitest run packages/map/src/presentation.test.ts",
+    "test:presentation": "npx vitest run apps/web/src/game/presentation apps/web/src/game/interaction apps/web/src/local/migrations.test.ts",
+    "test:visual": "playwright test",
+    "test:visual:update": "playwright test --update-snapshots",
+    "perf:table": "playwright test apps/web/e2e/table.perf.spec.ts",
+    "perf:table:soak": "playwright test --config playwright.soak.config.ts",
+    "assets:table:report": "node --experimental-strip-types tools/simulator/src/presentation-report.ts",
     "dev:server": "npm run dev -w @risk/server",
     "dev:web": "npm run dev -w @risk/web"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^22.0.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0",
-    "@types/node": "^22.0.0"
+    "vitest": "^2.1.0"
   }
 }

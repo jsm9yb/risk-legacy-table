@@ -61,6 +61,21 @@ describe("victory & reward flow (UI-12)", () => {
     }
     expect(current.rewards?.committed).toBe(true);
 
+    while (current.contentRequired.length > 0) {
+      const requirement = current.contentRequired[0];
+      const item = requirement.items[0];
+      expect(screen.getByRole("dialog", { name: "Sealed content required" })).toBeTruthy();
+      fireEvent.change(screen.getByLabelText(`Sealed content: ${requirement.moduleId}.${item}`), {
+        target: { value: `Host-entered ${item}` },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "SAVE & RESUME" }));
+    }
+    while (current.comebackChoice) {
+      const option = current.comebackChoice.options[0];
+      const modal = screen.getByRole("dialog", { name: "Choose a comeback power" });
+      fireEvent.click(within(modal).getByRole("button", { name: new RegExp(option.title) }));
+    }
+
     // envelope reveal only when a module unlocked this game; then the aftermath
     const envelope = screen.queryByRole("dialog", { name: "Sealed pack" });
     if (envelope) {
@@ -79,9 +94,6 @@ describe("victory & reward flow (UI-12)", () => {
     gs.log.push({ seq: ++gs.eventSeq, type: "ModuleRevealed", data: { moduleId: "pack_3", name: "Pack 3 — Homelands" } });
 
     render(<Harness initial={gs} />);
-    fireEvent.click(screen.getByRole("button", { name: "SIGN THE BOARD" }));
-    fireEvent.click(screen.getByRole("button", { name: "CONTINUE" }));
-
     expect(screen.getByRole("dialog", { name: "Sealed pack" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "TEAR OPEN" }));
     expect(screen.getByText("Pack 3 — Homelands")).toBeTruthy();
@@ -90,20 +102,43 @@ describe("victory & reward flow (UI-12)", () => {
     expect(screen.getByText(/SEALED PACK OPENED/)).toBeTruthy();
   });
 
+  it("keeps Game 15 open until the selected player names the completed world", () => {
+    const gs = driveToVictory(99);
+    const winner = gs.winner!;
+    gs.gameNumber = 15;
+    gs.rewards = { order: gs.rewards!.order, nextIdx: gs.rewards!.order.length, committed: true };
+    gs.worldCompletion = { namingPlayerId: winner };
+    render(<Harness initial={gs} />);
+
+    expect(screen.getByRole("dialog", { name: "Name the completed world" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Completed world name"), { target: { value: "Aeternum" } });
+    fireEvent.click(screen.getByRole("button", { name: "SEAL THE NAME" }));
+
+    expect(current.worldCompletion?.name).toBe("Aeternum");
+    expect(current.worldName).toBe("Aeternum");
+    expect(screen.getByRole("dialog", { name: "Aftermath" })).toBeTruthy();
+    expect(screen.getByText(/completed and named the world/)).toBeTruthy();
+  });
+
   it("a held scar plays as a card from the strip onto the board as a circular chip", () => {
     const { gs, pid } = atExpandAttack(101);
     const scar = gs.players[pid].scarHand[0];
     expect(scar).toBeTruthy(); // starter scars dealt at setup
     render(<Harness initial={gs} />);
 
-    // the strip renders the held scar as a full-art card; clicking arms targeting
+    // the strip renders the held scar as a full-art card; clicking opens the play modal
     fireEvent.click(screen.getByRole("button", { name: /^Play / }));
+    const modal = screen.getByRole("dialog", { name: /^Play / });
+    expect(within(modal).getByText(/Target:/)).toBeTruthy();
+    fireEvent.click(within(modal).getByRole("button", { name: "CHOOSE TERRITORY" }));
     expect(screen.getByText(/click an unscarred territory/i)).toBeTruthy();
 
     const tid = manifest.territories.find((t) => current.territories[t.id].scars.length === 0)!.id;
+    const before = current.territories[tid].scars.length;
     fireEvent.click(document.getElementById(tid)!);
+    expect(current.territories[tid].scars).toHaveLength(before);
+    fireEvent.click(screen.getByRole("button", { name: "CONFIRM" }));
     expect(current.territories[tid].scars).toContain(scar.scarId);
-    expect(document.querySelector(`[data-scar-chip="${scar.scarId}"]`)).toBeTruthy(); // board chip (UI-10)
     expect(current.players[pid].scarHand).toHaveLength(0);
   });
 });

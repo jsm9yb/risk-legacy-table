@@ -2,7 +2,16 @@ import { describe, it, expect } from "vitest";
 import { newDb } from "pg-mem";
 import { runMigrations } from "./db/migrate.ts";
 import { createDbFromPool } from "./db/connect.ts";
-import { createGame, initialCampaign, applyGameToCampaign, applyAction, supplyModuleContent, type CampaignState } from "@risk/rules"; // new (10b, 12)
+import {
+  advanceCampaignScenarioToFirstTurn,
+  applyAction,
+  applyGameToCampaign,
+  createCampaignScenarios,
+  createGame,
+  initialCampaign,
+  supplyModuleContent,
+  type CampaignState,
+} from "@risk/rules"; // new (10b, 12)
 
 describe("event store (pg-mem smoke)", () => {
   it("migrates, appends actions append-only, reads back in order", async () => {
@@ -118,6 +127,66 @@ describe("event store (pg-mem smoke)", () => {
     expect(rows[0].path).toBe("pack_2_comeback_mercenaries.powers");
   });
 
+  it("persists and restores every campaign-stage fixture through campaign and session snapshots", async () => {
+    const mem = newDb();
+    const { Pool } = mem.adapters.createPg();
+    const pool = new Pool();
+    await runMigrations(pool as any);
+    const db = createDbFromPool(pool as any);
+    await db.insertInto("users").values({ id: "u1", username: "ada", display_name: "Ada", password_hash: "x:y" }).execute();
+    const players = [{ id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" }];
+
+    for (const [index, scenario] of createCampaignScenarios("Server QA").entries()) {
+      const campaignId = `qa-campaign-${index}`;
+      await db.insertInto("campaigns").values({
+        id: campaignId,
+        owner_id: "u1",
+        world_name: scenario.campaign.worldName,
+        invite_code: `qa${String(index).padStart(6, "0")}`,
+        state: JSON.stringify(scenario.campaign),
+      }).execute();
+      const campaignRow = await db.selectFrom("campaigns")
+        .select(["state", "world_name"])
+        .where("id", "=", campaignId)
+        .executeTakeFirstOrThrow();
+      const restored = JSON.parse(campaignRow.state!) as CampaignState;
+      expect(restored, scenario.id).toEqual(scenario.campaign);
+      expect(campaignRow.world_name, scenario.id).toBe(scenario.campaign.worldName);
+
+      const create = () => createGame({
+        gameId: `qa-session-${index}`,
+        seed: 10000 + index,
+        players,
+        campaign: restored,
+      });
+      if (scenario.expectedStart === "blocked_on_import") {
+        expect(create, scenario.id).toThrow(/advanced setup draft.*host-entered/i);
+        continue;
+      }
+
+      await db.insertInto("game_sessions").values({
+        id: `qa-session-${index}`,
+        campaign_id: campaignId,
+        game_number: scenario.campaign.gameNumber + 1,
+        seed: String(10000 + index),
+        campaign_state: JSON.stringify(restored),
+      }).execute();
+      const sessionRow = await db.selectFrom("game_sessions")
+        .selectAll()
+        .where("id", "=", `qa-session-${index}`)
+        .executeTakeFirstOrThrow();
+      const fromSession = createGame({
+        gameId: sessionRow.id,
+        seed: Number(sessionRow.seed),
+        players,
+        campaign: JSON.parse(sessionRow.campaign_state!) as CampaignState,
+      });
+      const firstTurn = advanceCampaignScenarioToFirstTurn(fromSession).state;
+      expect(firstTurn.phase, scenario.id).toBe("start_turn");
+      expect(firstTurn.gameNumber, scenario.id).toBe(sessionRow.game_number);
+    }
+  }, 30000);
+
   it("prevents a campaign from having two active sessions", async () => {
     const mem = newDb();
     const { Pool } = mem.adapters.createPg();
@@ -138,5 +207,31 @@ describe("event store (pg-mem smoke)", () => {
     const active = await db.selectFrom("game_sessions").selectAll()
       .where("campaign_id", "=", "c1").where("status", "=", "active").execute();
     expect(active.map((s) => s.id)).toEqual(["s2"]);
+  });
+
+  it("finds active session ids for campaign summaries", async () => {
+    const mem = newDb();
+    const { Pool } = mem.adapters.createPg();
+    const pool = new Pool();
+    await runMigrations(pool as any);
+    const db = createDbFromPool(pool as any);
+
+    await db.insertInto("users").values({ id: "u1", username: "ada", display_name: "Ada", password_hash: "x:y" }).execute();
+    await db.insertInto("campaigns").values({ id: "c1", owner_id: "u1", world_name: "Terra", invite_code: "ff00aa44" }).execute();
+    await db.insertInto("campaign_members").values({ campaign_id: "c1", user_id: "u1", role: "host" }).execute();
+    await db.insertInto("game_sessions").values({ id: "s1", campaign_id: "c1", game_number: 1, seed: "42" }).execute();
+
+    const rows = await db.selectFrom("campaign_members")
+      .innerJoin("campaigns", "campaigns.id", "campaign_members.campaign_id")
+      .select(["campaigns.id"])
+      .where("campaign_members.user_id", "=", "u1")
+      .execute();
+    const activeRows = await db.selectFrom("game_sessions")
+      .select(["campaign_id", "id"])
+      .where("campaign_id", "in", rows.map((r) => r.id))
+      .where("status", "=", "active")
+      .execute();
+
+    expect(new Map(activeRows.map((r) => [r.campaign_id, r.id])).get("c1")).toBe("s1");
   });
 });
