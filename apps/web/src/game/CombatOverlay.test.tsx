@@ -38,9 +38,19 @@ describe("combat overlay (UI-8)", () => {
     expect(within(dialog).getByText(new RegExp(territoryName(target)))).toBeTruthy();
     expect(current.combat).toBeTruthy();
 
-    // attacker picks 3 dice; the defender decision then enables auto-defend (max dice),
-    // which dispatches the defender choice and rolls immediately
-    fireEvent.click(screen.getByRole("button", { name: "Attack with 3 dice" }));
+    // The attacker count opens at the legal maximum with its number focused and selected.
+    // MIN/MAX are quick presets, while Enter submits the highlighted number.
+    const attackers = screen.getByRole("spinbutton", { name: "Attacking troops" }) as HTMLInputElement;
+    expect(attackers.value).toBe("3");
+    expect(document.activeElement).toBe(attackers);
+    fireEvent.click(screen.getByRole("button", { name: "Use minimum attackers" }));
+    expect(attackers.value).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "Use maximum attackers" }));
+    expect(attackers.value).toBe("3");
+    fireEvent.keyDown(attackers, { key: "Enter", code: "Enter" });
+
+    // The defender decision then enables auto-defend (max dice), which dispatches
+    // the defender choice and rolls immediately.
     fireEvent.click(screen.getByLabelText("Auto-defend with max dice"));
     expect(current.log.some((e) => e.type === "DiceRolled")).toBe(true);
     expect(document.querySelector("[data-roll-outcome]")).toBeTruthy();

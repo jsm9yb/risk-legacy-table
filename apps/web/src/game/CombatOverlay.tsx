@@ -2,7 +2,7 @@
 // drives dice choice → roll → missile window (explicit interrupt) → casualties → move-in
 // through the real action API, with a per-roll battle log for sieges, explanatory
 // scar/power badges, an ATTACK AGAIN re-arm, and a per-player auto-defend toggle.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { hasFactionPower, type Action, type CombatModifier, type GameState } from "@risk/rules";
 import { factionById, scarName, territoryName } from "./labels.ts";
 import FactionEmblem from "./FactionEmblem.tsx"; // new (UI-10)
@@ -317,13 +317,14 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
           </div>
         )}
         {stage === "attackers" && (
-          <div>
-            <p className="text-xs text-muted mb-2">{att.name} chooses how many dice to attack with (each die risks one troop).</p>
-            <div className="flex items-center gap-2">
-              {[1, 2, 3].filter((n) => n <= fromT.troops - 1).map((n) => (
-                <Btn key={n} ariaLabel={`Attack with ${n} ${n === 1 ? "die" : "dice"}`} disabled={!canActFor(c.attacker)}
-                  onClick={() => dispatch({ type: "attack.chooseAttackers", playerId: c.attacker, count: n })}>{n}</Btn>
-              ))}
+          <div className="space-y-2">
+            <p className="text-xs text-muted">{att.name} chooses how many troops to attack with (one die per troop).</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <AttackerChoice
+                max={Math.min(3, fromT.troops - 1)}
+                disabled={!canActFor(c.attacker)}
+                onCommit={(count) => dispatch({ type: "attack.chooseAttackers", playerId: c.attacker, count })}
+              />
               <Btn disabled={!canActFor(c.attacker)} onClick={() => dispatch({ type: "attack.cancel", playerId: c.attacker })}>WITHDRAW</Btn>
             </div>
           </div>
@@ -437,6 +438,91 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
       </div>
     </CenterOverlay>
   );
+}
+
+function AttackerChoice({ max, disabled, onCommit }: {
+  max: number;
+  disabled?: boolean;
+  onCommit: (count: number) => void;
+}) {
+  const safeMax = Math.max(1, max);
+  const [draft, setDraft] = useState(`${safeMax}`);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const count = clampAttackers(Number(draft), safeMax);
+
+  useEffect(() => {
+    setDraft((current) => `${clampAttackers(Number(current), safeMax)}`);
+    if (disabled) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [disabled, safeMax]);
+
+  const commit = () => {
+    if (disabled) return;
+    onCommit(count);
+  };
+
+  return (
+    <form
+      aria-label="Choose attacking troops"
+      onSubmit={(event) => { event.preventDefault(); commit(); }}
+      className="flex flex-wrap items-end gap-2"
+    >
+      <label className="grid gap-1">
+        <span className="font-mono text-[10px] text-muted tracking-widest">ATTACKERS · 1–{safeMax}</span>
+        <input
+          ref={inputRef}
+          aria-label="Attacking troops"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={safeMax}
+          value={draft}
+          disabled={disabled}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => setDraft(`${count}`)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            commit();
+          }}
+          className="h-9 w-20 rounded-sm border border-signal bg-ink px-2 font-mono text-lg text-signal outline-none focus:ring-2 focus:ring-signal/40 disabled:opacity-40"
+        />
+      </label>
+      <button
+        type="button"
+        aria-label="Use minimum attackers"
+        disabled={disabled}
+        onClick={() => { setDraft("1"); inputRef.current?.focus(); inputRef.current?.select(); }}
+        className="h-9 rounded-sm border border-line px-3 font-mono text-xs hover:border-signal disabled:opacity-40"
+      >
+        MIN · 1
+      </button>
+      <button
+        type="button"
+        aria-label="Use maximum attackers"
+        disabled={disabled}
+        onClick={() => { setDraft(`${safeMax}`); inputRef.current?.focus(); inputRef.current?.select(); }}
+        className="h-9 rounded-sm border border-line px-3 font-mono text-xs hover:border-signal disabled:opacity-40"
+      >
+        MAX · {safeMax}
+      </button>
+      <button
+        type="submit"
+        aria-label={`Attack with ${count} ${count === 1 ? "die" : "dice"}`}
+        disabled={disabled}
+        className="h-9 rounded-sm bg-signal px-4 text-sm font-medium text-ink hover:brightness-110 disabled:opacity-40"
+      >
+        ATTACK
+      </button>
+      <span className="self-center font-mono text-[10px] text-muted">ENTER TO ATTACK</span>
+    </form>
+  );
+}
+
+function clampAttackers(value: number, max: number) {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(Math.max(Math.round(value), 1), max);
 }
 
 function MoveIn({ min, max, disabled, onCommit }: { min: number; max: number; disabled?: boolean; onCommit: (n: number) => void }) {

@@ -4,7 +4,7 @@ import GameTable from "./GameTable.tsx";
 import type { InteractionModel } from "./interaction/InteractionPolicy.ts";
 
 const factions = ["die_mechaniker", "enclave_of_the_bear", "imperial_balkania", "khan_industries", "saharan_republic", "mutants", "aliens"];
-const scarIds = ["ammo_shortage", "biohazard", "bunker", "fallout", "fortification", "mercenary", "weakness"];
+const scarIds = ["ammo_shortage", "biohazard", "bunker", "fallout", "mercenary"];
 
 function fixture(options: { players: number; empty: boolean; allMarks: boolean; clutter: boolean }): GameState {
   const playerDefinitions = ["Ada", "Lin", "Rex", "Sol", "Mara"].slice(0, options.players).map((name, index) => ({ id: `u${index + 1}`, name }));
@@ -20,29 +20,47 @@ function fixture(options: { players: number; empty: boolean; allMarks: boolean; 
     state.territories[id] = { controller: playerDefinitions[index % playerDefinitions.length].id, troops: [1, 2, 3, 5, 8, 14, 23, 99][index % 8], scars: [] };
   });
   state.territories.alaska.hqFaction = "die_mechaniker";
+  state.territories.alaska.city = { type: "major", population: 2, name: "Iron Reach" };
+  state.territories.alaska.fortification = { max: 10, remaining: 10 };
+  state.territories.alaska.scars = ["bunker"];
   state.territories.northwest_territory.hqFaction = "enclave_of_the_bear";
   state.territories.alberta.city = { type: "minor", population: 1, name: "Northgate" };
+  state.territories.alberta.fortification = { max: 10, remaining: 9 };
   state.territories.ontario.city = { type: "major", population: 2, name: "Forge" };
-  state.territories.ontario.fortification = { max: 10, remaining: 7 };
-  state.territories.quebec.scars = ["bunker", "ammo_shortage"];
+  state.territories.ontario.fortification = { max: 10, remaining: 5 };
+  state.territories.quebec.city = { type: "minor", population: 1, name: "Last Light" };
+  state.territories.quebec.fortification = { max: 10, remaining: 1 };
+  state.territories.quebec.scars = ["ammo_shortage"];
   state.territories.iceland.ruin = true;
   if (options.allMarks) {
     scarIds.forEach((scarId, index) => { state.territories[ids[index + 8]].scars = [scarId]; });
     state.territories.middle_east.city = { type: "world_capital", population: 5, name: "Last Bastion" };
+    state.territories.middle_east.fortification = undefined;
+    state.continents.north_america = { name: "First Reach", namedBy: "u1" };
+    state.continents.europe = { bonusMark: 1 };
+    state.continents.australia = { name: "The Rim", namedBy: "u2", bonusMark: -1 };
     state.alienIsland = { territoryId: "alien_island", name: "New Eden", connections: ["indonesia", "eastern_australia"] };
     state.territories.alien_island = { controller: "u1", troops: 10, scars: [] };
   }
   if (options.clutter) {
     ids.forEach((id, index) => {
       const territory = state.territories[id];
-      territory.hqFaction = factions[index % factions.length];
-      territory.fortification = { max: 10, remaining: (index % 10) + 1 };
-      territory.scars = [scarIds[index % scarIds.length], scarIds[(index + 2) % scarIds.length], scarIds[(index + 4) % scarIds.length]];
+      if (index % 2 === 0) territory.hqFaction = factions[index % factions.length];
+      territory.fortification = undefined;
+      territory.scars = index % 2 === 0 ? [] : [scarIds[index % scarIds.length]];
       if (index % 4 === 0) territory.ruin = true;
-      else territory.city = { type: index % 5 === 0 ? "world_capital" : index % 2 === 0 ? "major" : "minor", population: index % 5 === 0 ? 5 : index % 2 === 0 ? 2 : 1, name: `Audit ${index + 1}` };
+      else {
+        territory.city = { type: index % 5 === 0 ? "world_capital" : index % 2 === 0 ? "major" : "minor", population: index % 5 === 0 ? 5 : index % 2 === 0 ? 2 : 1, name: `Audit ${index + 1}` };
+        if (index % 6 !== 0) territory.fortification = { max: 10, remaining: (index % 10) + 1 };
+      }
     });
+    state.territories.alaska = { ...state.territories.alaska, hqFaction: "die_mechaniker", city: { type: "major", population: 2, name: "Layer Audit" }, fortification: { max: 10, remaining: 10 }, ruin: undefined, scars: ["bunker"] };
+    state.territories.alberta = { ...state.territories.alberta, city: { type: "minor", population: 1, name: "Nine" }, fortification: { max: 10, remaining: 9 }, ruin: undefined, scars: [] };
+    state.territories.ontario = { ...state.territories.ontario, city: { type: "major", population: 2, name: "Five" }, fortification: { max: 10, remaining: 5 }, ruin: undefined, scars: [] };
+    state.territories.quebec = { ...state.territories.quebec, city: { type: "minor", population: 1, name: "One" }, fortification: { max: 10, remaining: 1 }, ruin: undefined, scars: [] };
+    state.territories.middle_east = { ...state.territories.middle_east, city: { type: "world_capital", population: 5, name: "Expired" }, fortification: undefined, ruin: undefined, scars: [] };
     state.alienIsland = { territoryId: "alien_island", name: "New Eden", connections: ["indonesia", "eastern_australia"] };
-    state.territories.alien_island = { controller: "u1", troops: 99, hqFaction: "aliens", city: { type: "major", population: 2, name: "Arrival" }, fortification: { max: 10, remaining: 10 }, scars: ["fallout", "bunker", "biohazard"] };
+    state.territories.alien_island = { controller: "u1", troops: 99, hqFaction: "aliens", city: { type: "major", population: 2, name: "Arrival" }, fortification: { max: 10, remaining: 10 }, scars: [] };
   }
   return state;
 }

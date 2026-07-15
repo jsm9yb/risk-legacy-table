@@ -122,7 +122,7 @@ export function startTurnDecision(state: GameState, playerId: PlayerId): StartTu
     && Object.entries(state.territories).some(([territoryId, territory]) => territory.controller === playerId && territory.hqFaction
       && neighborsOf(state, territoryId).some((neighbor) => {
         const destination = state.territories[neighbor];
-        return destination.controller === playerId && !destination.hqFaction;
+        return destination.controller === playerId && !destination.hqFaction && destination.scars.length === 0;
       }));
   return { redStarCost, canBuyRedStar, autoAdvance: state.phase === "start_turn" && !canBuyRedStar && !canMoveHq };
 }

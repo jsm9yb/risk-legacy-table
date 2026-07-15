@@ -22,6 +22,7 @@
     "perf:table": "playwright test apps/web/e2e/table.perf.spec.ts",
     "perf:table:soak": "playwright test --config playwright.soak.config.ts",
     "assets:table:report": "node --experimental-strip-types tools/simulator/src/presentation-report.ts",
+    "assets:architecture:build": "python scripts/build-architecture-assets.py",
     "dev:server": "npm run dev -w @risk/server",
     "dev:web": "npm run dev -w @risk/web"
   },

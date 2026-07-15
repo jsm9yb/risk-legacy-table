@@ -10,7 +10,7 @@ export interface ArmyPieceModel {
 export interface ArmyStackModel {
   total: number;
   pieces: ArmyPieceModel[];
-  /** Troops included by the exact-count badge but not repeated as miniatures. */
+  /** Troops reported by hover detail but not repeated as miniatures. */
   reserve: number;
   accessibleLabel: string;
 }
@@ -29,20 +29,22 @@ export function composeArmyStack(total: number, identitySeed: string): ArmyStack
     denominations.push(3);
     unrepresented -= 3;
   }
-  while (unrepresented > 0 && denominations.length < 3) {
+  while (unrepresented > 0 && denominations.filter((denomination) => denomination === 1).length < 2) {
     denominations.push(1);
     unrepresented--;
   }
 
-  // Put the wide heavy sculpt in the middle when it is flanked by infantry.
-  if (denominations.join() === "3,1,1") denominations.splice(0, 3, 1, 3, 1);
-  const slotIndexes = denominations.length === 1 ? [1] : denominations.length === 2 ? [0, 2] : [0, 1, 2];
-  const pieces = denominations.map((denomination, index) => ({
-    id: `${identitySeed}:${denomination}:${index}`,
-    denomination,
-    slot: slotIndexes[index],
-    yaw: [-1, 0, 1][hash(`${identitySeed}:${index}`) % 3] as -1 | 0 | 1,
-  }));
+  let threeSlot = 0;
+  let oneSlot = 3;
+  const pieces = denominations.map((denomination, index) => {
+    const slot = denomination === 3 ? threeSlot++ : oneSlot++;
+    return {
+      id: `${identitySeed}:${denomination}:${index}`,
+      denomination,
+      slot,
+      yaw: [-1, 0, 1][hash(`${identitySeed}:${index}`) % 3] as -1 | 0 | 1,
+    };
+  });
   const represented = denominations.reduce((sum, denomination) => sum + denomination, 0);
   const reserve = Math.max(0, safeTotal - represented);
   const threes = Math.floor(safeTotal / 3);

@@ -131,9 +131,16 @@ describe("victory & reward flow (UI-12)", () => {
     const modal = screen.getByRole("dialog", { name: /^Play / });
     expect(within(modal).getByText(/Target:/)).toBeTruthy();
     fireEvent.click(within(modal).getByRole("button", { name: "CHOOSE TERRITORY" }));
-    expect(screen.getByText(/click an unscarred territory/i)).toBeTruthy();
+    expect(screen.getByText(/without an HQ or scar/i)).toBeTruthy();
 
-    const tid = manifest.territories.find((t) => current.territories[t.id].scars.length === 0)!.id;
+    const hqTerritoryId = manifest.territories.find((t) => current.territories[t.id].hqFaction)!.id;
+    fireEvent.click(document.getElementById(hqTerritoryId)!);
+    expect(screen.getByRole("button", { name: "CONFIRM" }).hasAttribute("disabled")).toBe(true);
+
+    const tid = manifest.territories.find((t) => {
+      const territory = current.territories[t.id];
+      return !territory.hqFaction && territory.scars.length === 0;
+    })!.id;
     const before = current.territories[tid].scars.length;
     fireEvent.click(document.getElementById(tid)!);
     expect(current.territories[tid].scars).toHaveLength(before);

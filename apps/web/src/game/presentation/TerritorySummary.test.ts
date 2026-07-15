@@ -3,7 +3,7 @@ import { createGame } from "@risk/rules";
 import { territoryAccessibleLabel, territorySummary } from "./TerritorySummary.ts";
 
 describe("territory summary", () => {
-  it("reports exact troops, faction identity, and every competing permanent mark", () => {
+  it("reports exact troops and only the resolved occupants of each visual layer", () => {
     const state = createGame({ gameId: "summary", seed: 7, players: [
       { id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" },
     ] });
@@ -26,13 +26,20 @@ describe("territory summary", () => {
       denomination: "7 × 3 + 2 × 1",
       marks: [
         "Enclave of the Bear HQ",
-        "major · Northgate",
-        "Fortification 7/10",
         "Ruins",
         "Scar · bunker",
-        "Scar · ammo shortage",
       ],
     });
     expect(territoryAccessibleLabel(state, "alaska", "selected")).toContain("23 troops: 7 × 3 + 2 × 1");
+  });
+
+  it("describes fallout as architecture without also exposing it as a scar", () => {
+    const state = createGame({ gameId: "fallout-summary", seed: 8, players: [
+      { id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" },
+    ] });
+    state.territories.alaska = { troops: 0, scars: ["fallout", "bunker"], ruin: true };
+    expect(territorySummary(state, "alaska").marks).toEqual(["Fallout zone"]);
+    expect(territoryAccessibleLabel(state, "alaska")).toContain("Fallout zone");
+    expect(territoryAccessibleLabel(state, "alaska")).not.toContain("Scar · fallout");
   });
 });

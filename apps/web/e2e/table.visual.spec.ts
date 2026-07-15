@@ -67,10 +67,15 @@ test("empty and three-to-five-player campaign tables cover every permanent mark"
   await expect(page).toHaveScreenshot("table-all-permanent-marks.png");
 });
 
-test("every territory stays countable under the global clutter fixture and exposes exact hover detail", async ({ page }) => {
+test("the global clutter fixture exposes exact troop counts on hover", async ({ page }) => {
   test.setTimeout(90_000);
   await page.goto("/?table-demo=1&players=5&fixture=clutter");
   await expectHealthyTable(page);
+  const diagnostics = await page.evaluate(() => (globalThis as any).__riskTableDiagnostics.capture());
+  expect(diagnostics.textResolution).toBeGreaterThanOrEqual(4);
+  expect(diagnostics.minimumTerritoryLabelAlpha).toBe(1);
+  expect(diagnostics.missingHqAtlasIds).toEqual([]);
+  expect(diagnostics.hqFallbacks).toBe(0);
   await expect(page).toHaveScreenshot("table-global-clutter-audit.png");
 
   const point = await page.evaluate(() => (globalThis as any).__riskTableDiagnostics.territoryClientPoint("alaska"));
@@ -80,16 +85,29 @@ test("every territory stays countable under the global clutter fixture and expos
   await expect(tooltip).toContainText("Alaska");
   await expect(tooltip).toContainText(/1\s*troops/i);
   await expect(tooltip).toContainText("Die Mechaniker");
-  await expect(tooltip).toContainText("Fortification");
+  await expect(tooltip).toContainText("Fortification 10/10");
+  await expect(tooltip).toContainText(/scar.*bunker/i);
+
+  for (const [territoryId, durability] of [["alberta", 9], ["ontario", 5], ["quebec", 1]] as const) {
+    const durabilityPoint = await page.evaluate((id) => (globalThis as any).__riskTableDiagnostics.territoryClientPoint(id), territoryId);
+    await page.mouse.move(durabilityPoint.x, durabilityPoint.y);
+    await expect(tooltip).toContainText(`Fortification ${durability}/10`);
+  }
+
+  const expiredPoint = await page.evaluate(() => (globalThis as any).__riskTableDiagnostics.territoryClientPoint("middle_east"));
+  await page.mouse.move(expiredPoint.x, expiredPoint.y);
+  await expect(tooltip).toContainText(/world capital.*Expired/i);
+  await expect(tooltip).not.toContainText("Fortification");
 });
 
 test("battle and conquest execute as skippable semantic sequences", async ({ page }) => {
   await page.goto("/?table-demo=1");
   await expectHealthyTable(page);
   await page.getByRole("button", { name: "BATTLE", exact: true }).click();
-  await expect(page.getByRole("button", { name: "SKIP" })).toBeVisible();
-  await page.getByRole("button", { name: "SKIP" }).click();
-  await expect(page.getByRole("button", { name: "SKIP" })).toBeHidden();
+  const skip = page.getByTestId("presentation-skip");
+  await expect(skip).toBeVisible();
+  await skip.dispatchEvent("click");
+  await expect(skip).toBeHidden();
 
   await page.getByRole("button", { name: "BATTLE", exact: true }).click();
   await page.waitForTimeout(1_040);
@@ -101,27 +119,32 @@ test("battle and conquest execute as skippable semantic sequences", async ({ pag
   expect(await page.screenshot()).toMatchSnapshot("table-conquest-travel.png", { maxDiffPixelRatio: 0.02, threshold: 0.3 });
 });
 
-test("ordinary movement and legacy rituals use semantic full-motion sequences", async ({ page }) => {
-  test.setTimeout(120_000);
-  const capture = async (button: string, delay: number, screenshot: string) => {
+const fullMotionCaptures = [
+  ["RECRUIT", 180, "table-recruit-placement.png"],
+  ["MANEUVER", 520, "table-maneuver-travel.png"],
+  ["ATTACKER LOSS", 1_160, "table-battle-attacker-loss.png"],
+  ["DEFENDER LOSS", 1_160, "table-battle-defender-loss.png"],
+  ["BATTLE", 1_160, "table-battle-mixed-loss.png"],
+  ["MISSILE", 410, "table-missile-modifier.png"],
+  ["NUCLEAR", 420, "table-nuclear-resolution.png"],
+  ["MODULE", 420, "table-module-reveal.png"],
+  ["VICTORY", 520, "table-victory.png"],
+  ["SIGNING", 160, "table-signing.png"],
+] as const;
+
+test.describe("ordinary movement and legacy rituals use semantic full-motion sequences", () => {
+  for (const [button, delay, screenshot] of fullMotionCaptures) test(button, async ({ page }) => {
+    test.setTimeout(40_000);
+    await page.clock.install();
+    await page.clock.resume();
     await page.goto("/?table-demo=1&fixture=marks");
     await expectHealthyTable(page);
-    await page.getByRole("button", { name: button, exact: true }).click();
-    await page.waitForTimeout(delay);
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+    await page.getByRole("button", { name: button, exact: true }).dispatchEvent("click");
+    await page.clock.runFor(delay);
     const image = await page.screenshot();
     expect(image).toMatchSnapshot(screenshot, { maxDiffPixelRatio: 0.02, threshold: 0.3 });
-  };
-
-  await capture("RECRUIT", 180, "table-recruit-placement.png");
-  await capture("MANEUVER", 520, "table-maneuver-travel.png");
-  await capture("ATTACKER LOSS", 1_160, "table-battle-attacker-loss.png");
-  await capture("DEFENDER LOSS", 1_160, "table-battle-defender-loss.png");
-  await capture("BATTLE", 1_160, "table-battle-mixed-loss.png");
-  await capture("MISSILE", 410, "table-missile-modifier.png");
-  await capture("NUCLEAR", 420, "table-nuclear-resolution.png");
-  await capture("MODULE", 420, "table-module-reveal.png");
-  await capture("VICTORY", 520, "table-victory.png");
-  await capture("SIGNING", 160, "table-signing.png");
+  });
 });
 
 test("reduced motion preserves changes without camera travel", async ({ browser }) => {

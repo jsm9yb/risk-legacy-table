@@ -1,6 +1,7 @@
 import {
   Application,
   Assets,
+  type CanvasTextOptions,
   Container,
   Graphics,
   Rectangle,
@@ -13,11 +14,21 @@ import { factionDefinitionById } from "@risk/content";
 import { manifest, presentationFor, territoryPath } from "@risk/map";
 import type { FactionId, GameState, TerritoryId } from "@risk/rules";
 import boardSvg from "../../../../../packages/map/assets/board.svg?raw";
+import {
+  ARCHITECTURE_ATLAS,
+  type ArchitectureAtlasFrame,
+  type ArchitectureAtlasKey,
+} from "../../assets/table/architecture/catalog.ts";
 import { FACTION_PIECE_ATLASES, type FactionPieceAtlas } from "../../assets/table/catalog.ts";
 import { composeArmyStack } from "./ArmyStack.ts";
+import { projectTerritoryLayers } from "./ArchitecturePresentation.ts";
+import { splitBoardArtwork } from "./BoardArtwork.ts";
+import { continentMarkModels } from "./ContinentMarks.ts";
 import type { PresentationClock } from "./PresentationClock.ts";
 import type { TableScene } from "./TableScene.ts";
-import { ARMY_PIECE_HEIGHT, hqPieceHeight, troopCountPlateWidth } from "./TerritoryPieceLayout.ts";
+import { requiredFactionAtlasIds, tableTextTextureResolution, territoryLabelAlpha } from "./TableAssetPolicy.ts";
+import { ARMY_PIECE_HEIGHT, architecturePieceHeight, armyBoundsForPieces, hqPieceHeight, scarDisplaySlot, territoryDisplayLayout } from "./TerritoryPieceLayout.ts";
+import { territoryOwnerStyle } from "./TerritoryOwnerStyle.ts";
 import type {
   SceneCommand,
   TableInteractionModel,
@@ -101,6 +112,7 @@ export class PixiTableSceneAdapter implements TableScene {
   private readonly world = new Container();
   private readonly backdrop = new Container();
   private readonly ownerLayer = new Container();
+  private readonly labelLayer = new Container();
   private readonly marksLayer = new Container();
   private readonly armyLayer = new Container();
   private readonly interactionLayer = new Container();
@@ -110,11 +122,14 @@ export class PixiTableSceneAdapter implements TableScene {
   private interaction: TableInteractionModel = { intents: {} };
   private contextLosses = 0;
   private fitScale = 1;
+  private textResolution = 1;
   private zoom = 1;
   private pan = { x: 0, y: 0 };
   private mounted = false;
   private boardTexture?: Texture;
+  private readonly territoryLabels = new Map<string, Text>();
   private readonly pieceTextures = new Map<string, { one: Texture; three: Texture; hq: Texture }>();
+  private readonly architectureTextures = new Map<ArchitectureAtlasKey, Texture>();
   private pointerStart?: { x: number; y: number; panX: number; panY: number };
   private readonly cleanup: Array<() => void> = [];
   readonly quality: "high" | "balanced" | "low";
@@ -137,24 +152,46 @@ export class PixiTableSceneAdapter implements TableScene {
       preference: "webgl",
       powerPreference: "high-performance",
     });
+    this.fitScale = Math.min(host.clientWidth / WORLD_WIDTH, host.clientHeight / WORLD_HEIGHT) * 0.96;
+    this.textResolution = tableTextTextureResolution(this.quality, this.app.renderer.resolution, this.fitScale);
     this.app.canvas.className = "absolute inset-0 h-full w-full";
     this.app.canvas.setAttribute("aria-label", "Risk Legacy game table");
     this.app.canvas.style.touchAction = "none";
     host.appendChild(this.app.canvas);
     this.app.stage.addChild(this.world);
-    this.world.addChild(this.backdrop, this.ownerLayer, this.marksLayer, this.armyLayer, this.interactionLayer, this.effectsLayer);
+    this.world.addChild(this.backdrop, this.ownerLayer, this.marksLayer, this.armyLayer, this.labelLayer, this.interactionLayer, this.effectsLayer);
 
     const table = new Graphics().roundRect(-12, -12, WORLD_WIDTH + 24, WORLD_HEIGHT + 24, 18).fill({ color: 0x121821 }).stroke({ color: 0x38404b, width: 2 });
     const inner = new Graphics().rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill({ color: 0x080c12 });
     this.backdrop.addChild(table, inner);
-    const boardUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(boardSvg)}`;
+    const artwork = splitBoardArtwork(boardSvg, manifest.territories.map(({ id }) => id));
+    const boardUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(artwork.boardSvg)}`;
     const boardResolution = this.quality === "high" ? 4 : this.quality === "balanced" ? 3 : 2;
     this.boardTexture = await Assets.load<Texture>({ src: boardUrl, data: { width: WORLD_WIDTH, height: WORLD_HEIGHT, resolution: boardResolution } });
     const board = new Sprite(this.boardTexture);
     board.width = WORLD_WIDTH;
     board.height = WORLD_HEIGHT;
     this.backdrop.addChild(board);
-    await this.loadFactionAtlases(initial.state);
+    for (const definition of artwork.labels) {
+      const label = this.tableText({
+        text: definition.text,
+        style: {
+          fill: 0xfff1cf,
+          fontFamily: '"Arial Narrow", "Roboto Condensed", "Segoe UI", sans-serif',
+          fontSize: definition.fontSize,
+          fontWeight: "900",
+          lineHeight: definition.lineHeight,
+          align: "center",
+          stroke: { color: 0x07131a, width: 1.6 },
+        },
+      });
+      label.anchor.set(0.5);
+      label.position.set(definition.x, definition.centerY);
+      label.label = definition.territoryId;
+      this.territoryLabels.set(definition.territoryId, label);
+      this.labelLayer.addChild(label);
+    }
+    await Promise.all([this.loadArchitectureAtlas(), this.loadFactionAtlases(initial.state)]);
 
     this.installInput();
     const gl = this.app.canvas;
@@ -201,9 +238,13 @@ export class PixiTableSceneAdapter implements TableScene {
     };
   }
 
+  private tableText(options: CanvasTextOptions) {
+    return new Text({ ...options, resolution: this.textResolution, roundPixels: true });
+  }
+
   private async loadFactionAtlases(state: GameState) {
-    const factionIds = new Set(Object.values(state.players).map((player) => player.factionId).filter((id): id is string => !!id));
-    await Promise.all([...factionIds].map(async (factionId) => {
+    const factionIds = requiredFactionAtlasIds(state, new Set(Object.keys(FACTION_PIECE_ATLASES)));
+    await Promise.all(factionIds.map(async (factionId) => {
       const atlas = FACTION_PIECE_ATLASES[factionId];
       if (!atlas || this.pieceTextures.has(factionId)) return;
       const texture = await Assets.load<Texture>(atlas.src);
@@ -215,7 +256,15 @@ export class PixiTableSceneAdapter implements TableScene {
     }));
   }
 
-  private frameTexture(texture: Texture, frame: FactionPieceAtlas["one"]) {
+  private async loadArchitectureAtlas() {
+    if (this.architectureTextures.size) return;
+    const texture = await Assets.load<Texture>(ARCHITECTURE_ATLAS.src);
+    for (const [key, frame] of Object.entries(ARCHITECTURE_ATLAS.frames) as Array<[ArchitectureAtlasKey, ArchitectureAtlasFrame]>) {
+      this.architectureTextures.set(key, this.frameTexture(texture, frame));
+    }
+  }
+
+  private frameTexture(texture: Texture, frame: FactionPieceAtlas["one"] | ArchitectureAtlasFrame) {
     return new Texture({ source: texture.source, frame: new Rectangle(frame.x, frame.y, frame.width, frame.height) });
   }
 
@@ -229,13 +278,25 @@ export class PixiTableSceneAdapter implements TableScene {
     return sprite;
   }
 
+  private architectureSprite(key: ArchitectureAtlasKey, profile: "tiny" | "normal" | "wide") {
+    const texture = this.architectureTextures.get(key);
+    if (!texture) throw new Error(`Missing architecture texture: ${key}`);
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    sprite.height = architecturePieceHeight(profile);
+    sprite.scale.x = sprite.scale.y;
+    sprite.label = key;
+    return sprite;
+  }
+
   apply(model: TableRenderModel) {
     this.current = model;
     this.renderOwners(model.state);
     this.renderMarks(model.state);
     this.renderArmies(model.state);
     this.renderInteraction();
-    const missing = Object.values(model.state.players).some((player) => player.factionId && FACTION_PIECE_ATLASES[player.factionId] && !this.pieceTextures.has(player.factionId));
+    const missing = requiredFactionAtlasIds(model.state, new Set(Object.keys(FACTION_PIECE_ATLASES)))
+      .some((factionId) => !this.pieceTextures.has(factionId));
     if (missing) void this.loadFactionAtlases(model.state).then(() => {
       if (this.current?.revision === model.revision) {
         this.renderMarks(model.state);
@@ -249,37 +310,58 @@ export class PixiTableSceneAdapter implements TableScene {
     for (const territory of manifest.territories) {
       const territoryState = state.territories[territory.id];
       if (!territoryState?.controller) continue;
-      this.ownerLayer.addChild(pathGraphic(territory.id, factionColor(state, territory.id), 0.16));
+      const style = territoryOwnerStyle(factionColor(state, territory.id));
+      this.ownerLayer.addChild(pathGraphic(territory.id, style.fill, style.fillAlpha, style.stroke));
     }
   }
 
   private renderArmies(state: GameState) {
     this.armyLayer.removeChildren().forEach((child) => child.destroy({ children: true }));
+    for (const label of this.territoryLabels.values()) label.alpha = 1;
     for (const [territoryId, territory] of Object.entries(state.territories)) {
-      if (territory.troops <= 0) continue;
+      if (territory.troops <= 0 && !territory.hqFaction) continue;
       const definition = presentationFor(territoryId);
-      const factionId = territory.controller ? state.players[territory.controller]?.factionId : undefined;
-      const color = colorNumber(factionId ? factionDefinitionById(factionId, state.unlockedModules)?.color : undefined);
-      const stack = composeArmyStack(territory.troops, `${state.gameId}:${territoryId}`);
-      stack.pieces.forEach((piece) => {
-        const slot = definition.pieceSlots[piece.slot];
-        const graphic = this.atlasSprite(factionId, piece.denomination === 3 ? "three" : "one", ARMY_PIECE_HEIGHT[piece.denomination] * slot[2])
-          ?? pieceGraphic(piece.denomination, color, slot[2]);
-        graphic.position.set(slot[0], slot[1]);
-        graphic.rotation = piece.yaw * 0.06;
-        graphic.zIndex = slot[1] * 10 + piece.denomination;
-        this.armyLayer.addChild(graphic);
+      const layout = territoryDisplayLayout(definition, {
+        army: territory.troops > 0,
+        hq: !!territory.hqFaction,
+        scars: territory.scars.length > 0,
+        city: !!territory.city || !!territory.ruin,
+        fortification: !!territory.fortification,
       });
-      const tab = new Container();
-      const width = troopCountPlateWidth(stack.total);
-      const plate = new Graphics().roundRect(-width / 2, -5, width, 10, 3).fill({ color: 0x0a0f16, alpha: 0.97 }).stroke({ color, width: 1.35 });
-      const text = new Text({ text: String(stack.total), style: { fill: 0xfff0cf, fontFamily: "monospace", fontSize: 7.5, fontWeight: "800" } });
-      text.anchor.set(0.5);
-      tab.addChild(plate, text);
-      tab.position.set(...definition.countSlot);
-      tab.zIndex = 100_000;
-      tab.label = stack.accessibleLabel;
-      this.armyLayer.addChild(tab);
+      if (territory.troops > 0) {
+        const factionId = territory.controller ? state.players[territory.controller]?.factionId : undefined;
+        const color = colorNumber(factionId ? factionDefinitionById(factionId, state.unlockedModules)?.color : undefined);
+        const stack = composeArmyStack(territory.troops, `${state.gameId}:${territoryId}`);
+        const label = this.territoryLabels.get(territoryId);
+        if (label) {
+          const local = label.getLocalBounds();
+          const labelBounds = {
+            left: label.x + local.minX,
+            top: label.y + local.minY,
+            right: label.x + local.maxX,
+            bottom: label.y + local.maxY,
+          };
+          const overlapsArmy = armyBoundsForPieces(layout, stack.pieces).some((bounds) => (
+            bounds.left < labelBounds.right && bounds.right > labelBounds.left
+            && bounds.top < labelBounds.bottom && bounds.bottom > labelBounds.top
+          ));
+          label.alpha = territoryLabelAlpha(overlapsArmy);
+        }
+        stack.pieces.forEach((piece) => {
+          const slot = layout.pieceSlots[piece.slot];
+          const graphic = this.atlasSprite(factionId, piece.denomination === 3 ? "three" : "one", ARMY_PIECE_HEIGHT[piece.denomination] * slot[2])
+            ?? pieceGraphic(piece.denomination, color, slot[2]);
+          graphic.position.set(slot[0], slot[1]);
+          graphic.rotation = piece.yaw * 0.06;
+          graphic.zIndex = slot[1] * 10 + piece.denomination;
+          this.armyLayer.addChild(graphic);
+        });
+      }
+      if (territory.hqFaction) {
+        const hq = this.hqMark(territory.hqFaction, layout.hqSlot, layout.profile);
+        hq.zIndex = layout.hqSlot[1] * 10 + 4;
+        this.armyLayer.addChild(hq);
+      }
     }
     this.armyLayer.sortableChildren = true;
     this.armyLayer.sortChildren();
@@ -287,6 +369,39 @@ export class PixiTableSceneAdapter implements TableScene {
 
   private renderMarks(state: GameState) {
     this.marksLayer.removeChildren().forEach((child) => child.destroy({ children: true }));
+    for (const model of continentMarkModels(state)) {
+      if (model.name) {
+        const name = this.tableText({
+          text: model.name.toUpperCase(),
+          style: {
+            fill: 0xfff3ce,
+            fontFamily: '"Segoe Print", "Bradley Hand", cursive',
+            fontSize: 6.2,
+            fontWeight: "700",
+            letterSpacing: 0.25,
+            stroke: { color: 0x14202a, width: 1.6 },
+          },
+        });
+        name.anchor.set(0.5);
+        name.position.set(...model.nameSlot);
+        if (name.width > 66) name.scale.set(66 / name.width);
+        name.rotation = -0.018;
+        this.marksLayer.addChild(name);
+      }
+      if (model.bonusMark !== undefined) {
+        const sticker = new Container();
+        const paper = new Graphics().roundRect(-7.5, -5.5, 15, 11, 2).fill({ color: 0xf1dfb8 }).stroke({ color: 0x6a302d, width: 1.1 });
+        const value = this.tableText({
+          text: model.bonusMark > 0 ? "+1" : "−1",
+          style: { fill: 0x421e1c, fontFamily: "monospace", fontSize: 7.5, fontWeight: "900" },
+        });
+        value.anchor.set(0.5);
+        sticker.addChild(paper, value);
+        sticker.position.set(model.bonusSlot[0] + 9, model.bonusSlot[1] + 8);
+        sticker.rotation = model.bonusMark > 0 ? 0.08 : -0.08;
+        this.marksLayer.addChild(sticker);
+      }
+    }
     if (state.alienIsland) {
       const definition = presentationFor(state.alienIsland.territoryId);
       const routes = new Graphics();
@@ -299,7 +414,7 @@ export class PixiTableSceneAdapter implements TableScene {
         .fill({ color: 0x467d7a }).stroke({ color: 0xb9f0df, width: 2 });
       const inner = new Graphics().poly([-15, 5, -11, -8, -2, -12, 7, -8, 14, 2, 8, 10, -5, 12])
         .fill({ color: 0x91b467, alpha: 0.9 });
-      const label = new Text({ text: state.alienIsland.name.toUpperCase(), style: { fill: 0xe7f7e9, fontFamily: "monospace", fontSize: 5, fontWeight: "800", stroke: { color: 0x102a2d, width: 1.5 } } });
+      const label = this.tableText({ text: state.alienIsland.name.toUpperCase(), style: { fill: 0xe7f7e9, fontFamily: "monospace", fontSize: 5, fontWeight: "800", stroke: { color: 0x102a2d, width: 1.5 } } });
       label.anchor.set(0.5);
       label.position.set(0, 2);
       island.addChild(land, inner, label);
@@ -308,34 +423,31 @@ export class PixiTableSceneAdapter implements TableScene {
     }
     for (const [territoryId, territory] of Object.entries(state.territories)) {
       const definition = presentationFor(territoryId);
-      if (territory.hqFaction) this.marksLayer.addChild(this.hqMark(territory.hqFaction, definition.hqSlot, definition.profile));
-      if (territory.city) {
-        const city = new Graphics().roundRect(-6, -5, 12, 10, 2).fill({ color: territory.city.type === "world_capital" ? 0xd7bd62 : 0xe7ddbd }).stroke({ color: 0x302917, width: 1.2 });
-        city.moveTo(-4, -5).lineTo(-4, -9).lineTo(0, -6).lineTo(4, -10).lineTo(4, -5).stroke({ color: 0xd7bd62, width: 1.6 });
-        city.position.set(...definition.citySlot);
-        this.marksLayer.addChild(city);
+      const projected = projectTerritoryLayers(territory);
+      const layout = territoryDisplayLayout(definition, {
+        army: territory.troops > 0,
+        hq: !!territory.hqFaction,
+        scars: !!projected.scarId,
+        city: !!projected.architecture,
+        fortification: !!territory.fortification,
+      });
+      if (projected.architecture) {
+        const architecture = this.architectureSprite(projected.architecture.assetKey, layout.profile);
+        architecture.position.set(...layout.architectureSlot);
+        this.marksLayer.addChild(architecture);
       }
-      if (territory.fortification) {
-        const fort = new Graphics().arc(0, 0, 7, Math.PI, Math.PI * 2).stroke({ color: 0xcfb868, width: 2.5 });
-        fort.position.set(...definition.fortificationSlot);
-        this.marksLayer.addChild(fort);
-      }
-      territory.scars.slice(0, 3).forEach((scarId, index) => {
+      if (projected.scarId) {
+        const scarId = projected.scarId;
         const visual = SCAR_VISUALS[scarId] ?? { color: 0x622928, glyph: "!" };
         const scar = new Container();
         const chip = new Graphics().circle(0, 0, 5).fill({ color: visual.color }).stroke({ color: 0xf0d5ae, width: 0.9 });
-        const glyph = new Text({ text: visual.glyph, style: { fill: 0xffedca, fontFamily: "monospace", fontSize: visual.glyph.length > 2 ? 3 : 4, fontWeight: "900" } });
+        const glyph = this.tableText({ text: visual.glyph, style: { fill: 0xffedca, fontFamily: "monospace", fontSize: visual.glyph.length > 2 ? 3 : 4, fontWeight: "900" } });
         glyph.anchor.set(0.5);
         scar.addChild(chip, glyph);
-        scar.rotation = ((index * 17 + territoryId.length) % 24 - 12) * Math.PI / 180;
-        scar.position.set(definition.scarSlot[0] + index * 3, definition.scarSlot[1] + index * 2);
+        scar.rotation = (territoryId.length % 24 - 12) * Math.PI / 180;
+        scar.position.set(...scarDisplaySlot(layout));
         scar.label = scarId;
         this.marksLayer.addChild(scar);
-      });
-      if (territory.ruin) {
-        const ruin = new Graphics().poly([-7, 4, -4, -5, 0, 0, 4, -7, 7, 5]).fill({ color: 0x2d2523 }).stroke({ color: 0x8b6d56, width: 1 });
-        ruin.position.set(...definition.citySlot);
-        this.marksLayer.addChild(ruin);
       }
     }
   }
@@ -345,16 +457,18 @@ export class PixiTableSceneAdapter implements TableScene {
     const atlas = this.atlasSprite(factionId, "hq", height);
     if (atlas) {
       atlas.position.set(x, y);
+      atlas.label = `hq:${factionId}`;
       return atlas;
     }
     const color = colorNumber(factionDefinitionById(factionId, this.current?.state.unlockedModules ?? [])?.color);
     const hq = new Container();
     const base = new Graphics().poly([-7, 5, -6, -4, 0, -9, 6, -4, 7, 5, 0, 9]).fill({ color }).stroke({ color: 0xf4d889, width: 1.3 });
-    const glyph = new Text({ text: "HQ", style: { fill: 0x0a0d12, fontFamily: "monospace", fontSize: 5.5, fontWeight: "900" } });
+    const glyph = this.tableText({ text: "HQ", style: { fill: 0x0a0d12, fontFamily: "monospace", fontSize: 5.5, fontWeight: "900" } });
     glyph.anchor.set(0.5);
     hq.addChild(base, glyph);
     hq.position.set(x, y);
     hq.scale.set(height / 18);
+    hq.label = `hq-fallback:${factionId}`;
     return hq;
   }
 
@@ -462,7 +576,16 @@ export class PixiTableSceneAdapter implements TableScene {
   }
 
   private animatePlacement(territoryId: string, playerId: string, durationMs: number, signal: AbortSignal) {
-    const [x, y] = presentationFor(territoryId).pieceSlots[0];
+    const territory = this.current!.state.territories[territoryId];
+    const definition = presentationFor(territoryId);
+    const layout = territoryDisplayLayout(definition, {
+      army: true,
+      hq: !!territory?.hqFaction,
+      scars: (territory?.scars.length ?? 0) > 0,
+      city: !!territory?.city || !!territory?.ruin,
+      fortification: !!territory?.fortification,
+    });
+    const [x, y] = layout.pieceSlots[0];
     const factionId = this.current!.state.players[playerId]?.factionId;
     const token = this.atlasSprite(factionId, "one", 25) ?? pieceGraphic(1, factionColor(this.current!.state, territoryId), 1);
     token.position.set(x, y - 28);
@@ -542,13 +665,18 @@ export class PixiTableSceneAdapter implements TableScene {
   }
 
   private animateScar(territoryId: string, scarId: string, durationMs: number, signal: AbortSignal) {
-    const visual = SCAR_VISUALS[scarId] ?? { color: 0x8a3936, glyph: "!" };
-    const point = presentationFor(territoryId).scarSlot;
+    const definition = presentationFor(territoryId);
+    const point = scarId === "fallout" ? definition.architectureSlot : scarDisplaySlot(definition);
     const sticker = new Container();
-    const chip = new Graphics().circle(0, 0, 8).fill({ color: visual.color }).stroke({ color: 0xffe1af, width: 1.2 });
-    const glyph = new Text({ text: visual.glyph, style: { fill: 0xffedca, fontFamily: "monospace", fontSize: 5, fontWeight: "900" } });
-    glyph.anchor.set(0.5);
-    sticker.addChild(chip, glyph);
+    if (scarId === "fallout") {
+      sticker.addChild(this.architectureSprite("fallout", definition.profile));
+    } else {
+      const visual = SCAR_VISUALS[scarId] ?? { color: 0x8a3936, glyph: "!" };
+      const chip = new Graphics().circle(0, 0, 8).fill({ color: visual.color }).stroke({ color: 0xffe1af, width: 1.2 });
+      const glyph = this.tableText({ text: visual.glyph, style: { fill: 0xffedca, fontFamily: "monospace", fontSize: 5, fontWeight: "900" } });
+      glyph.anchor.set(0.5);
+      sticker.addChild(chip, glyph);
+    }
     sticker.position.set(point[0], point[1] - 34);
     this.effectsLayer.addChild(sticker);
     return this.animate(durationMs, signal, (p) => {
@@ -566,10 +694,10 @@ export class PixiTableSceneAdapter implements TableScene {
     const paper = new Graphics().roundRect(-92, -48, 184, 96, 4).fill({ color: 0xd6c29a }).stroke({ color: 0xf0ddad, width: 2 });
     const flap = new Graphics().poly([-88, -43, 0, 16, 88, -43]).fill({ color: 0xbda77e }).stroke({ color: 0x8c7654, width: 1.2 });
     const seal = new Graphics().circle(0, 10, 13).fill({ color: 0x872e2c }).stroke({ color: 0xe1a55d, width: 1.5 });
-    const title = new Text({ text: "DO NOT OPEN...YET", style: { fill: 0x241d17, fontFamily: "monospace", fontSize: 12, fontWeight: "900", letterSpacing: 2 } });
+    const title = this.tableText({ text: "DO NOT OPEN...YET", style: { fill: 0x241d17, fontFamily: "monospace", fontSize: 12, fontWeight: "900", letterSpacing: 2 } });
     title.anchor.set(0.5);
     title.position.set(0, -18);
-    const subtitle = new Text({ text: moduleId.replace(/_/g, " ").toUpperCase(), style: { fill: 0x5f4a32, fontFamily: "monospace", fontSize: 7, fontWeight: "700", letterSpacing: 1 } });
+    const subtitle = this.tableText({ text: moduleId.replace(/_/g, " ").toUpperCase(), style: { fill: 0x5f4a32, fontFamily: "monospace", fontSize: 7, fontWeight: "700", letterSpacing: 1 } });
     subtitle.anchor.set(0.5);
     subtitle.position.set(0, 34);
     envelope.addChild(paper, flap, seal, title, subtitle);
@@ -613,10 +741,10 @@ export class PixiTableSceneAdapter implements TableScene {
     const veil = new Graphics().rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill({ color: 0x090b10, alpha: 0.7 });
     const halo = new Graphics().circle(0, 0, 74).fill({ color: 0xe0a93c, alpha: 0.14 }).stroke({ color: 0xf2d17b, width: 3 });
     halo.position.set(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-    const title = new Text({ text: "VICTORY", style: { fill: 0xf4d989, fontFamily: "monospace", fontSize: 30, fontWeight: "900", letterSpacing: 7, stroke: { color: 0x382a14, width: 3 } } });
+    const title = this.tableText({ text: "VICTORY", style: { fill: 0xf4d989, fontFamily: "monospace", fontSize: 30, fontWeight: "900", letterSpacing: 7, stroke: { color: 0x382a14, width: 3 } } });
     title.anchor.set(0.5);
     title.position.set(WORLD_WIDTH / 2, WORLD_HEIGHT / 2 - 10);
-    const subtitle = new Text({ text: `${(factionId ?? playerId).replace(/_/g, " ").toUpperCase()}  ·  ${reason.toUpperCase()}`, style: { fill: 0xf3e8cc, fontFamily: "monospace", fontSize: 8, fontWeight: "700", letterSpacing: 1 } });
+    const subtitle = this.tableText({ text: `${(factionId ?? playerId).replace(/_/g, " ").toUpperCase()}  ·  ${reason.toUpperCase()}`, style: { fill: 0xf3e8cc, fontFamily: "monospace", fontSize: 8, fontWeight: "700", letterSpacing: 1 } });
     subtitle.anchor.set(0.5);
     subtitle.position.set(WORLD_WIDTH / 2, WORLD_HEIGHT / 2 + 27);
     group.addChild(veil, halo, title, subtitle);
@@ -635,7 +763,7 @@ export class PixiTableSceneAdapter implements TableScene {
     const veil = new Graphics().rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill({ color: 0x080a0d, alpha: 0.5 });
     const card = new Container();
     const paper = new Graphics().roundRect(-76, -36, 152, 72, 3).fill({ color: 0xe1d2b2 }).stroke({ color: 0xb69b6b, width: 2 });
-    const label = new Text({ text: ritual.replace(/\./g, " ").toUpperCase(), style: { fill: 0x332819, fontFamily: "monospace", fontSize: 12, fontWeight: "900", letterSpacing: 2 } });
+    const label = this.tableText({ text: ritual.replace(/\./g, " ").toUpperCase(), style: { fill: 0x332819, fontFamily: "monospace", fontSize: 12, fontWeight: "900", letterSpacing: 2 } });
     label.anchor.set(0.5);
     label.position.set(0, -9);
     const stroke = new Graphics().moveTo(-45, 15).bezierCurveTo(-12, -2, 8, 27, 47, 10).stroke({ color: 0x5c3c27, width: 2.2 });
@@ -660,7 +788,23 @@ export class PixiTableSceneAdapter implements TableScene {
     if (!this.mounted && !this.host) return;
     this.app.renderer.resize(Math.max(1, viewport.width), Math.max(1, viewport.height));
     this.fitScale = Math.min(viewport.width / WORLD_WIDTH, viewport.height / WORLD_HEIGHT) * 0.96;
+    const textResolution = tableTextTextureResolution(this.quality, this.app.renderer.resolution, this.fitScale);
+    if (textResolution !== this.textResolution) {
+      this.textResolution = textResolution;
+      this.updateTextResolution(this.world);
+    }
     this.applyCamera();
+  }
+
+  private updateTextResolution(container: Container) {
+    for (const child of container.children) {
+      if (child instanceof Text) {
+        child.resolution = this.textResolution;
+        child.roundPixels = true;
+      } else if (child instanceof Container) {
+        this.updateTextResolution(child);
+      }
+    }
   }
 
   private applyCamera() {
@@ -706,6 +850,11 @@ export class PixiTableSceneAdapter implements TableScene {
   }
 
   async captureDiagnostics(): Promise<TableSceneDiagnostics> {
+    const missingHqAtlasIds = [...new Set(
+      Object.values(this.current?.state.territories ?? {})
+        .map((territory) => territory.hqFaction)
+        .filter((factionId): factionId is FactionId => !!factionId && !this.pieceTextures.has(factionId)),
+    )].sort();
     return {
       renderer: "pixi-webgl",
       quality: this.quality,
@@ -713,6 +862,10 @@ export class PixiTableSceneAdapter implements TableScene {
       activeSprites: this.armyLayer.children.length + this.marksLayer.children.length,
       activeParticles: this.effectsLayer.children.length,
       contextLosses: this.contextLosses,
+      textResolution: this.textResolution,
+      minimumTerritoryLabelAlpha: Math.min(...[...this.territoryLabels.values()].map((label) => label.alpha)),
+      missingHqAtlasIds,
+      hqFallbacks: this.armyLayer.children.filter((child) => child.label.startsWith("hq-fallback:")).length,
     };
   }
 

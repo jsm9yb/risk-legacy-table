@@ -82,37 +82,39 @@ type LabelTweak = {
 
 const LABEL_TWEAKS: Record<string, LabelTweak> = {
   alaska: { dx: 2, dy: 2 },
-  northwest_territory: { dy: -3, size: 5.8, lines: ["Northwest", "Territory"], maxWidth: 58 },
-  western_united_states: { dy: 7, size: 5.8, lines: ["Western", "United States"], maxWidth: 60 },
+  northwest_territory: { dx: 0, dy: 6, size: 5.8, lines: ["Northwest", "Territory"], maxWidth: 58 },
+  western_united_states: { dx: 0, dy: 0, size: 5.8, lines: ["Western", "United States"], maxWidth: 60 },
   eastern_united_states: { dy: 9, size: 5.8, lines: ["Eastern", "United States"], maxWidth: 60 },
   central_america: { dx: -2, dy: 8, size: 5.6, lines: ["Central", "America"], maxWidth: 47 },
-  greenland: { dy: -2 },
+  greenland: { dx: 0, dy: 0 },
   great_britain: { dx: -2, dy: 4, size: 5.6, lines: ["Great", "Britain"], maxWidth: 39 },
   scandinavia: { size: 5.6, maxWidth: 54 },
   northern_europe: { dy: 4, size: 5.6, lines: ["Northern", "Europe"], maxWidth: 53 },
   southern_europe: { dy: 7, size: 5.6, lines: ["Southern", "Europe"], maxWidth: 55 },
   western_europe: { dx: -3, dy: 6, size: 5.6, lines: ["Western", "Europe"], maxWidth: 50 },
   north_africa: { dx: -3, dy: 3, lines: ["North", "Africa"] },
-  east_africa: { dy: 8, lines: ["East", "Africa"] },
+  east_africa: { dy: 2, lines: ["East", "Africa"] },
   south_africa: { dy: 10, lines: ["South", "Africa"] },
   madagascar: { dx: 3, dy: 8, size: 5.4, maxWidth: 44 },
+  brazil: { dx: 0, dy: 0 },
+  argentina: { dx: 0, dy: -6 },
   ukraine: { dx: 0, dy: -8, maxWidth: 56 },
   ural: { dx: -6, dy: -2 },
   siberia: { dy: -17, maxWidth: 48 },
   yakutsk: { dy: -8 },
-  kamchatka: { dx: 2, dy: -7, size: 5.8, maxWidth: 58 },
+  kamchatka: { dx: 0, dy: -6, size: 5.8, maxWidth: 58 },
   irkutsk: { dy: 2 },
   mongolia: { dy: 2 },
   japan: { dx: 4, dy: 6, size: 5.3, maxWidth: 28 },
   afghanistan: { dy: 4, size: 5.8 },
-  middle_east: { dy: 12, size: 5.7, lines: ["Middle", "East"] },
+  middle_east: { dx: 0, dy: 0, size: 5.7, lines: ["Middle", "East"] },
   china: { dy: 0, maxWidth: 58 },
-  india: { dx: -3, dy: 5 },
+  india: { dx: 0, dy: 0 },
   siam: { dy: 4 },
   indonesia: { dy: 2, size: 5.6, maxWidth: 52 },
   new_guinea: { dy: 3, size: 5.5, lines: ["New", "Guinea"], maxWidth: 42 },
-  western_australia: { dy: 13, size: 5.4, lines: ["Western", "Australia"], maxWidth: 58 },
-  eastern_australia: { dy: 8, size: 5.4, lines: ["Eastern", "Australia"], maxWidth: 56 },
+  western_australia: { dx: -6, dy: 0, size: 5.4, lines: ["Western", "Australia"], maxWidth: 58 },
+  eastern_australia: { dx: 0, dy: -6, size: 5.4, lines: ["Eastern", "Australia"], maxWidth: 56 },
 };
 
 const CONTINENT_MARKER_COLORS = continentColors; // shared palette (also fills card silhouettes, UI-9)
@@ -224,7 +226,6 @@ function continentCallout(continent: typeof manifest.continents[number]): string
   const cfg = CONTINENT_CALLOUTS[continent.id];
   if (!cfg) return "";
 
-  const count = manifest.territories.filter((t) => t.continent === continent.id).length;
   const target = anchor(territory(cfg.target));
   const color = CONTINENT_MARKER_COLORS[continent.id] ?? "#d8d8d8";
   const boxW = 86;
@@ -241,7 +242,8 @@ function continentCallout(continent: typeof manifest.continents[number]): string
   <g transform="translate(${fmt(cfg.x)} ${fmt(cfg.y)})">
     <rect class="continent-callout-box" x="${fmt(boxX)}" y="0" width="${boxW}" height="${boxH}" rx="1.5" fill="${color}" />
     <rect class="continent-callout-notch" x="${fmt(boxX + boxW - 9)}" y="3" width="6" height="10" fill="none" />
-    <text class="continent-count" x="${fmt(boxX + boxW / 2 - 3)}" y="10.8" textLength="${fmt(boxW - 14)}" lengthAdjust="spacingAndGlyphs">${count} TERRITORIES</text>
+    <text class="continent-count" x="${fmt(boxX + boxW / 2 - 3)}" y="10.8" textLength="${fmt(boxW - 14)}" lengthAdjust="spacingAndGlyphs"></text>
+    <path class="continent-name-guide" d="M ${fmt(boxX + 8)} 11.5 H ${fmt(boxX + boxW - 16)}" />
     <circle class="continent-bonus-disc" cx="${fmt(circleX)}" cy="${fmt(boxH / 2)}" r="${radius}" fill="${color}" />
     <text class="continent-bonus" x="${fmt(circleX)}" y="15">${continent.baseBonus}</text>
   </g>
@@ -256,7 +258,7 @@ let labels = "";
 for (const t of manifest.territories) {
   const path = territoryPathData.territories[t.id];
   if (!path) throw new Error(`Missing path data for ${t.id}`);
-  const fill = TERRITORY_FILL[t.id];
+  const fill = continentColors[t.continent] ?? TERRITORY_FILL[t.id];
   haloes += `<path class="territory-halo" d="${path.d}" />\n`;
   territories += `<path id="${t.id}" class="territory-border territory" data-continent="${t.continent}" role="button" aria-label="${esc(t.name)}" d="${path.d}" fill="${fill}" />\n`;
   labels += `${territoryLabel(t)}\n`;
@@ -320,6 +322,7 @@ const svg = `<svg id="risk-board-modern" xmlns="http://www.w3.org/2000/svg" view
   .continent-callout-notch { stroke: rgba(255,255,255,0.7); stroke-width: 0.9; }
   .continent-bonus-disc { stroke: #ffffff; stroke-width: 2; filter: url(#land-shadow); }
   .continent-count { font-family: "Arial Narrow", "IBM Plex Sans", "Segoe UI", sans-serif; font-size: 4.9px; font-weight: 950; fill: #050505; text-anchor: middle; dominant-baseline: middle; }
+  .continent-name-guide { fill: none; stroke: #ffffff; stroke-width: 0.7; stroke-opacity: 0.45; stroke-linecap: round; }
   .continent-bonus { font-family: Impact, "Arial Black", sans-serif; font-size: 20px; font-weight: 950; fill: #050505; text-anchor: middle; stroke: rgba(255,255,255,0.45); stroke-width: 0.85; paint-order: stroke fill; }
 </style>
 <rect x="0" y="0" width="${fmt(BOARD_W)}" height="${fmt(BOARD_H)}" fill="url(#board-bg)" />

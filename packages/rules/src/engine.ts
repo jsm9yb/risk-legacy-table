@@ -2013,6 +2013,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       if (!from?.hqFaction || from.controller !== p.id) throw new RuleViolation("Choose an HQ you control");
       if (!to || to.controller !== p.id) throw new RuleViolation("Move the HQ into a territory you control");
       if (to.hqFaction) throw new RuleViolation("HQs cannot share a territory");
+      if (to.scars.length > 0) throw new RuleViolation("An HQ cannot move onto a scar");
       if (!neighborsOf(s, action.from).includes(action.to)) throw new RuleViolation("Mobile moves an HQ to an adjacent territory");
       to.hqFaction = from.hqFaction;
       from.hqFaction = undefined;
@@ -2452,6 +2453,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       const t = s.territories[action.territoryId];
       if (!t) throw new RuleViolation("Unknown territory");
       if (t.scars.includes("fallout") || action.territoryId === s.alienIsland?.territoryId) throw new RuleViolation("Fallout and Alien Island cannot be scarred or marked");
+      if (t.hqFaction) throw new RuleViolation("A territory with an HQ cannot be scarred");
       if (t.scars.length > 0) throw new RuleViolation("Territory already has a scar (one scar per territory)");
       t.scars.push(held.scarId); // attach (placed scars are public, on the board)
       p.scarHand = p.scarHand.filter((x) => x.instanceId !== held.instanceId); // consume from hand

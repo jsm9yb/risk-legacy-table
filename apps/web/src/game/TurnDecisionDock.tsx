@@ -21,7 +21,7 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
     const mobileMoves = hasFactionPower(gs, actor, "mobile") && !gs.mobileHqUsed
       ? Object.entries(gs.territories).flatMap(([from, territory]) =>
         territory.controller === actor && territory.hqFaction
-          ? neighborsOf(gs, from).filter((to) => gs.territories[to].controller === actor && !gs.territories[to].hqFaction)
+          ? neighborsOf(gs, from).filter((to) => gs.territories[to].controller === actor && !gs.territories[to].hqFaction && gs.territories[to].scars.length === 0)
             .map((to) => ({ from, to }))
           : [])
       : [];

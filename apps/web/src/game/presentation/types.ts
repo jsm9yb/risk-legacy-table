@@ -59,6 +59,10 @@ export interface TableSceneDiagnostics {
   activeParticles: number;
   contextLosses: number;
   frameTimeP95?: number;
+  textResolution?: number;
+  minimumTerritoryLabelAlpha?: number;
+  missingHqAtlasIds?: string[];
+  hqFallbacks?: number;
 }
 
 export type SceneCommand =

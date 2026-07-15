@@ -596,6 +596,18 @@ describe("scar play action (8b)", () => { // new
     expect(() => applyAction(s, { type: "scar.play", playerId: b, scarInstanceId: s.players[b].scarHand[0].instanceId, territoryId: "ural" })).toThrow(/one scar per territory/);
   });
 
+  it("rejects a scar on a territory occupied by an HQ", () => {
+    const s = setupGame(206);
+    const pid = s.turnOrder[0];
+    const hqTerritory = s.players[pid].startingTerritoryId!;
+    expect(() => applyAction(s, {
+      type: "scar.play",
+      playerId: pid,
+      scarInstanceId: s.players[pid].scarHand[0].instanceId,
+      territoryId: hqTerritory,
+    })).toThrow(/HQ/);
+  });
+
   it("can be played on another player's turn (not gated to the active player)", () => {
     let s = setupGame(204);
     const active = s.turnOrder[0];

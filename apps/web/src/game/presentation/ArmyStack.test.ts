@@ -7,10 +7,10 @@ describe("Army Stack composition", () => {
     [1, [1], 0],
     [2, [1, 1], 0],
     [3, [3], 0],
-    [5, [1, 3, 1], 0],
-    [8, [3, 3, 1], 1],
-    [14, [3, 3, 3], 5],
-    [23, [3, 3, 3], 14],
+    [5, [3, 1, 1], 0],
+    [8, [3, 3, 1, 1], 0],
+    [14, [3, 3, 3, 1, 1], 3],
+    [23, [3, 3, 3, 1, 1], 12],
   ])("represents %i troops with physical denominations", (total, denominations, reserve) => {
     const stack = composeArmyStack(total, "game:alaska");
     expect(stack.pieces.map((piece) => piece.denomination)).toEqual(denominations);
@@ -29,14 +29,15 @@ describe("Army Stack composition", () => {
     for (let total = 0; total <= 100; total++) {
       const stack = composeArmyStack(total, `g:t:${total}`);
       expect(stack.pieces.reduce((sum, piece) => sum + piece.denomination, 0) + stack.reserve).toBe(total);
-      expect(stack.pieces.length).toBeLessThanOrEqual(3);
-      expect(stack.pieces.every((piece) => piece.slot >= 0 && piece.slot <= 2)).toBe(true);
+      expect(stack.pieces.length).toBeLessThanOrEqual(5);
+      expect(stack.pieces.every((piece) => piece.slot >= 0 && piece.slot <= 4)).toBe(true);
     }
   });
 
-  it("centers a single piece and keeps compact stacks in three primary slots", () => {
-    expect(composeArmyStack(1, "g:one").pieces.map((piece) => piece.slot)).toEqual([1]);
-    expect(composeArmyStack(2, "g:two").pieces.map((piece) => piece.slot)).toEqual([0, 2]);
-    expect(composeArmyStack(99, "g:many").pieces.map((piece) => piece.slot)).toEqual([0, 1, 2]);
+  it("uses the three authored 3-unit slots followed by the two authored 1-unit slots", () => {
+    expect(composeArmyStack(1, "g:one").pieces.map((piece) => piece.slot)).toEqual([3]);
+    expect(composeArmyStack(2, "g:two").pieces.map((piece) => piece.slot)).toEqual([3, 4]);
+    expect(composeArmyStack(5, "g:five").pieces.map((piece) => piece.slot)).toEqual([0, 3, 4]);
+    expect(composeArmyStack(99, "g:many").pieces.map((piece) => piece.slot)).toEqual([0, 1, 2, 3, 4]);
   });
 });

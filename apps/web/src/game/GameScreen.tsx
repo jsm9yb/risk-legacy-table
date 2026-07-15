@@ -75,7 +75,7 @@ export interface UiState {
     continentId?: string;
     delta: 1 | -1;
   };
-  /** new (UI-12): a held scar being played — next board click on an unscarred territory places it. */
+  /** A held scar being played — the next legal board click selects a territory without an HQ or scar. */
   scarDialog?: { playerId: string; instanceId: string; scarId: string };
   scarTarget?: { playerId: string; instanceId: string; scarId: string; territoryId?: string };
   worldCapitalTarget?: { hostPlayerId: string; founderPlayerId: string; territoryId?: string };
@@ -275,7 +275,10 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
     }
     // new (UI-12): active targeting modes glow their legal targets and override phase highlights
     if (ui.scarTarget && canActFor(ui.scarTarget.playerId)) {
-      for (const t of manifest.territories) if (gs.territories[t.id].scars.length === 0) h[t.id] = "highlight-start";
+      for (const t of manifest.territories) {
+        const territory = gs.territories[t.id];
+        if (!territory.hqFaction && territory.scars.length === 0) h[t.id] = "highlight-start";
+      }
       if (ui.scarTarget.territoryId) h[ui.scarTarget.territoryId] = "selected";
       return h;
     }
@@ -385,7 +388,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
     // new (UI-12): scar play targeting — the holder acts on anyone's turn at a stable boundary
     if (ui.scarTarget) {
       const st = ui.scarTarget;
-      if (!canActFor(st.playerId) || gs.territories[tid].scars.length > 0) return;
+      if (!canActFor(st.playerId) || gs.territories[tid].hqFaction || gs.territories[tid].scars.length > 0) return;
       setUi((u) => ({ ...u, scarTarget: { ...st, territoryId: tid } }));
       return;
     }
@@ -1424,7 +1427,7 @@ function ScarTargetBanner({ gs, ui, setUi, dispatch }: {
 }) {
   const st = ui.scarTarget!;
   const selected = st.territoryId ? gs.territories[st.territoryId] : undefined;
-  const legal = !!st.territoryId && !!selected && selected.scars.length === 0;
+  const legal = !!st.territoryId && !!selected && !selected.hqFaction && selected.scars.length === 0;
   const cancel = () => setUi((u) => ({ ...u, scarDialog: undefined, scarTarget: undefined }));
   const confirm = () => {
     if (!legal) return;
@@ -1437,7 +1440,7 @@ function ScarTargetBanner({ gs, ui, setUi, dispatch }: {
       <DecisionChip name={gs.players[st.playerId].name} color={factionById(gs.players[st.playerId].factionId)?.color}
         factionId={gs.players[st.playerId].factionId} />
       <span className="text-sm min-w-0 flex-1">
-        Play <span className="text-danger font-semibold">{scarName(st.scarId)}</span>: click an unscarred territory.
+        Play <span className="text-danger font-semibold">{scarName(st.scarId)}</span>: click a territory without an HQ or scar.
         {" "}{st.territoryId
           ? <span className={legal ? "text-signal" : "text-danger"}>{territoryName(st.territoryId)}</span>
           : <span className="text-muted">No territory selected.</span>}

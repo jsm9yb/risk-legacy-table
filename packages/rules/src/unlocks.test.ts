@@ -190,6 +190,9 @@ describe("unlock engine (11)", () => {
     const hqFrom = mobile.players[mobilePlayer].startingTerritoryId!;
     const hqTo = neighborsOf(mobile, hqFrom)[0];
     mobile.territories[hqTo] = { controller: mobilePlayer, troops: 1, scars: [] };
+    mobile.territories[hqTo].scars = ["bunker"];
+    expect(() => applyAction(mobile, { type: "start.moveHq", playerId: mobilePlayer, from: hqFrom, to: hqTo })).toThrow(/scar/);
+    mobile.territories[hqTo].scars = [];
     mobile = applyAction(mobile, { type: "start.moveHq", playerId: mobilePlayer, from: hqFrom, to: hqTo });
     expect(mobile.territories[hqFrom].hqFaction).toBeUndefined();
     expect(mobile.territories[hqTo].hqFaction).toBe(mobile.players[mobilePlayer].factionId);
