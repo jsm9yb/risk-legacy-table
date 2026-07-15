@@ -20,6 +20,13 @@ function decodeText(value: string) {
     .replaceAll("&#39;", "'");
 }
 
+function suppressTerritoryBoundaryStrokes(svg: string) {
+  return svg.replace(
+    /<path\b(?=[^>]*class="territory-border territory")[^>]*\/>/g,
+    (path) => path.replace(/\s*\/>$/, ' style="stroke: none" />'),
+  );
+}
+
 /** Separates territory labels from the board SVG so individual labels can react to troop overlap. */
 export function splitBoardArtwork(svg: string, territoryIds: readonly string[]) {
   const groupMatch = svg.match(/<g\s+id="labels"[^>]*>([\s\S]*?)<\/g>/);
@@ -53,7 +60,7 @@ export function splitBoardArtwork(svg: string, territoryIds: readonly string[]) 
     throw new Error(`Board artwork has ${labels.length} territory labels for ${territoryIds.length} territories`);
   }
   return {
-    boardSvg: svg.replace(groupMatch[0], '<g id="labels"></g>'),
+    boardSvg: suppressTerritoryBoundaryStrokes(svg.replace(groupMatch[0], '<g id="labels"></g>')),
     labels,
   };
 }

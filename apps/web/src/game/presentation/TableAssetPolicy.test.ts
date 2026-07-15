@@ -31,7 +31,7 @@ describe("table asset policy", () => {
     expect(tableTextTextureResolution("high", 2, 1.28)).toBeGreaterThanOrEqual(7);
   });
 
-  it("keeps territory names opaque when an army is nearby", () => {
-    expect(territoryLabelAlpha(true)).toBe(1);
+  it("makes every territory name 80% transparent by default", () => {
+    expect(territoryLabelAlpha()).toBe(0.2);
   });
 });

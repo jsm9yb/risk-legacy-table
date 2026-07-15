@@ -27,7 +27,16 @@ import { continentMarkModels } from "./ContinentMarks.ts";
 import type { PresentationClock } from "./PresentationClock.ts";
 import type { TableScene } from "./TableScene.ts";
 import { requiredFactionAtlasIds, tableTextTextureResolution, territoryLabelAlpha } from "./TableAssetPolicy.ts";
-import { ARMY_PIECE_HEIGHT, architecturePieceHeight, armyBoundsForPieces, hqPieceHeight, scarDisplaySlot, territoryDisplayLayout } from "./TerritoryPieceLayout.ts";
+import { scarMarkAsset } from "./ScarPresentation.ts";
+import {
+  ARMY_PIECE_HEIGHT,
+  architecturePieceHeight,
+  hqPieceHeight,
+  scarDisplaySlot,
+  territoryDisplayLayout,
+  territoryPlacementBounds,
+  type LayoutBounds,
+} from "./TerritoryPieceLayout.ts";
 import { territoryOwnerStyle } from "./TerritoryOwnerStyle.ts";
 import type {
   SceneCommand,
@@ -59,6 +68,13 @@ const SCAR_VISUALS: Record<string, { color: number; glyph: string }> = {
   mercenary: { color: 0x7b3846, glyph: "MRC" },
   weakness: { color: 0x673d73, glyph: "WK" },
 };
+
+function scarAssetGraphic(svg: string, diameter: number) {
+  const graphic = new Graphics().svg(svg);
+  graphic.position.set(-diameter / 2, -diameter / 2);
+  graphic.scale.set(diameter / 128);
+  return graphic;
+}
 
 export interface PixiTableSceneOptions {
   clock: PresentationClock;
@@ -112,6 +128,8 @@ export class PixiTableSceneAdapter implements TableScene {
   private readonly world = new Container();
   private readonly backdrop = new Container();
   private readonly ownerLayer = new Container();
+  private readonly boundaryLayer = new Container();
+  private readonly boundaryMask = new Graphics();
   private readonly labelLayer = new Container();
   private readonly marksLayer = new Container();
   private readonly armyLayer = new Container();
@@ -130,6 +148,7 @@ export class PixiTableSceneAdapter implements TableScene {
   private readonly territoryLabels = new Map<string, Text>();
   private readonly pieceTextures = new Map<string, { one: Texture; three: Texture; hq: Texture }>();
   private readonly architectureTextures = new Map<ArchitectureAtlasKey, Texture>();
+  private placementBounds: LayoutBounds[] = [];
   private pointerStart?: { x: number; y: number; panX: number; panY: number };
   private readonly cleanup: Array<() => void> = [];
   readonly quality: "high" | "balanced" | "low";
@@ -159,7 +178,17 @@ export class PixiTableSceneAdapter implements TableScene {
     this.app.canvas.style.touchAction = "none";
     host.appendChild(this.app.canvas);
     this.app.stage.addChild(this.world);
-    this.world.addChild(this.backdrop, this.ownerLayer, this.marksLayer, this.armyLayer, this.labelLayer, this.interactionLayer, this.effectsLayer);
+    this.world.addChild(
+      this.backdrop,
+      this.ownerLayer,
+      this.boundaryLayer,
+      this.labelLayer,
+      this.marksLayer,
+      this.armyLayer,
+      this.interactionLayer,
+      this.effectsLayer,
+      this.boundaryMask,
+    );
 
     const table = new Graphics().roundRect(-12, -12, WORLD_WIDTH + 24, WORLD_HEIGHT + 24, 18).fill({ color: 0x121821 }).stroke({ color: 0x38404b, width: 2 });
     const inner = new Graphics().rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill({ color: 0x080c12 });
@@ -172,6 +201,14 @@ export class PixiTableSceneAdapter implements TableScene {
     board.width = WORLD_WIDTH;
     board.height = WORLD_HEIGHT;
     this.backdrop.addChild(board);
+    for (const territory of manifest.territories) {
+      this.boundaryLayer.addChild(pathGraphic(territory.id, 0xffffff, 0, {
+        color: 0xf2ecd9,
+        width: 0.86,
+        alpha: 1,
+      }));
+    }
+    this.boundaryLayer.mask = this.boundaryMask;
     for (const definition of artwork.labels) {
       const label = this.tableText({
         text: definition.text,
@@ -294,6 +331,7 @@ export class PixiTableSceneAdapter implements TableScene {
     this.renderOwners(model.state);
     this.renderMarks(model.state);
     this.renderArmies(model.state);
+    this.renderPlacementOcclusion(model.state);
     this.renderInteraction();
     const missing = requiredFactionAtlasIds(model.state, new Set(Object.keys(FACTION_PIECE_ATLASES)))
       .some((factionId) => !this.pieceTextures.has(factionId));
@@ -301,6 +339,7 @@ export class PixiTableSceneAdapter implements TableScene {
       if (this.current?.revision === model.revision) {
         this.renderMarks(model.state);
         this.renderArmies(model.state);
+        this.renderPlacementOcclusion(model.state);
       }
     });
   }
@@ -317,7 +356,6 @@ export class PixiTableSceneAdapter implements TableScene {
 
   private renderArmies(state: GameState) {
     this.armyLayer.removeChildren().forEach((child) => child.destroy({ children: true }));
-    for (const label of this.territoryLabels.values()) label.alpha = 1;
     for (const [territoryId, territory] of Object.entries(state.territories)) {
       if (territory.troops <= 0 && !territory.hqFaction) continue;
       const definition = presentationFor(territoryId);
@@ -332,21 +370,6 @@ export class PixiTableSceneAdapter implements TableScene {
         const factionId = territory.controller ? state.players[territory.controller]?.factionId : undefined;
         const color = colorNumber(factionId ? factionDefinitionById(factionId, state.unlockedModules)?.color : undefined);
         const stack = composeArmyStack(territory.troops, `${state.gameId}:${territoryId}`);
-        const label = this.territoryLabels.get(territoryId);
-        if (label) {
-          const local = label.getLocalBounds();
-          const labelBounds = {
-            left: label.x + local.minX,
-            top: label.y + local.minY,
-            right: label.x + local.maxX,
-            bottom: label.y + local.maxY,
-          };
-          const overlapsArmy = armyBoundsForPieces(layout, stack.pieces).some((bounds) => (
-            bounds.left < labelBounds.right && bounds.right > labelBounds.left
-            && bounds.top < labelBounds.bottom && bounds.bottom > labelBounds.top
-          ));
-          label.alpha = territoryLabelAlpha(overlapsArmy);
-        }
         stack.pieces.forEach((piece) => {
           const slot = layout.pieceSlots[piece.slot];
           const graphic = this.atlasSprite(factionId, piece.denomination === 3 ? "three" : "one", ARMY_PIECE_HEIGHT[piece.denomination] * slot[2])
@@ -365,6 +388,44 @@ export class PixiTableSceneAdapter implements TableScene {
     }
     this.armyLayer.sortableChildren = true;
     this.armyLayer.sortChildren();
+  }
+
+  private renderPlacementOcclusion(state: GameState) {
+    const placementBounds: LayoutBounds[] = [];
+    for (const territoryDefinition of manifest.territories) {
+      const territoryId = territoryDefinition.id;
+      const territory = state.territories[territoryId];
+      if (!territory) continue;
+      const definition = presentationFor(territoryId);
+      const projected = projectTerritoryLayers(territory);
+      const pieces = territory.troops > 0
+        ? composeArmyStack(territory.troops, `${state.gameId}:${territoryId}`).pieces
+        : [];
+      placementBounds.push(...territoryPlacementBounds(definition, {
+        army: territory.troops > 0,
+        hq: !!territory.hqFaction,
+        scars: !!projected.scarId,
+        city: !!projected.architecture,
+        fortification: !!territory.fortification,
+      }, pieces));
+    }
+    this.placementBounds = placementBounds;
+
+    this.boundaryMask.clear().rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill({ color: 0xffffff });
+    for (const bounds of placementBounds) {
+      const padding = bounds.kind === "scars" ? 1.25 : 1.5;
+      this.boundaryMask
+        .roundRect(
+          bounds.left - padding,
+          bounds.top - padding,
+          bounds.right - bounds.left + padding * 2,
+          bounds.bottom - bounds.top + padding * 2,
+          2.5,
+        )
+        .cut();
+    }
+
+    for (const label of this.territoryLabels.values()) label.alpha = territoryLabelAlpha();
   }
 
   private renderMarks(state: GameState) {
@@ -438,12 +499,17 @@ export class PixiTableSceneAdapter implements TableScene {
       }
       if (projected.scarId) {
         const scarId = projected.scarId;
-        const visual = SCAR_VISUALS[scarId] ?? { color: 0x622928, glyph: "!" };
         const scar = new Container();
-        const chip = new Graphics().circle(0, 0, 5).fill({ color: visual.color }).stroke({ color: 0xf0d5ae, width: 0.9 });
-        const glyph = this.tableText({ text: visual.glyph, style: { fill: 0xffedca, fontFamily: "monospace", fontSize: visual.glyph.length > 2 ? 3 : 4, fontWeight: "900" } });
-        glyph.anchor.set(0.5);
-        scar.addChild(chip, glyph);
+        const asset = scarMarkAsset(scarId);
+        if (asset) {
+          scar.addChild(scarAssetGraphic(asset, 10));
+        } else {
+          const visual = SCAR_VISUALS[scarId] ?? { color: 0x622928, glyph: "!" };
+          const chip = new Graphics().circle(0, 0, 5).fill({ color: visual.color }).stroke({ color: 0xf0d5ae, width: 0.9 });
+          const glyph = this.tableText({ text: visual.glyph, style: { fill: 0xffedca, fontFamily: "monospace", fontSize: visual.glyph.length > 2 ? 3 : 4, fontWeight: "900" } });
+          glyph.anchor.set(0.5);
+          scar.addChild(chip, glyph);
+        }
         scar.rotation = (territoryId.length % 24 - 12) * Math.PI / 180;
         scar.position.set(...scarDisplaySlot(layout));
         scar.label = scarId;
@@ -671,11 +737,16 @@ export class PixiTableSceneAdapter implements TableScene {
     if (scarId === "fallout") {
       sticker.addChild(this.architectureSprite("fallout", definition.profile));
     } else {
-      const visual = SCAR_VISUALS[scarId] ?? { color: 0x8a3936, glyph: "!" };
-      const chip = new Graphics().circle(0, 0, 8).fill({ color: visual.color }).stroke({ color: 0xffe1af, width: 1.2 });
-      const glyph = this.tableText({ text: visual.glyph, style: { fill: 0xffedca, fontFamily: "monospace", fontSize: 5, fontWeight: "900" } });
-      glyph.anchor.set(0.5);
-      sticker.addChild(chip, glyph);
+      const asset = scarMarkAsset(scarId);
+      if (asset) {
+        sticker.addChild(scarAssetGraphic(asset, 16));
+      } else {
+        const visual = SCAR_VISUALS[scarId] ?? { color: 0x8a3936, glyph: "!" };
+        const chip = new Graphics().circle(0, 0, 8).fill({ color: visual.color }).stroke({ color: 0xffe1af, width: 1.2 });
+        const glyph = this.tableText({ text: visual.glyph, style: { fill: 0xffedca, fontFamily: "monospace", fontSize: 5, fontWeight: "900" } });
+        glyph.anchor.set(0.5);
+        sticker.addChild(chip, glyph);
+      }
     }
     sticker.position.set(point[0], point[1] - 34);
     this.effectsLayer.addChild(sticker);
@@ -864,8 +935,10 @@ export class PixiTableSceneAdapter implements TableScene {
       contextLosses: this.contextLosses,
       textResolution: this.textResolution,
       minimumTerritoryLabelAlpha: Math.min(...[...this.territoryLabels.values()].map((label) => label.alpha)),
+      maximumTerritoryLabelAlpha: Math.max(...[...this.territoryLabels.values()].map((label) => label.alpha)),
       missingHqAtlasIds,
       hqFallbacks: this.armyLayer.children.filter((child) => child.label.startsWith("hq-fallback:")).length,
+      boundaryOcclusions: this.placementBounds.length,
     };
   }
 

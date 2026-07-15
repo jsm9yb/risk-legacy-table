@@ -13,6 +13,15 @@ describe("board artwork layers", () => {
     expect(result.boardSvg).not.toContain('class="territory-label"');
   });
 
+  it("extracts the white territory stroke from the board texture so placements can occlude it", () => {
+    const result = splitBoardArtwork(boardSvg, manifest.territories.map(({ id }) => id));
+    const territoryPaths = [...result.boardSvg.matchAll(/<path\b[^>]*class="territory-border territory"[^>]*\/>/g)];
+
+    expect(territoryPaths).toHaveLength(42);
+    expect(territoryPaths.every(([path]) => path.includes('style="stroke: none"'))).toBe(true);
+    expect(result.boardSvg).toContain('class="territory-halo"');
+  });
+
   it("refuses a label set that cannot be mapped one-to-one", () => {
     expect(() => splitBoardArtwork(boardSvg, ["alaska"])).toThrow(/42 territory labels for 1 territories/);
   });

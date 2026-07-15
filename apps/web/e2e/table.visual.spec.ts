@@ -73,7 +73,9 @@ test("the global clutter fixture exposes exact troop counts on hover", async ({ 
   await expectHealthyTable(page);
   const diagnostics = await page.evaluate(() => (globalThis as any).__riskTableDiagnostics.capture());
   expect(diagnostics.textResolution).toBeGreaterThanOrEqual(4);
-  expect(diagnostics.minimumTerritoryLabelAlpha).toBe(1);
+  expect(diagnostics.minimumTerritoryLabelAlpha).toBe(0.2);
+  expect(diagnostics.maximumTerritoryLabelAlpha).toBe(0.2);
+  expect(diagnostics.boundaryOcclusions).toBeGreaterThan(0);
   expect(diagnostics.missingHqAtlasIds).toEqual([]);
   expect(diagnostics.hqFallbacks).toBe(0);
   await expect(page).toHaveScreenshot("table-global-clutter-audit.png");

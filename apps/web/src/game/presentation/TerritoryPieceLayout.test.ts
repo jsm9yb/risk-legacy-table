@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { presentationDefinitions } from "@risk/map";
 import { composeArmyStack } from "./ArmyStack.ts";
-import { scarDisplaySlot, territoryClutterBounds, territoryDisplayLayout } from "./TerritoryPieceLayout.ts";
+import {
+  scarDisplaySlot,
+  territoryClutterBounds,
+  territoryDisplayLayout,
+  territoryPlacementBounds,
+} from "./TerritoryPieceLayout.ts";
 
 const representativeCounts = [1, 2, 3, 5, 8, 14, 23, 99];
 
@@ -29,6 +34,33 @@ describe("global territory clutter budget", () => {
     const kinds = territoryClutterBounds(definition, stack.total, stack.pieces).map(({ kind }) => kind);
     expect(kinds).not.toContain("count");
     expect(kinds).not.toContain("fortification");
+  });
+
+  it("occludes boundaries and labels only beneath placement types that are present", () => {
+    const definition = presentationDefinitions.find(({ territoryId }) => territoryId === "alaska")!;
+    const stack = composeArmyStack(5, "audit:alaska");
+
+    expect(territoryPlacementBounds(definition, {
+      army: true,
+      hq: false,
+      scars: false,
+      city: false,
+      fortification: false,
+    }, stack.pieces).map(({ kind }) => kind)).toEqual(["army", "army", "army"]);
+    expect(territoryPlacementBounds(definition, {
+      army: false,
+      hq: true,
+      scars: true,
+      city: true,
+      fortification: true,
+    }, []).map(({ kind }) => kind)).toEqual(["hq", "architecture", "scars"]);
+    expect(territoryPlacementBounds(definition, {
+      army: false,
+      hq: false,
+      scars: false,
+      city: false,
+      fortification: false,
+    }, [])).toEqual([]);
   });
 
   it("passes every manually authored placement anchor through unchanged", () => {

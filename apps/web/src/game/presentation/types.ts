@@ -61,8 +61,10 @@ export interface TableSceneDiagnostics {
   frameTimeP95?: number;
   textResolution?: number;
   minimumTerritoryLabelAlpha?: number;
+  maximumTerritoryLabelAlpha?: number;
   missingHqAtlasIds?: string[];
   hqFallbacks?: number;
+  boundaryOcclusions?: number;
 }
 
 export type SceneCommand =

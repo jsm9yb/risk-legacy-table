@@ -98,6 +98,19 @@ export function territoryClutterBounds(
   return bounds;
 }
 
+/** Footprints that must visually supersede printed borders and territory names. */
+export function territoryPlacementBounds(
+  definition: TerritoryPresentationDef,
+  contents: TerritoryLayoutContents,
+  pieces: readonly ArmyPieceModel[],
+): LayoutBounds[] {
+  const bounds = contents.army ? armyBoundsForPieces(definition, pieces) : [];
+  if (contents.hq) bounds.push(hqBounds(definition));
+  if (contents.city) bounds.push(architectureBounds(definition));
+  if (contents.scars) bounds.push(scarBounds(definition));
+  return bounds;
+}
+
 export function intersectionRatio(a: LayoutBounds, b: LayoutBounds) {
   const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
   const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
