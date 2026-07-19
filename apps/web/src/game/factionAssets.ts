@@ -15,7 +15,7 @@ import khanIndustriesCard from "../assets/faction-cards/khan_industries.jpg";
 import saharanRepublicCard from "../assets/faction-cards/saharan_republic.jpg";
 import mutantsCard from "../assets/faction-cards/mutants.jpg";
 import aliensCard from "../assets/faction-cards/aliens.jpg";
-import ammoShortage from "../assets/scars/ammo_shortage-scar.svg";
+import ammoShortage from "../assets/scars/ammo_shortage-card.webp";
 import biohazard from "../assets/scars/biohazard-scar.svg";
 import bunker from "../assets/scars/bunker-scar.svg";
 import fallout from "../assets/scars/fallout-scar.svg";

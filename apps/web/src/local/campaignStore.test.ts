@@ -9,6 +9,7 @@ import {
 import { manifest } from "@risk/map";
 import {
   clearLocalCampaign,
+  applyLocalPreparationAction,
   createNextLocalGame,
   foldCompletedLocalGame,
   loadLocalCampaign,
@@ -19,6 +20,7 @@ import {
   type LocalCampaignSave,
 } from "./campaignStore.ts";
 import { driveToVictory } from "../game/test-fixtures.ts";
+import { contentPack } from "@risk/content";
 
 function memoryStorage() {
   const data = new Map<string, string>();
@@ -35,16 +37,37 @@ const players = [
   { id: "u3", name: "Rex" },
 ];
 
+function sealPreparation(save: LocalCampaignSave, storage: ReturnType<typeof memoryStorage>) {
+  let next = save;
+  for (let index = 0; index < 12; index++) {
+    const preparation = next.campaignState.preparation!;
+    next = applyLocalPreparationAction(next, {
+      type: "preparation.placeResourceSticker",
+      playerId: preparation.participants[preparation.actorIndex].playerId,
+      stickerId: preparation.resourceStickers[index].stickerId,
+      cardId: contentPack.cards.territoryCards[index].id,
+      slot: 1,
+    }, storage);
+  }
+  const reviewer = next.campaignState.preparation!.participants[next.campaignState.preparation!.actorIndex].playerId;
+  next = applyLocalPreparationAction(next, { type: "preparation.confirmReview", playerId: reviewer }, storage);
+  return applyLocalPreparationAction(next, { type: "preparation.seal", playerId: reviewer }, storage);
+}
+
 describe("local campaign store", () => {
   it("creates, loads, persists, and clears an active hot-seat game", () => {
     const storage = memoryStorage();
     const save = startLocalCampaign({ seed: 11, worldName: "Terra", players }, storage);
 
-    expect(save.activeGame?.phase).toBe("setup");
+    expect(save.activeGame).toBeUndefined();
+    expect(save.campaignState.preparation?.stage).toBe("resource_stickers");
     expect(loadLocalCampaign(storage)?.id).toBe(save.id);
 
-    const changed = { ...save.activeGame!, turnNumber: 7 };
-    persistActiveGame(save, changed, storage);
+    const prepared = sealPreparation(save, storage);
+    const active = createNextLocalGame(prepared, 11, storage);
+    expect(active.activeGame?.setup?.stage).toBe("order_reveal");
+    const changed = { ...active.activeGame!, turnNumber: 7 };
+    persistActiveGame(active, changed, storage);
     expect(loadLocalCampaign(storage)?.activeGame?.turnNumber).toBe(7);
 
     clearLocalCampaign(storage);
@@ -64,9 +87,8 @@ describe("local campaign store", () => {
       const second = startLocalCampaign({ seed: 12, worldName: "Second World", players }, storage);
       expect(second.id).not.toBe(first.id);
       expect(second.campaignState.factionPowerChoices).toEqual({});
-      expect(second.activeGame?.factionPowers).toEqual({});
+      expect(second.activeGame).toBeUndefined();
       expect(second.campaignState.board.scars).toEqual([]);
-      expect(second.activeGame?.territories.ural.scars).toEqual([]);
       expect(second.campaignState.inventories.scarInstances.bunker).toBe(3);
       expect(loadLocalCampaign(storage)?.id).toBe(second.id);
     } finally {

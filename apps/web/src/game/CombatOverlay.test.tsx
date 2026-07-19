@@ -82,7 +82,9 @@ describe("combat overlay (UI-8)", () => {
 
   it("interrupts the roll with an explicit missile modifier window", () => {
     const { gs, pid, mine, target } = atExpandAttack(43);
-    gs.players[pid].missiles = 2;
+    const defender = gs.territories[target].controller!;
+    const observer = gs.turnOrder.find((playerId) => playerId !== pid && playerId !== defender)!;
+    gs.players[observer].missiles = 2;
     render(<Harness initial={gs} />);
 
     fireEvent.click(document.getElementById(mine)!);
@@ -97,7 +99,7 @@ describe("combat overlay (UI-8)", () => {
 
     // spend one missile, then pass — the roll resolves with an unmodifiable 6
     fireEvent.click(screen.getAllByRole("button", { name: /^Missile: set attack die/ })[0]);
-    expect(current.players[pid].missiles).toBe(1);
+    expect(current.players[observer].missiles).toBe(1);
     expect(screen.getByText("MISSILE WINDOW")).toBeTruthy(); // still holding a missile — window persists
     fireEvent.click(screen.getByRole("button", { name: "PASS" }));
 

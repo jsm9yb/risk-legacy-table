@@ -76,6 +76,7 @@ beforeEach(() => {
         inviteCode: "ff00aa11",
         activeSessionId: activeCampaign ? "sess-active" : undefined,
         hasActiveGame: activeCampaign,
+        preparationStatus: "complete",
       }]);
     }
     if (path === "/api/campaigns/join") return jsonRes({ id: "c2", worldName: "Elsewhere" });

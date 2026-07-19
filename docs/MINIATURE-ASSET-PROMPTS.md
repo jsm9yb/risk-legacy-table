@@ -32,4 +32,4 @@ Generated with the built-in image generator on 2026-07-13. Each faction-card sca
 
 ## Production pass
 
-The generated sheets were copied into `tmp/miniatures-v3`, converted to soft transparent mattes with border key sampling, thresholds 12/220, soft matte, and despill, then packed into 768×512 WebP atlases at quality 92. The packer validates transparent corners, frame containment, non-empty alpha, and 5–75% visible coverage.
+The generated sheets were copied into `tmp/miniatures-v3`, converted to soft transparent mattes with border key sampling, thresholds 12/220, soft matte, and despill, then packed into 768×512 lossless WebP atlases. The packer validates transparent corners, frame containment, non-empty alpha, and 5–75% visible coverage.

@@ -11,7 +11,12 @@ import { randomUUID, scryptSync, randomBytes, timingSafeEqual } from "node:crypt
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createDb } from "./db/connect.ts";
-import { createGame, applyAction, waitingOn, RuleViolation, initialCampaign, applyGameToCampaign, supplyModuleContent, filterStateFor, type GameState, type Action, type CampaignState } from "@risk/rules"; // new (10b, 1-web-b, 12)
+import {
+  applyAction, applyCampaignPreparationAction, applyGameToCampaign, beginCampaignPreparation,
+  campaignPreparationStatus, createGame, createUnpreparedCampaign, filterStateFor, initialCampaign,
+  isCampaignPrepared, RuleViolation, supplyModuleContent, waitingOn,
+  type Action, type CampaignPreparationAction, type CampaignState, type GameState,
+} from "@risk/rules"; // new (10b, 1-web-b, 12)
 import { contentPack, validateContentPack } from "@risk/content";
 import { corsOriginFor, parseCorsOrigins } from "./http.ts";
 import { SessionActionQueue, legacyDone, prepareSessionState } from "./session.ts";
@@ -96,13 +101,21 @@ app.post("/api/login", async (req, res) => {
 app.post("/api/campaigns", async (req, res) => {
   const me = await userFromToken(bearer(req));
   if (!me) return res.status(401).json({ error: "auth required" });
-  const { worldName } = req.body ?? {};
+  const { worldName } = req.body ?? {} as { worldName?: string };
   if (!worldName) return res.status(400).json({ error: "worldName required" });
+  let campaignState: CampaignState;
+  try {
+    campaignState = createUnpreparedCampaign(worldName);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "invalid campaign preparation" });
+  }
   const id = randomUUID();
   const invite = randomBytes(4).toString("hex");
-  await db.insertInto("campaigns").values({ id, owner_id: me.id, world_name: worldName, invite_code: invite }).execute();
-  await db.insertInto("campaign_members").values({ campaign_id: id, user_id: me.id, role: "host" }).execute();
-  await audit(id, null, me.id, "CampaignCreated", { worldName });
+  await db.transaction().execute(async (trx) => {
+    await trx.insertInto("campaigns").values({ id, owner_id: me.id, world_name: worldName, invite_code: invite, state: JSON.stringify(campaignState) }).execute();
+    await trx.insertInto("campaign_members").values({ campaign_id: id, user_id: me.id, role: "host" }).execute();
+  });
+  await audit(id, null, me.id, "CampaignCreated", { worldName, prepared: false });
   res.json({ id, worldName, inviteCode: invite });
 });
 
@@ -126,7 +139,7 @@ app.get("/api/campaigns", async (req, res) => {
   const rows = await db
     .selectFrom("campaign_members")
     .innerJoin("campaigns", "campaigns.id", "campaign_members.campaign_id")
-    .select(["campaigns.id", "campaigns.world_name", "campaigns.game_number", "campaigns.invite_code", "campaign_members.role", "campaigns.owner_id"])
+    .select(["campaigns.id", "campaigns.world_name", "campaigns.game_number", "campaigns.invite_code", "campaigns.state", "campaign_members.role", "campaigns.owner_id"])
     .where("campaign_members.user_id", "=", me.id)
     .execute();
   const activeRows = rows.length
@@ -142,6 +155,7 @@ app.get("/api/campaigns", async (req, res) => {
     inviteCode: r.owner_id === me.id ? r.invite_code : undefined,
     activeSessionId: activeByCampaign.get(r.id),
     hasActiveGame: activeByCampaign.has(r.id),
+    preparationStatus: campaignPreparationStatus(r.state ? JSON.parse(r.state) : initialCampaign(r.world_name)),
   })));
 });
 
@@ -214,7 +228,8 @@ interface LiveSession {
 const live = new Map<string, LiveSession>();
 
 function locksRewind(action: Action) {
-  return action.type === "attack.declare" || action.type === "scar.play" || action.type === "end.draw"
+  return action.type === "draft.pick" || action.type === "draft.takeStartingCoin"
+    || action.type === "attack.declare" || action.type === "scar.play" || action.type === "end.draw"
     || action.type === "reward.choose" || action.type === "module.supplyContent" || action.type === "mission.foundWorldCapital"
     || action.type === "mission.complete" || action.type === "event.resolve"
     || action.type === "mission.choose"
@@ -277,6 +292,17 @@ async function loadSession(sessionId: string): Promise<LiveSession | null> {
     }
     if (locksRewind(action) || state.phase === "game_over") rewindLocked = true;
   }
+  // Crash recovery: replay may reconstruct a fully resolved game whose final
+  // action committed before the campaign fold/status update. Reconcile that
+  // terminal state idempotently so the campaign can never be stranded active.
+  if (row.status === "active" && legacyDone(state)) {
+    const folded = applyGameToCampaign(campaign ?? initialCampaign(""), state);
+    await db.transaction().execute(async (trx) => {
+      await trx.updateTable("campaigns").set({ state: JSON.stringify(folded) }).where("id", "=", row.campaign_id).execute();
+      await trx.updateTable("game_sessions").set({ status: "completed" }).where("id", "=", sessionId).execute();
+    });
+    await audit(row.campaign_id, sessionId, null, "CampaignStateFoldRecovered", { gameNumber: folded.gameNumber });
+  }
   const sess = { state, campaignId: row.campaign_id, players, campaign, phaseCheckpoints, rewindLocked }; // new
   live.set(sessionId, sess);
   return sess;
@@ -307,6 +333,46 @@ function broadcastGameState(sessionId: string, session: LiveSession) {
 interface LobbyMember { userId: string; name: string; role: string; ready: boolean; connected: boolean; seat: number | null }
 const lobbies = new Map<string, Map<string, LobbyMember>>(); // campaignId -> members
 const sessionActions = new SessionActionQueue();
+const campaignActions = new SessionActionQueue();
+
+const parsePayload = <T,>(payload: unknown): T => typeof payload === "string" ? JSON.parse(payload) as T : payload as T;
+
+async function loadCampaignPreparation(campaignId: string) {
+  const campaign = await db.selectFrom("campaigns").selectAll().where("id", "=", campaignId).executeTakeFirst();
+  if (!campaign) return null;
+  const persisted: CampaignState = campaign.state ? JSON.parse(campaign.state) : initialCampaign(campaign.world_name);
+  if (persisted.gameNumber === 0 && persisted.preparation && persisted.preparation.stage !== "complete") {
+    persisted.preparation.stage = persisted.preparation.stage === "review" ? "review" : "resource_stickers";
+    persisted.preparation.factionPowerChoices = {};
+    persisted.factionPowerChoices = {};
+  }
+  if (persisted.gameNumber === 0 && persisted.preparation?.resourceStickers.length === 12) {
+    persisted.preparation.factionPowerChoices = {};
+    persisted.factionPowerChoices = {};
+  }
+  const actions = await db.selectFrom("campaign_actions").selectAll().where("campaign_id", "=", campaignId).orderBy("seq").execute();
+  if (persisted.gameNumber !== 0 || actions.length === 0) return { campaign, state: persisted };
+  let rebuilt = createUnpreparedCampaign(campaign.world_name);
+  for (const row of actions) {
+    if (row.kind === "preparation.begin") {
+      const payload = parsePayload<{ participants: { playerId: string; name: string; seat: number }[] }>(row.payload);
+      rebuilt = beginCampaignPreparation(rebuilt, payload.participants);
+    } else if (row.kind === "preparation.action") {
+      const payload = parsePayload<{ action: CampaignPreparationAction; appliedAt: string }>(row.payload);
+      if (payload.action.type === "preparation.chooseFactionPower") continue;
+      rebuilt = applyCampaignPreparationAction(rebuilt, payload.action, payload.appliedAt);
+    }
+  }
+  if (JSON.stringify(rebuilt) !== JSON.stringify(persisted)) {
+    throw new Error(`Campaign ${campaignId} preparation state does not match its action ledger`);
+  }
+  return { campaign, state: rebuilt };
+}
+
+function broadcastPreparationState(campaignId: string, state: CampaignState) {
+  io.to(`preparation:${campaignId}`).emit("preparation:state", { campaignId, state });
+  io.to(`lobby:${campaignId}`).emit("preparation:state", { campaignId, state });
+}
 
 io.use(async (socket, next) => {
   const me = await userFromToken(socket.handshake.auth?.token);
@@ -327,6 +393,76 @@ io.on("connection", (socket) => {
     member.ready = false;
     io.to(`lobby:${campaignId}`).emit("lobby:state", [...lobby.values()]);
   };
+
+  socket.on("preparation:join", async ({ campaignId }, ack) => {
+    const member = await db.selectFrom("campaign_members").selectAll()
+      .where("campaign_id", "=", campaignId).where("user_id", "=", user.id).executeTakeFirst();
+    if (!member) return ack?.({ error: "not a campaign member" });
+    try {
+      const loaded = await loadCampaignPreparation(campaignId);
+      if (!loaded) return ack?.({ error: "no campaign" });
+      socket.join(`preparation:${campaignId}`);
+      ack?.({ ok: true, state: loaded.state });
+    } catch (error) {
+      console.error(error);
+      ack?.({ error: "campaign preparation ledger verification failed" });
+    }
+  });
+
+  socket.on("preparation:begin", ({ campaignId }, ack) => {
+    void campaignActions.run(campaignId, async () => {
+      const loaded = await loadCampaignPreparation(campaignId);
+      if (!loaded) return ack?.({ error: "no campaign" });
+      if (loaded.campaign.owner_id !== user.id) return ack?.({ error: "host only" });
+      const players = [...(lobbies.get(campaignId)?.values() ?? [])]
+        .filter((member) => member.role !== "spectator" && member.connected && member.seat !== null)
+        .sort((a, b) => a.seat! - b.seat!);
+      if (players.length < 3 || players.length > 5) return ack?.({ error: "seat 3-5 connected players before preparation" });
+      const participants = players.map((player) => ({ playerId: player.userId, name: player.name, seat: player.seat! - 1 }));
+      let next: CampaignState;
+      try { next = beginCampaignPreparation(loaded.state, participants); }
+      catch (error) { return ack?.({ error: (error as Error).message }); }
+      await db.transaction().execute(async (trx) => {
+        await trx.insertInto("campaign_actions").values({
+          campaign_id: campaignId, seq: 1, actor_id: user.id, kind: "preparation.begin", payload: JSON.stringify({ participants }),
+        }).execute();
+        await trx.updateTable("campaigns").set({ state: JSON.stringify(next) }).where("id", "=", campaignId).execute();
+      });
+      await audit(campaignId, null, user.id, "CampaignPreparationBegan", { participants });
+      broadcastPreparationState(campaignId, next);
+      ack?.({ ok: true, state: next });
+    }).catch((error) => { console.error(error); ack?.({ error: "internal error" }); });
+  });
+
+  socket.on("preparation:action", ({ campaignId, action }, ack) => {
+    void campaignActions.run(campaignId, async () => {
+      const loaded = await loadCampaignPreparation(campaignId);
+      if (!loaded) return ack?.({ error: "no campaign" });
+      const candidate = action as CampaignPreparationAction;
+      if (candidate.playerId !== user.id) return ack?.({ error: "cannot act for another player" });
+      if (candidate.type === "preparation.randomizeResourceStickers") {
+        const membership = await db.selectFrom("campaign_members").select("role")
+          .where("campaign_id", "=", campaignId).where("user_id", "=", user.id).executeTakeFirst();
+        if (membership?.role !== "host") return ack?.({ error: "host only" });
+      }
+      const appliedAt = new Date().toISOString();
+      let next: CampaignState;
+      try { next = applyCampaignPreparationAction(loaded.state, candidate, appliedAt); }
+      catch (error) { return ack?.({ error: (error as Error).message }); }
+      await db.transaction().execute(async (trx) => {
+        const previous = await trx.selectFrom("campaign_actions").select("seq")
+          .where("campaign_id", "=", campaignId).orderBy("seq", "desc").executeTakeFirst();
+        await trx.insertInto("campaign_actions").values({
+          campaign_id: campaignId, seq: (previous?.seq ?? 0) + 1, actor_id: user.id,
+          kind: "preparation.action", payload: JSON.stringify({ action: candidate, appliedAt }),
+        }).execute();
+        await trx.updateTable("campaigns").set({ state: JSON.stringify(next) }).where("id", "=", campaignId).execute();
+      });
+      await audit(campaignId, null, user.id, "CampaignPreparationAction", { type: candidate.type });
+      broadcastPreparationState(campaignId, next);
+      ack?.({ ok: true });
+    }).catch((error) => { console.error(error); ack?.({ error: "internal error" }); });
+  });
 
   socket.on("lobby:join", async ({ campaignId }, ack) => {
     const member = await db.selectFrom("campaign_members").selectAll()
@@ -360,15 +496,21 @@ io.on("connection", (socket) => {
     io.to(`lobby:${campaignId}`).emit("lobby:state", [...lobbies.get(campaignId)!.values()]);
   });
 
-  socket.on("lobby:seat", ({ campaignId, seat }, ack) => {
+  socket.on("lobby:seat", async ({ campaignId, seat }, ack) => {
     const lobby = lobbies.get(campaignId);
     const member = lobby?.get(user.id);
     const requested = Number(seat);
     if (!lobby || !member || member.role === "spectator") return ack?.({ error: "players only" });
+    const loaded = await loadCampaignPreparation(campaignId);
+    if (!loaded) return ack?.({ error: "no campaign" });
+    const status = campaignPreparationStatus(loaded.state);
+    if (status !== "not_started" && status !== "complete") return ack?.({ error: "seats are locked while campaign preparation is in progress" });
     if (!Number.isInteger(requested) || requested < 1 || requested > 5) return ack?.({ error: "choose seat 1-5" });
-    if ([...lobby.values()].some((candidate) => candidate.userId !== user.id && candidate.seat === requested)) {
+    const incumbent = [...lobby.values()].find((candidate) => candidate.userId !== user.id && candidate.seat === requested);
+    if (incumbent?.connected) {
       return ack?.({ error: "seat already taken" });
     }
+    if (incumbent) { incumbent.seat = null; incumbent.ready = false; }
     member.seat = requested;
     member.ready = false;
     io.to(`lobby:${campaignId}`).emit("lobby:state", [...lobby.values()]);
@@ -390,7 +532,25 @@ io.on("connection", (socket) => {
     if (active) return ack?.({ error: "campaign already has an active game" });
     const sessionId = randomUUID();
     const seed = Math.floor(Math.random() * 2 ** 31); // server randomness; logged in session row + engine events
-    const campaignState: CampaignState = c.state ? JSON.parse(c.state) : initialCampaign(c.world_name); // new (10b): seed from the persisted campaign
+    let campaignState: CampaignState;
+    try {
+      const loaded = await loadCampaignPreparation(campaignId);
+      if (!loaded) return ack?.({ error: "no campaign" });
+      campaignState = loaded.state;
+    } catch (error) {
+      console.error(error);
+      return ack?.({ error: "campaign preparation ledger verification failed" });
+    }
+    if (!isCampaignPrepared(campaignState)) return ack?.({ error: "Prepare the World must be sealed before Game 1" });
+    // A newly created session upgrades legacy campaign JSON to the explicit setup
+    // contract. Old session snapshots remain untouched and replay with compatibility behavior.
+    campaignState.preparation ??= {
+      stage: "complete",
+      participants: players.map((player, seat) => ({ playerId: player.userId, name: player.name, seat })),
+      actorIndex: 0,
+      factionPowerChoices: { ...campaignState.factionPowerChoices },
+      resourceStickers: [],
+    };
     let prepared: LiveSession;
     try {
       prepared = prepareSessionState({ sessionId, campaignId, seed, campaign: campaignState, readyPlayers: players });
@@ -400,15 +560,17 @@ io.on("connection", (socket) => {
       return ack?.({ error: "internal error" });
     }
     try {
-      await db.insertInto("game_sessions").values({
-        id: sessionId, campaign_id: campaignId, game_number: c.game_number + 1, seed: String(seed),
-        campaign_state: JSON.stringify(campaignState), // new: creation-time snapshot keeps replay deterministic
-      }).execute();
-      await db.updateTable("campaigns").set({ game_number: c.game_number + 1 }).where("id", "=", campaignId).execute();
-      let order = 0;
-      for (const p of players) {
-        await db.insertInto("game_seats").values({ session_id: sessionId, user_id: p.userId, seat_order: order++, faction_id: null, result: null }).execute();
-      }
+      await db.transaction().execute(async (trx) => {
+        await trx.insertInto("game_sessions").values({
+          id: sessionId, campaign_id: campaignId, game_number: c.game_number + 1, seed: String(seed),
+          campaign_state: JSON.stringify(campaignState), // creation-time snapshot keeps replay deterministic
+        }).execute();
+        await trx.updateTable("campaigns").set({ game_number: c.game_number + 1, state: JSON.stringify(campaignState) }).where("id", "=", campaignId).execute();
+        let order = 0;
+        for (const p of players) {
+          await trx.insertInto("game_seats").values({ session_id: sessionId, user_id: p.userId, seat_order: order++, faction_id: null, result: null }).execute();
+        }
+      });
     } catch (e) {
       if ((e as { code?: string }).code === "23505") return ack?.({ error: "campaign already has an active game" });
       console.error(e);
@@ -466,18 +628,34 @@ io.on("connection", (socket) => {
       const previousAction = await db.selectFrom("game_actions").select("seq")
         .where("session_id", "=", sessionId).orderBy("seq", "desc").executeTakeFirst();
       const actionSeq = (previousAction?.seq ?? 0) + 1;
-      await db.insertInto("game_actions").values({
-        session_id: sessionId, seq: actionSeq,
-        actor_id: user.id, kind: "action", payload: JSON.stringify(a), reason: null,
-      }).execute();
-      if (a.type === "module.supplyContent") {
-        await db.insertInto("content_overrides").values({
-          id: randomUUID(), campaign_id: sess.campaignId, author_id: user.id,
-          path: `${a.moduleId}.${a.item}`, value: JSON.stringify(a.content),
-          reason: "in-game sealed-content pause",
+      const wonNow = next.phase === "game_over" && !!next.winner && prev.phase !== "game_over";
+      const completedNow = legacyDone(next) && !legacyDone(prev);
+      const folded = completedNow ? applyGameToCampaign(sess.campaign ?? initialCampaign(""), next) : undefined;
+      // The action ledger and every durable consequence commit together. Live
+      // state is not mutated or broadcast until this transaction succeeds.
+      await db.transaction().execute(async (trx) => {
+        await trx.insertInto("game_actions").values({
+          session_id: sessionId, seq: actionSeq,
+          actor_id: user.id, kind: "action", payload: JSON.stringify(a), reason: null,
         }).execute();
-        await audit(sess.campaignId, sessionId, user.id, "ModuleContentSupplied", { moduleId: a.moduleId, item: a.item });
-      }
+        if (a.type === "module.supplyContent") {
+          await trx.insertInto("content_overrides").values({
+            id: randomUUID(), campaign_id: sess.campaignId, author_id: user.id,
+            path: `${a.moduleId}.${a.item}`, value: JSON.stringify(a.content),
+            reason: "in-game sealed-content pause",
+          }).execute();
+        }
+        if (wonNow) {
+          for (const [fid, result] of Object.entries(next.results ?? {})) {
+            const pid = Object.values(next.players).find((player) => player.factionId === fid)?.id;
+            if (pid) await trx.updateTable("game_seats").set({ result, faction_id: fid }).where("session_id", "=", sessionId).where("user_id", "=", pid).execute();
+          }
+        }
+        if (folded) {
+          await trx.updateTable("campaigns").set({ state: JSON.stringify(folded) }).where("id", "=", sess.campaignId).execute();
+          await trx.updateTable("game_sessions").set({ status: "completed" }).where("id", "=", sessionId).execute();
+        }
+      });
       sess.state = next;
       const checkpoints = ensureRewindState(sess);
       const turnChanged = next.turnNumber !== prev.turnNumber || next.activeIdx !== prev.activeIdx;
@@ -489,22 +667,22 @@ io.on("connection", (socket) => {
       }
       if (locksRewind(a) || next.phase === "game_over") sess.rewindLocked = true;
       broadcastGameState(sessionId, sess);
-      if (next.phase === "game_over" && next.winner && prev.phase !== "game_over") { // new: fire once at the winning action (reward.choose actions follow inside game_over)
-        for (const [fid, result] of Object.entries(next.results ?? {})) {
-          const pid = Object.values(next.players).find((p) => p.factionId === fid)?.id;
-          if (pid) await db.updateTable("game_seats").set({ result, faction_id: fid }).where("session_id", "=", sessionId).where("user_id", "=", pid).execute();
-        }
-        await audit(sess.campaignId, sessionId, null, "GameWon", { winner: next.winner, reason: next.winReason, results: next.results });
+      if (a.type === "module.supplyContent") {
+        await audit(sess.campaignId, sessionId, user.id, "ModuleContentSupplied", { moduleId: a.moduleId, item: a.item }).catch(console.error);
+      }
+      if (wonNow) { // fire once at the winning action (reward.choose actions follow inside game_over)
+        await audit(sess.campaignId, sessionId, null, "GameWon", { winner: next.winner, reason: next.winReason, results: next.results }).catch(console.error);
       }
       // new (10b): once end-game rewards resolve (or none open, post-Game-15), fold the finished
       // game into the persisted CampaignState and export — the seed for the next game:create.
-      if (legacyDone(next) && !legacyDone(prev)) { // new
-        const folded = applyGameToCampaign(sess.campaign ?? initialCampaign(""), next); // new
-        await db.updateTable("campaigns").set({ state: JSON.stringify(folded) }).where("id", "=", sess.campaignId).execute(); // new
-        await db.updateTable("game_sessions").set({ status: "completed" }).where("id", "=", sessionId).execute();
-        await audit(sess.campaignId, sessionId, null, "CampaignStateFolded", { gameNumber: folded.gameNumber, signatures: folded.signatures }); // new
+      if (folded) {
+        await audit(sess.campaignId, sessionId, null, "CampaignStateFolded", { gameNumber: folded.gameNumber, signatures: folded.signatures }).catch(console.error); // new
         // Automatic app-level campaign export after completed games (backup direction)
-        writeFileSync(join(BACKUP_DIR, `export-${sess.campaignId}-${sessionId}.json`), JSON.stringify({ campaignId: sess.campaignId, sessionId, finalState: next, campaignState: folded }, null, 2)); // new: now includes the folded campaign
+        try {
+          writeFileSync(join(BACKUP_DIR, `export-${sess.campaignId}-${sessionId}.json`), JSON.stringify({ campaignId: sess.campaignId, sessionId, finalState: next, campaignState: folded }, null, 2));
+        } catch (error) {
+          console.error("campaign export failed after durable completion", error);
+        }
       }
       ack?.({ ok: true });
     }).catch((e) => {

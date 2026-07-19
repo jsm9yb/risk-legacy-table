@@ -1,7 +1,8 @@
 // new (UI-9): rail sideboard mat modeled on the rulebook illustration — top row
 // DRAW (face-down stack) · COIN (face-up pile) · MISSION · EVENT (sealed outlines until
 // modules unlock) · DISCARD; bottom row numbered slots 1→4 face-up; red star pool beside.
-import type { GameState, LegacyCard } from "@risk/rules";
+import { useEffect } from "react";
+import { resourceCardDefinition, type GameState, type LegacyCard, type TerritoryId } from "@risk/rules";
 import { redStars } from "@risk/rules";
 import { cardResources } from "../labels.ts";
 import ResourceCard, { CoinFace, STAR_PATH } from "./ResourceCard.tsx";
@@ -34,7 +35,11 @@ function LegacyFace({ card, kind }: { card: LegacyCard; kind: "mission" | "event
   );
 }
 
-export default function SideboardMat({ gs }: { gs: GameState }) {
+export default function SideboardMat({ gs, onTerritoryCardHover }: {
+  gs: GameState;
+  onTerritoryCardHover?: (territoryId: TerritoryId | undefined) => void;
+}) {
+  useEffect(() => () => onTerritoryCardHover?.(undefined), [onTerritoryCardHover]);
   const sb = gs.sideboard;
   const deckCount = (sb as any).territoryDeckCount ?? sb.territoryDeck.length;
   const coinCount = (sb as any).coinCount ?? sb.coinPile.length;
@@ -71,7 +76,11 @@ export default function SideboardMat({ gs }: { gs: GameState }) {
         <div className="grid grid-cols-4 gap-1.5">
           {sb.slots.map((id, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
-              {id ? <ResourceCard size="sm" cardId={id} resources={cardResources(gs, id)} /> : <EmptySlot />}
+              {id ? <ResourceCard size="sm" cardId={id} resources={cardResources(gs, id)}
+                onHoverChange={(hovered) => {
+                  const definition = resourceCardDefinition(id);
+                  onTerritoryCardHover?.(hovered && definition?.kind === "territory" ? definition.territoryId : undefined);
+                }} /> : <EmptySlot />}
               <span className="font-mono text-[8px] text-muted">{i + 1}</span>
             </div>
           ))}

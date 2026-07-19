@@ -16,6 +16,10 @@ export function throughSetup(seed: number): GameState {
   });
   while (gs.phase === "setup") {
     const pid = waitingOn(gs)!;
+    if (gs.setup?.stage === "order_reveal") {
+      gs = applyAction(gs, { type: "setup.acknowledgeOrder", playerId: pid });
+      continue;
+    }
     const faction = contentPack.factions.find((f) => !Object.values(gs.players).some((x) => x.factionId === f.id))!;
     const start = manifest.territories.find((t) => isLegalStart(gs, t.id, true, faction.id, pid))!;
     gs = applyAction(gs, {
@@ -46,7 +50,9 @@ function pickAction(s: GameState): Action | null {
   if (!pid || s.phase === "game_over") return null;
   const p = s.players[pid];
   if (s.phase === "setup") {
+    if (s.setup?.stage === "order_reveal") return { type: "setup.acknowledgeOrder", playerId: pid };
     if (s.advancedDraft && !s.advancedDraft.completed) {
+      if (s.advancedDraft.pendingCoinClaim) return { type: "draft.takeStartingCoin", playerId: pid, cardId: s.sideboard.coinPile[0] };
       const picks = s.advancedDraft.picks[pid];
       if (!picks.factionId) return { type: "draft.pick", playerId: pid, category: "faction", value: s.advancedDraft.available.factions[0] };
       if (picks.turnOrder === undefined) return { type: "draft.pick", playerId: pid, category: "turnOrder", value: s.advancedDraft.available.turnOrder[0] };

@@ -32,6 +32,10 @@ describe("ResourceCard (UI-9)", () => {
     expect(screen.getByText(territoryName(territoryCard.territoryId))).toBeTruthy();
     expect(container.querySelector("[data-territory-art]")).toBeTruthy();
     expect(container.querySelector("[data-selected-territory]")).toBeTruthy();
+    expect(container.querySelector("[data-context-territory]")).toBeNull();
+    const viewBox = container.querySelector("[data-territory-art]")!.getAttribute("viewBox")!.split(" ").map(Number);
+    expect(viewBox[0]).toBeGreaterThan(150); // source-coordinate crop surrounds the Alaska path near x=190..261
+    expect(viewBox[2]).toBeLessThan(100); // selected country fills the art box instead of its continent context
     expect(container.querySelectorAll("[data-coin]")).toHaveLength(6);
     expect(container.querySelectorAll('[data-coin="filled"]')).toHaveLength(territoryCard.resources);
   });
@@ -109,7 +113,7 @@ describe("card flows (UI-9)", () => {
     gs.factionPowers[gs.players[pid].factionId!] = "expansionist_supply";
 
     render(<Harness initial={gs} />);
-    expect(screen.getByText(/EXPANSIONIST SUPPLY/i)).toBeTruthy();
+    expect(screen.getAllByText(/EXPANSIONIST SUPPLY/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("button", { name: "END TURN WITHOUT DRAW" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "TAKE COIN" })).toBeTruthy();
   });

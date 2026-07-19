@@ -4,9 +4,42 @@
 // world name. Do NOT carry: troops, control, hands, unplayed missiles, Red-Star tokens,
 // or transient turn/combat state.
 import { contentPack, factionDefinitions, ruleValue } from "@risk/content";
-import type { FactionHistoryEntry, GameState, LegacyCard, PlayerId, TerritoryId } from "./types.ts";
+import type { CardId, FactionHistoryEntry, FactionId, GameState, LegacyCard, PlayerId, TerritoryId } from "./types.ts";
 
 export type GameResult = "won" | "held_on" | "eliminated" | "unused";
+
+export type CampaignPreparationStage = "faction_powers" | "resource_stickers" | "review" | "complete";
+
+export interface CampaignPreparationParticipant {
+  playerId: PlayerId;
+  name: string;
+  seat: number;
+}
+
+export interface CampaignResourceSticker {
+  stickerId: string;
+  cardId?: CardId;
+  slot?: 1 | 2;
+  placedBy?: PlayerId;
+  sequence?: number;
+}
+
+export interface CampaignPreparationState {
+  stage: CampaignPreparationStage;
+  participants: CampaignPreparationParticipant[];
+  actorIndex: number;
+  factionPowerChoices: Record<FactionId, string>;
+  resourceStickers: CampaignResourceSticker[];
+  reviewConfirmedBy?: PlayerId;
+  sealedAt?: string;
+}
+
+export type CampaignPreparationAction =
+  | { type: "preparation.chooseFactionPower"; playerId: PlayerId; factionId: FactionId; powerId: string }
+  | { type: "preparation.placeResourceSticker"; playerId: PlayerId; stickerId: string; cardId: CardId; slot: 1 | 2 }
+  | { type: "preparation.randomizeResourceStickers"; playerId: PlayerId; placements: { stickerId: string; cardId: CardId; slot: 1 | 2 }[] }
+  | { type: "preparation.confirmReview"; playerId: PlayerId }
+  | { type: "preparation.seal"; playerId: PlayerId };
 
 export interface CampaignState {
   worldName: string;
@@ -18,6 +51,8 @@ export interface CampaignState {
   completedWorld?: { namedByPlayerId: PlayerId; completedAtGame: number };
   signatures: Record<PlayerId, number>;
   factionPowerChoices: Record<string, string>; // factionId -> selected starting power (task 9)
+  /** Present on campaigns created by the interactive pre-Game-1 ritual. Absence is a prepared legacy campaign. */
+  preparation?: CampaignPreparationState;
   factionComebackPowers: Record<string, LegacyCard>;
   factionMissilePowers: Record<string, string>;
   factionWeaknesses: Record<string, string>;
@@ -56,6 +91,150 @@ export interface InitialCampaignCustomization {
   factionPowerChoices?: Record<string, string>;
   /** Twelve Territory card ids, one entry per resource sticker; a card may appear at most twice. */
   resourceStickerCardIds?: string[];
+}
+
+export const WORLD_RESOURCE_STICKER_COUNT = 12;
+
+const worldResourceStickers = (): CampaignResourceSticker[] => Array.from(
+  { length: WORLD_RESOURCE_STICKER_COUNT },
+  (_, index) => ({ stickerId: `world-coin-${String(index + 1).padStart(2, "0")}` }),
+);
+
+function validatePreparationParticipants(participants: CampaignPreparationParticipant[]) {
+  if (participants.length < 3 || participants.length > 5) throw new Error("Prepare the World requires 3-5 seated players");
+  const ids = new Set<string>();
+  const seats = new Set<number>();
+  for (const participant of participants) {
+    if (!participant.playerId || !participant.name.trim()) throw new Error("Every preparation participant needs an id and name");
+    if (!Number.isInteger(participant.seat) || participant.seat < 0) throw new Error("Preparation seats must be non-negative integers");
+    if (ids.has(participant.playerId) || seats.has(participant.seat)) throw new Error("Preparation participants and seats must be unique");
+    ids.add(participant.playerId);
+    seats.add(participant.seat);
+  }
+}
+
+/** Create a fresh world whose permanent pre-Game-1 choices have not yet been made. */
+export function createUnpreparedCampaign(worldName: string, participants: CampaignPreparationParticipant[] = []): CampaignState {
+  if (participants.length) validatePreparationParticipants(participants);
+  const campaign = initialCampaign(worldName);
+  campaign.factionPowerChoices = {};
+  campaign.board.cardModifications = [];
+  campaign.preparation = {
+    stage: "resource_stickers",
+    participants: participants.map((participant) => ({ ...participant })),
+    actorIndex: 0,
+    factionPowerChoices: {},
+    resourceStickers: worldResourceStickers(),
+  };
+  return campaign;
+}
+
+/** Snapshot the clockwise seats when LAN preparation begins. */
+export function beginCampaignPreparation(campaign: CampaignState, participants: CampaignPreparationParticipant[]): CampaignState {
+  if (campaign.gameNumber !== 0) throw new Error("Prepare the World is only available before Game 1");
+  if (!campaign.preparation || campaign.preparation.stage === "complete") throw new Error("Campaign preparation is already complete");
+  if (campaign.preparation.participants.length) throw new Error("Campaign preparation has already begun");
+  validatePreparationParticipants(participants);
+  const next = structuredClone(campaign);
+  next.preparation!.participants = participants
+    .map((participant) => ({ ...participant }))
+    .sort((a, b) => a.seat - b.seat);
+  next.preparation!.actorIndex = 0;
+  next.preparation!.stage = "resource_stickers";
+  return next;
+}
+
+/** Legacy/imported campaigns have no preparation object and are normalized as complete. */
+export function campaignPreparationStatus(campaign: CampaignState): "not_started" | CampaignPreparationStage {
+  if (!campaign.preparation) return "complete";
+  if (!campaign.preparation.participants.length && campaign.preparation.stage !== "complete") return "not_started";
+  return campaign.preparation.stage;
+}
+
+export function isCampaignPrepared(campaign: CampaignState) {
+  return campaignPreparationStatus(campaign) === "complete";
+}
+
+/** Apply one durable, irreversible preparation action. Pure: returns a cloned campaign. */
+export function applyCampaignPreparationAction(campaign: CampaignState, action: CampaignPreparationAction, now = new Date().toISOString()): CampaignState {
+  if (campaign.gameNumber !== 0) throw new Error("Prepare the World is only legal before Game 1");
+  if (!campaign.preparation || campaign.preparation.stage === "complete") throw new Error("Campaign preparation is already complete");
+  const next = structuredClone(campaign);
+  const preparation = next.preparation!;
+  const participant = preparation.participants.find((candidate) => candidate.playerId === action.playerId);
+  if (!participant) throw new Error("Only a seated preparation participant may act");
+
+  if (action.type === "preparation.chooseFactionPower") {
+    throw new Error("Faction powers are chosen by the first player to select that faction during game setup");
+  }
+
+  if (action.type === "preparation.randomizeResourceStickers") {
+    if (preparation.stage !== "resource_stickers") throw new Error("Resource stickers are not being placed now");
+    const remaining = preparation.resourceStickers.filter((sticker) => !sticker.cardId);
+    if (action.placements.length !== remaining.length) throw new Error("The admin override must place every remaining world Coin sticker");
+    const knownCardIds = new Set(contentPack.cards.territoryCards.map((card) => card.id));
+    for (let index = 0; index < action.placements.length; index++) {
+      const placement = action.placements[index];
+      const sticker = remaining[index];
+      if (placement.stickerId !== sticker.stickerId) throw new Error("The admin override must place stickers in sheet order");
+      if (!knownCardIds.has(placement.cardId)) throw new Error("World Coin stickers may only target base Territory cards");
+      const slots = preparation.resourceStickers.filter((candidate) => candidate.cardId === placement.cardId);
+      if (slots.some((candidate) => candidate.slot === placement.slot)) throw new Error("That resource sticker slot is already filled");
+      if (placement.slot === 2 && !slots.some((candidate) => candidate.slot === 1)) throw new Error("Fill resource sticker slot 1 before slot 2");
+      sticker.cardId = placement.cardId;
+      sticker.slot = placement.slot;
+      sticker.placedBy = action.playerId;
+      sticker.sequence = preparation.resourceStickers.filter((candidate) => candidate.cardId).length;
+      preparation.actorIndex = (preparation.actorIndex + 1) % preparation.participants.length;
+    }
+    preparation.stage = "review";
+    return next;
+  }
+
+  const currentActor = preparation.participants[preparation.actorIndex]?.playerId;
+  if (currentActor !== action.playerId) throw new Error("It is not this player's preparation turn");
+
+  if (action.type === "preparation.placeResourceSticker") {
+    if (preparation.stage !== "resource_stickers") throw new Error("Resource stickers are not being placed now");
+    const sticker = preparation.resourceStickers.find((candidate) => candidate.stickerId === action.stickerId);
+    if (!sticker) throw new Error("Unknown world Coin sticker");
+    if (sticker.cardId) throw new Error("That world Coin sticker was already placed");
+    const nextSticker = preparation.resourceStickers.find((candidate) => !candidate.cardId);
+    if (nextSticker?.stickerId !== action.stickerId) throw new Error("Place the next sticker from the sheet");
+    if (!contentPack.cards.territoryCards.some((card) => card.id === action.cardId)) throw new Error("World Coin stickers may only target base Territory cards");
+    const slots = preparation.resourceStickers.filter((candidate) => candidate.cardId === action.cardId);
+    if (slots.some((candidate) => candidate.slot === action.slot)) throw new Error("That resource sticker slot is already filled");
+    if (action.slot === 2 && !slots.some((candidate) => candidate.slot === 1)) throw new Error("Fill resource sticker slot 1 before slot 2");
+    sticker.cardId = action.cardId;
+    sticker.slot = action.slot;
+    sticker.placedBy = action.playerId;
+    sticker.sequence = preparation.resourceStickers.filter((candidate) => candidate.cardId).length;
+    preparation.actorIndex = (preparation.actorIndex + 1) % preparation.participants.length;
+    if (preparation.resourceStickers.every((candidate) => candidate.cardId)) preparation.stage = "review";
+    return next;
+  }
+
+  if (action.type === "preparation.confirmReview") {
+    if (preparation.stage !== "review") throw new Error("The prepared Resource deck is not ready to review");
+    preparation.reviewConfirmedBy = action.playerId;
+    return next;
+  }
+
+  if (preparation.stage !== "review" || preparation.reviewConfirmedBy !== action.playerId) {
+    throw new Error("Review and confirm the completed Resource deck before sealing it");
+  }
+  if (preparation.resourceStickers.filter((sticker) => sticker.cardId).length !== WORLD_RESOURCE_STICKER_COUNT) {
+    throw new Error("Place exactly 12 world Coin stickers before sealing");
+  }
+  const stickerCounts = new Map<string, number>();
+  for (const sticker of preparation.resourceStickers) stickerCounts.set(sticker.cardId!, (stickerCounts.get(sticker.cardId!) ?? 0) + 1);
+  next.board.cardModifications = [...stickerCounts].map(([cardId, stickers]) => {
+    const card = contentPack.cards.territoryCards.find((candidate) => candidate.id === cardId)!;
+    return { cardId, resources: card.resources + stickers };
+  });
+  preparation.stage = "complete";
+  preparation.sealedAt = now;
+  return next;
 }
 
 const defaultResourceStickerCardIds = () => contentPack.cards.territoryCards.slice(0, 12).map((card) => card.id);

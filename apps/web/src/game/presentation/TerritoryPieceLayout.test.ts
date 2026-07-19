@@ -63,6 +63,19 @@ describe("global territory clutter budget", () => {
     }, [])).toEqual([]);
   });
 
+  it("includes the city population badge and writable nameplate in architecture occlusion", () => {
+    const definition = presentationDefinitions.find(({ territoryId }) => territoryId === "alaska")!;
+    const [bounds] = territoryPlacementBounds(definition, {
+      army: false,
+      hq: false,
+      scars: false,
+      city: true,
+      fortification: false,
+    }, []);
+    expect(definition.architectureSlot[0] - bounds.left).toBeGreaterThan(bounds.right - definition.architectureSlot[0]);
+    expect(bounds.bottom).toBeGreaterThan(definition.architectureSlot[1]);
+  });
+
   it("passes every manually authored placement anchor through unchanged", () => {
     for (const definition of presentationDefinitions) {
       const layout = territoryDisplayLayout(definition, { army: true, hq: true, scars: true, city: true, fortification: true });

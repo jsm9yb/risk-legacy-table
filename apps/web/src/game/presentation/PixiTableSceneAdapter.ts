@@ -26,8 +26,15 @@ import { splitBoardArtwork } from "./BoardArtwork.ts";
 import { continentMarkModels } from "./ContinentMarks.ts";
 import type { PresentationClock } from "./PresentationClock.ts";
 import type { TableScene } from "./TableScene.ts";
-import { requiredFactionAtlasIds, tableTextTextureResolution, territoryLabelAlpha } from "./TableAssetPolicy.ts";
+import {
+  MAX_TABLE_ZOOM,
+  requiredFactionAtlasIds,
+  tableMiniatureTextureSourceOptions,
+  tableTextTextureResolution,
+  territoryLabelAlpha,
+} from "./TableAssetPolicy.ts";
 import { scarMarkAsset } from "./ScarPresentation.ts";
+import { alienIslandRouteModels } from "./AlienIslandRoutes.ts";
 import {
   ARMY_PIECE_HEIGHT,
   architecturePieceHeight,
@@ -80,6 +87,7 @@ export interface PixiTableSceneOptions {
   clock: PresentationClock;
   onTerritoryActivate: (territoryId: TerritoryId) => void;
   onTerritoryHover?: (territoryId: TerritoryId | undefined, point?: { clientX: number; clientY: number }) => void;
+  onCityHover?: (territoryId: TerritoryId | undefined, point?: { clientX: number; clientY: number }) => void;
   onContextRestored?: () => void;
   quality?: "high" | "balanced" | "low";
 }
@@ -183,9 +191,9 @@ export class PixiTableSceneAdapter implements TableScene {
       this.ownerLayer,
       this.boundaryLayer,
       this.labelLayer,
+      this.interactionLayer,
       this.marksLayer,
       this.armyLayer,
-      this.interactionLayer,
       this.effectsLayer,
       this.boundaryMask,
     );
@@ -254,6 +262,12 @@ export class PixiTableSceneAdapter implements TableScene {
         const rect = this.app.canvas.getBoundingClientRect();
         return { x: rect.left + point.x, y: rect.top + point.y };
       },
+      cityClientPoint: (territoryId: string) => {
+        const [x, y] = presentationFor(territoryId).architectureSlot;
+        const point = this.world.toGlobal({ x, y });
+        const rect = this.app.canvas.getBoundingClientRect();
+        return { x: rect.left + point.x, y: rect.top + point.y };
+      },
     };
   }
 
@@ -284,7 +298,10 @@ export class PixiTableSceneAdapter implements TableScene {
     await Promise.all(factionIds.map(async (factionId) => {
       const atlas = FACTION_PIECE_ATLASES[factionId];
       if (!atlas || this.pieceTextures.has(factionId)) return;
-      const texture = await Assets.load<Texture>(atlas.src);
+      const texture = await Assets.load<Texture>({
+        src: atlas.src,
+        data: tableMiniatureTextureSourceOptions(),
+      });
       this.pieceTextures.set(factionId, {
         one: this.frameTexture(texture, atlas.one),
         three: this.frameTexture(texture, atlas.three),
@@ -324,6 +341,60 @@ export class PixiTableSceneAdapter implements TableScene {
     sprite.scale.x = sprite.scale.y;
     sprite.label = key;
     return sprite;
+  }
+
+  private cityPopulationBadge(population: number, profile: "tiny" | "normal" | "wide") {
+    const scale = profile === "tiny" ? 0.86 : profile === "wide" ? 1.08 : 1;
+    const badge = new Container();
+    const plate = new Graphics()
+      .roundRect(-5.7, -4.7, 11.4, 9.4, 2.2)
+      .fill({ color: 0x0b3047, alpha: 0.98 })
+      .stroke({ color: 0xdff5fb, width: 0.8, alpha: 0.95 });
+    const label = this.tableText({
+      text: "POP",
+      style: { fill: 0x8ed7ed, fontFamily: "monospace", fontSize: 2.6, fontWeight: "900", letterSpacing: 0.25 },
+    });
+    label.anchor.set(0.5);
+    label.position.set(0, -2.3);
+    const value = this.tableText({
+      text: `+${population}`,
+      style: { fill: 0xffffff, fontFamily: "monospace", fontSize: 5.5, fontWeight: "900" },
+    });
+    value.anchor.set(0.5);
+    value.position.set(0, 1.2);
+    badge.addChild(plate, label, value);
+    badge.scale.set(scale);
+    badge.label = `population:+${population}`;
+    return badge;
+  }
+
+  private cityNameplate(name: string | undefined, profile: "tiny" | "normal" | "wide") {
+    const size = architecturePieceHeight(profile);
+    const nameplate = new Container();
+    const width = size * 0.72;
+    const height = size * 0.22;
+    const paper = new Graphics()
+      .roundRect(-width / 2, -height / 2, width, height, height * 0.16)
+      .fill({ color: 0xf4ecd6, alpha: 0.98 })
+      .stroke({ color: 0x123754, width: 0.55, alpha: 0.95 });
+    nameplate.addChild(paper);
+    if (name) {
+      const label = this.tableText({
+        text: name.toUpperCase(),
+        style: {
+          fill: 0x102c43,
+          fontFamily: '"Segoe Print", "Bradley Hand", cursive',
+          fontSize: 3.1,
+          fontWeight: "800",
+          letterSpacing: 0.08,
+        },
+      });
+      label.anchor.set(0.5);
+      if (label.width > width - 1.2) label.scale.set((width - 1.2) / label.width);
+      nameplate.addChild(label);
+    }
+    nameplate.label = name ? `city-name:${name}` : "city-name:blank";
+    return nameplate;
   }
 
   apply(model: TableRenderModel) {
@@ -466,8 +537,8 @@ export class PixiTableSceneAdapter implements TableScene {
     if (state.alienIsland) {
       const definition = presentationFor(state.alienIsland.territoryId);
       const routes = new Graphics();
-      for (const connection of state.alienIsland.connections) {
-        routes.moveTo(...definition.cameraFocus).lineTo(...presentationFor(connection).cameraFocus);
+      for (const route of alienIslandRouteModels(state.alienIsland.connections)) {
+        routes.moveTo(...route.start).quadraticCurveTo(...route.control, ...route.end);
       }
       routes.stroke({ color: 0x75d6d7, width: 1.8, alpha: 0.72 });
       const island = new Container();
@@ -496,6 +567,14 @@ export class PixiTableSceneAdapter implements TableScene {
         const architecture = this.architectureSprite(projected.architecture.assetKey, layout.profile);
         architecture.position.set(...layout.architectureSlot);
         this.marksLayer.addChild(architecture);
+        if (projected.architecture.kind === "city" && territory.city) {
+          const size = architecturePieceHeight(layout.profile);
+          const nameplate = this.cityNameplate(territory.city.name, layout.profile);
+          nameplate.position.set(layout.architectureSlot[0], layout.architectureSlot[1] + size * 0.23);
+          const badge = this.cityPopulationBadge(territory.city.population, layout.profile);
+          badge.position.set(layout.architectureSlot[0] - size * 0.55, layout.architectureSlot[1] + size * 0.2);
+          this.marksLayer.addChild(nameplate, badge);
+        }
       }
       if (projected.scarId) {
         const scarId = projected.scarId;
@@ -543,39 +622,120 @@ export class PixiTableSceneAdapter implements TableScene {
     this.renderInteraction();
   }
 
+  private resourceValueBadge(territoryId: string, value: number) {
+    const definition = presentationFor(territoryId);
+    const diameter = definition.profile === "tiny" ? 9 : definition.profile === "wide" ? 12 : 10.5;
+    const badge = new Container();
+    const shadow = new Graphics().circle(0.8, 1.1, diameter * 0.54).fill({ color: 0x020304, alpha: 0.55 });
+    const coin = new Graphics()
+      .circle(0, 0, diameter * 0.52)
+      .fill({ color: 0xe0b73b, alpha: 0.98 })
+      .stroke({ color: 0xffefad, width: 1.15, alpha: 1 })
+      .circle(0, 0, diameter * 0.37)
+      .stroke({ color: 0x7b431f, width: 0.75, alpha: 0.72 });
+    const label = this.tableText({
+      text: String(value),
+      style: {
+        fill: 0x2b1b08,
+        fontFamily: "monospace",
+        fontSize: diameter * 0.62,
+        fontWeight: "900",
+        stroke: { color: 0xffe893, width: 0.45 },
+      },
+    });
+    label.anchor.set(0.5);
+    badge.addChild(shadow, coin, label);
+    badge.position.set(...definition.cameraFocus);
+    badge.label = `resource-value:${territoryId}:${value}`;
+    return badge;
+  }
+
   private renderInteraction() {
-    this.interactionLayer.removeChildren().forEach((child) => child.destroy());
+    this.interactionLayer.removeChildren().forEach((child) => child.destroy({ children: true }));
+    const resourceView = !!this.interaction.resourceValues;
+    this.ownerLayer.visible = !resourceView;
+    this.marksLayer.visible = !resourceView;
+    this.armyLayer.visible = !resourceView;
+    this.effectsLayer.visible = !resourceView;
+    for (const label of this.territoryLabels.values()) label.alpha = resourceView ? 0.88 : territoryLabelAlpha();
+
+    if (this.interaction.resourceValues) {
+      for (const territory of manifest.territories) {
+        const value = this.interaction.resourceValues[territory.id];
+        if (value === undefined) continue;
+        this.interactionLayer.addChild(
+          pathGraphic(territory.id, 0x07101a, 0.32, { color: 0xb99135, width: 0.8, alpha: 0.72 }),
+          this.resourceValueBadge(territory.id, value),
+        );
+      }
+      const islandValue = this.interaction.resourceValues.alien_island;
+      if (islandValue !== undefined && this.current?.state.alienIsland) {
+        const definition = presentationFor(this.current.state.alienIsland.territoryId);
+        const island = new Container();
+        island.addChild(
+          new Graphics().circle(0, 0, 25).fill({ color: 0x17383b, alpha: 0.95 }).stroke({ color: 0x75d6d7, width: 1.5 }),
+        );
+        island.position.set(...definition.cameraFocus);
+        island.label = "resource-island";
+        this.interactionLayer.addChild(island, this.resourceValueBadge("alien_island", islandValue));
+      }
+    }
     for (const territory of manifest.territories) {
       const intent = this.interaction.intents[territory.id];
       const selected = this.interaction.selectedTerritoryId === territory.id;
-      const color = INTENT_COLORS[selected ? "selected" : intent] ?? INTENT_COLORS.inspect;
-      const visible = selected || !!intent;
-      const graphic = pathGraphic(territory.id, color, visible ? 0.08 : 0.001, visible ? { color, width: selected ? 2.8 : 1.8, alpha: 0.95 } : undefined);
+      const emphasized = this.interaction.emphasizedTerritoryId === territory.id;
+      const color = emphasized ? 0xffd75e : INTENT_COLORS[selected ? "selected" : intent] ?? INTENT_COLORS.inspect;
+      const visible = emphasized || (!resourceView && (selected || !!intent));
+      const graphic = pathGraphic(territory.id, color, emphasized ? 0.2 : visible ? 0.08 : 0.001,
+        visible ? { color, width: emphasized ? 3.4 : selected ? 2.8 : 1.8, alpha: 0.98 } : undefined);
       graphic.eventMode = "static";
-      graphic.cursor = "pointer";
+      graphic.cursor = resourceView ? "help" : "pointer";
       graphic.label = territory.name;
-      graphic.on("pointertap", () => this.options.onTerritoryActivate(territory.id));
+      if (!resourceView) graphic.on("pointertap", () => this.options.onTerritoryActivate(territory.id));
       graphic.on("pointerover", (event: FederatedPointerEvent) => {
         graphic.alpha = 1;
-        this.options.onTerritoryHover?.(territory.id, { clientX: event.clientX, clientY: event.clientY });
+        if (!resourceView) this.options.onTerritoryHover?.(territory.id, { clientX: event.clientX, clientY: event.clientY });
       });
       graphic.on("pointerout", () => {
         graphic.alpha = visible ? 1 : 0.8;
-        this.options.onTerritoryHover?.(undefined);
+        if (!resourceView) this.options.onTerritoryHover?.(undefined);
       });
+      this.interactionLayer.addChild(graphic);
+    }
+    for (const [territoryId, territory] of resourceView ? [] : Object.entries(this.current?.state.territories ?? {})) {
+      if (!territory.city || projectTerritoryLayers(territory).architecture?.kind !== "city") continue;
+      const definition = presentationFor(territoryId);
+      const size = architecturePieceHeight(definition.profile);
+      const graphic = new Graphics()
+        .circle(0, 0, size * 0.5)
+        .roundRect(-size * 0.93, -size * 0.08, size * 0.65, size * 0.55, size * 0.18)
+        .fill({ color: 0x8ed7ed, alpha: 0.001 });
+      graphic.position.set(...definition.architectureSlot);
+      graphic.eventMode = "static";
+      graphic.cursor = "help";
+      graphic.label = `${territory.city.type} city, population ${territory.city.population}`;
+      graphic.on("pointertap", () => this.options.onTerritoryActivate(territoryId));
+      graphic.on("pointerover", (event: FederatedPointerEvent) => this.options.onCityHover?.(territoryId, { clientX: event.clientX, clientY: event.clientY }));
+      graphic.on("pointermove", (event: FederatedPointerEvent) => this.options.onCityHover?.(territoryId, { clientX: event.clientX, clientY: event.clientY }));
+      graphic.on("pointerout", () => this.options.onCityHover?.(undefined));
       this.interactionLayer.addChild(graphic);
     }
     if (this.current?.state.alienIsland) {
       const territoryId = this.current.state.alienIsland.territoryId;
       const definition = presentationFor(territoryId);
-      const graphic = new Graphics().circle(0, 0, 27).fill({ color: 0x75d6d7, alpha: 0.001 });
+      const emphasized = this.interaction.emphasizedTerritoryId === territoryId;
+      const graphic = new Graphics().circle(0, 0, 27)
+        .fill({ color: emphasized ? 0xffd75e : 0x75d6d7, alpha: emphasized ? 0.2 : 0.001 });
+      if (emphasized) graphic.stroke({ color: 0xffd75e, width: 3.4, alpha: 0.98 });
       graphic.position.set(...definition.cameraFocus);
       graphic.eventMode = "static";
-      graphic.cursor = "pointer";
+      graphic.cursor = resourceView ? "help" : "pointer";
       graphic.label = this.current.state.alienIsland.name;
-      graphic.on("pointertap", () => this.options.onTerritoryActivate(territoryId));
-      graphic.on("pointerover", (event: FederatedPointerEvent) => this.options.onTerritoryHover?.(territoryId, { clientX: event.clientX, clientY: event.clientY }));
-      graphic.on("pointerout", () => this.options.onTerritoryHover?.(undefined));
+      if (!resourceView) graphic.on("pointertap", () => this.options.onTerritoryActivate(territoryId));
+      graphic.on("pointerover", (event: FederatedPointerEvent) => {
+        if (!resourceView) this.options.onTerritoryHover?.(territoryId, { clientX: event.clientX, clientY: event.clientY });
+      });
+      graphic.on("pointerout", () => { if (!resourceView) this.options.onTerritoryHover?.(undefined); });
       this.interactionLayer.addChild(graphic);
     }
   }
@@ -890,7 +1050,7 @@ export class PixiTableSceneAdapter implements TableScene {
     const canvas = this.app.canvas;
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
-      this.zoom = Math.max(1, Math.min(2.4, this.zoom * (event.deltaY > 0 ? 0.9 : 1.1)));
+      this.zoom = Math.max(1, Math.min(MAX_TABLE_ZOOM, this.zoom * (event.deltaY > 0 ? 0.9 : 1.1)));
       this.applyCamera();
     };
     const down = (event: PointerEvent) => {
@@ -939,6 +1099,10 @@ export class PixiTableSceneAdapter implements TableScene {
       missingHqAtlasIds,
       hqFallbacks: this.armyLayer.children.filter((child) => child.label.startsWith("hq-fallback:")).length,
       boundaryOcclusions: this.placementBounds.length,
+      placedContentAboveTerritoryLines: this.world.getChildIndex(this.marksLayer) > this.world.getChildIndex(this.interactionLayer)
+        && this.world.getChildIndex(this.armyLayer) > this.world.getChildIndex(this.interactionLayer),
+      resourceValueBadges: this.interactionLayer.children.filter((child) => child.label.startsWith("resource-value:")).length,
+      emphasizedTerritoryId: this.interaction.emphasizedTerritoryId,
     };
   }
 

@@ -22,6 +22,13 @@ export type FilteredGameState = GameState & FilteredExtras;
  */
 export function filterStateFor(state: GameState, viewerId: PlayerId | null): FilteredGameState {
   const s = structuredClone(state) as FilteredGameState;
+  // The server is the only RNG authority. Exposing either value lets a client
+  // predict every future die roll and reconstruct deterministic deck shuffles.
+  s.seed = 0;
+  s.rngState = 0;
+  s.log = s.log.map((event) => event.type === "GameStarted" && event.data?.seed !== undefined
+    ? { ...event, data: { ...event.data, seed: 0 } }
+    : event);
   s.legacyCards ??= {
     eventDeck: [], eventDiscard: [], eventBox: [], ongoingEvents: [],
     missionDeck: [], missionBox: [], privateMissionPool: [],
@@ -49,7 +56,7 @@ export function filterStateFor(state: GameState, viewerId: PlayerId | null): Fil
   (s.sideboard as any).territoryDeckCount = s.sideboard.territoryDeck.length;
   s.sideboard.territoryDeck = [];
   (s.sideboard as any).coinCount = s.sideboard.coinPile.length;
-  s.sideboard.coinPile = [];
+  if (state.advancedDraft?.pendingCoinClaim?.playerId !== viewerId) s.sideboard.coinPile = [];
   // Event/Mission deck order is hidden; only the face-up/pending cards and counts
   // are public. Discard/box contents are already known from prior reveals.
   (s.legacyCards as any).eventDeckCount = s.legacyCards.eventDeck.length;

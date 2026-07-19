@@ -1,0 +1,31 @@
+{
+  "name": "risk-legacy-sites-deploy",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "stage:game": "npm --prefix .. run build -w @risk/web -- --base=/game/ && node scripts/stage-game.mjs",
+    "dev": "npm run stage:game && vinext dev",
+    "build": "npm run stage:game && vinext build",
+    "start": "vinext start"
+  },
+  "dependencies": {
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "typescript": "5.9.3",
+    "vinext": "0.0.50",
+    "vite": "8.0.13",
+    "wrangler": "4.92.0"
+  },
+  "type": "module"
+}

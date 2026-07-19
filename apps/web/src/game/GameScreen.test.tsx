@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { contentPack } from "@risk/content";
 import { territoryById } from "@risk/map";
-import { applyAction, createGame, initialCampaign, isLegalStart, waitingOn, type Action, type GameState } from "@risk/rules";
+import { applyAction, createGame, initialCampaign, isLegalStart, resourceCardDefinition, waitingOn, type Action, type GameState } from "@risk/rules";
 import GameScreen from "./GameScreen.tsx";
 import { atExpandAttack, throughSetup } from "./test-fixtures.ts";
 
@@ -64,16 +64,17 @@ describe("GameScreen", () => {
         const draft = current.advancedDraft!;
         const value = category === "faction" ? draft.available.factions[0] : draft.available[category][0];
         const name = category === "faction"
-          ? contentPack.factions.find((faction) => faction.id === value)!.name
+          ? `Faction ${contentPack.factions.find((faction) => faction.id === value)!.name}`
           : category === "turnOrder"
-            ? `Turn ${value}`
+            ? `Turn Order Turn ${value}`
             : category === "placementOrder"
-              ? `Place ${value}`
+              ? `Starting Placement Place ${value}`
               : category === "startingTroops"
-                ? `${value} troops`
-                : `${value} Coin card${value === 1 ? "" : "s"}`;
+                ? `Starting Troops ${value} Troops`
+                : `Starting Coin Cards ${value} Coin Card${value === 1 ? "" : "s"}`;
         const modal = screen.getByRole("dialog", { name: "Advanced setup draft" });
         fireEvent.click(within(modal).getAllByRole("button", { name })[0]);
+        fireEvent.click(screen.getByRole("button", { name: "DRAFT CARD" }));
       }
     }
 
@@ -307,15 +308,50 @@ describe("GameScreen", () => {
     for (const l of labels) expect(Number(l.getAttribute("font-size"))).toBeGreaterThanOrEqual(6.1);
   });
 
-  it("auto-advances a no-choice start phase after explaining why", () => {
-    vi.useFakeTimers();
+  it("links face-up sideboard Territory-card hover and focus to the matching map territory", () => {
+    const gs = throughSetup(703);
+    const cardId = gs.sideboard.slots[0]!;
+    const definition = resourceCardDefinition(cardId)!;
+    expect(definition.kind).toBe("territory");
+    render(<GameScreen gs={gs} dispatch={vi.fn()} onExit={vi.fn()} error={null} />);
+
+    const sideboard = screen.getByText("SIDEBOARD").closest("section")!;
+    const card = sideboard.querySelector<HTMLElement>(`[data-card-id="${cardId}"]`)!;
+    const territory = document.getElementById(definition.kind === "territory" ? definition.territoryId : "")!;
+    fireEvent.mouseEnter(card);
+    expect(territory.classList.contains("resource-card-hover")).toBe(true);
+    fireEvent.mouseLeave(card);
+    expect(territory.classList.contains("resource-card-hover")).toBe(false);
+    fireEvent.focus(card);
+    expect(territory.classList.contains("resource-card-hover")).toBe(true);
+    fireEvent.blur(card);
+    expect(territory.classList.contains("resource-card-hover")).toBe(false);
+  });
+
+  it("toggles a current coin-value view for all territories, including upgrades and destroyed cards", () => {
+    const gs = throughSetup(704);
+    const [upgraded, destroyed] = contentPack.cards.territoryCards;
+    gs.cardModifications[upgraded.id] = { resources: 5 };
+    gs.sideboard.destroyed.push(destroyed.id);
+    render(<GameScreen gs={gs} dispatch={vi.fn()} onExit={vi.fn()} error={null} />);
+
+    const toggle = screen.getByRole("button", { name: "Show territory resource values" });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelectorAll("[data-resource-value]")).toHaveLength(42);
+    expect(document.querySelector(`[data-resource-value="${upgraded.territoryId}"]`)?.textContent).toBe("5");
+    expect(document.querySelector(`[data-resource-value="${destroyed.territoryId}"]`)?.textContent).toBe("0");
+    fireEvent.click(screen.getByRole("button", { name: "Return to tactical board" }));
+    expect(document.querySelectorAll("[data-resource-value]")).toHaveLength(0);
+  });
+
+  it("keeps start of turn explicit so optional legacy reactions cannot be raced", () => {
     const gs = throughSetup(82);
     const pid = waitingOn(gs)!;
     gs.players[pid].hand = [];
     render(<Harness initial={gs} />);
-    expect(screen.getByRole("status").textContent).toMatch(/No Red Star purchase available/);
-    act(() => { vi.advanceTimersByTime(850); });
-    expect(current.phase).toBe("join_or_recruit");
+    expect(screen.getByRole("button", { name: "BEGIN RECRUITMENT" })).toBeTruthy();
+    expect(current.phase).toBe("start_turn");
   });
 
   it("announces Red Stars and eliminations as central dismissible moments", () => {

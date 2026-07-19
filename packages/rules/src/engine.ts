@@ -16,7 +16,7 @@ import type {
   Action, GameState, GameEvent, PlayerId, TerritoryId, FactionId, RecruitBreakdown, PendingCombat, LegacyCard,
 } from "./types.ts";
 import type { GameEventPayloads, GameEventType } from "./events.ts";
-import type { CampaignState } from "./campaign.ts"; // new (10b)
+import { isCampaignPrepared, type CampaignState } from "./campaign.ts"; // new (10b)
 import { ALIEN_ISLAND_ID, isBaseTerritory, neighborsOf, territoryIds } from "./topology.ts";
 import { ALIEN_ISLAND_CARD_ID, resourceCardDefinition, territoryCardDefinitions } from "./resourceCards.ts";
 
@@ -46,6 +46,7 @@ export interface NewGameConfig {
 export function createGame(cfg: NewGameConfig): GameState {
   if (cfg.players.length < 3 || cfg.players.length > 5) throw new RuleViolation("3-5 players (2-player is not a supported starter mode)"); // new: starter rules
   const camp = cfg.campaign; // new
+  if (camp && !isCampaignPrepared(camp)) throw new RuleViolation("Prepare the World must be sealed before Game 1 can begin");
   // Pack 1 (D5): the advanced setup draft REPLACES base roll setup and blocks until draft card values are host-entered. // new (11)
   if (camp?.unlockedModules.includes(ADVANCED_DRAFT_MODULE) // new
       && camp.contentRequired?.some((c) => c.moduleId === ADVANCED_DRAFT_MODULE && c.items.includes("draft"))) { // new
@@ -163,7 +164,8 @@ export function createGame(cfg: NewGameConfig): GameState {
   }
   const firstIdx = tableOrder.indexOf(firstChooser);
   const order = [...tableOrder.slice(firstIdx), ...tableOrder.slice(0, firstIdx)];
-  s.setup = { chooserOrder: order, nextIdx: 0, rolls };
+  const interactiveSetup = !!camp?.preparation;
+  s.setup = { stage: interactiveSetup ? "order_reveal" : "faction_selection", chooserOrder: order, nextIdx: 0, rolls };
   s.turnOrder = order;
   emit(s, "SetupChooserOrder", undefined, { order });
   if (camp?.unlockedModules.includes(ADVANCED_DRAFT_MODULE)
@@ -182,8 +184,10 @@ export function createGame(cfg: NewGameConfig): GameState {
         startingCoinCards: cfg.players.length === 3 ? [0, 1, 2]
           : cfg.players.length === 4 ? [0, 0, 1, 2] : [0, 0, 1, 1, 2],
       },
+      explicitCoinClaims: interactiveSetup,
       completed: false,
     };
+    if (!interactiveSetup) s.setup.stage = "advanced_draft";
     emit(s, "AdvancedDraftStarted", undefined, { pickOrder: s.advancedDraft.pickOrder });
   }
 
@@ -1471,6 +1475,40 @@ function resolveSourcedEvent(s: GameState, event: LegacyCard, resolution: Extrac
 
 // ---------- Public API ----------
 
+function completeAdvancedDraft(s: GameState) {
+  const draft = s.advancedDraft!;
+  for (const playerId of Object.keys(s.players)) {
+    const result = draft.picks[playerId];
+    if (!result.factionId || result.turnOrder === undefined || result.placementOrder === undefined
+        || result.startingTroops === undefined || result.startingCoinCards === undefined) {
+      throw new RuleViolation("Advanced draft ended with an incomplete player card set");
+    }
+    s.players[playerId].startingTroops = result.startingTroops;
+    // Compatibility for sessions created before explicit Coin-card claims existed.
+    if (!draft.explicitCoinClaims) {
+      for (let index = 0; index < result.startingCoinCards; index++) {
+        const coin = s.sideboard.coinPile.shift();
+        if (!coin) throw new RuleViolation("Not enough Coin cards for advanced draft setup");
+        s.players[playerId].hand.push(coin);
+      }
+    }
+  }
+  s.turnOrder = Object.keys(s.players).sort((a, b) => draft.picks[a].turnOrder! - draft.picks[b].turnOrder!);
+  s.setup!.chooserOrder = Object.keys(s.players).sort((a, b) => draft.picks[a].placementOrder! - draft.picks[b].placementOrder!);
+  s.setup!.nextIdx = 0;
+  s.setup!.stage = "starting_placement";
+  s.activeIdx = 0;
+  draft.completed = true;
+  emit(s, "AdvancedDraftCompleted", undefined, { turnOrder: s.turnOrder, placementOrder: s.setup!.chooserOrder });
+  emit(s, "SetupStageChanged", undefined, { stage: "starting_placement" });
+}
+
+function advanceAdvancedDraft(s: GameState) {
+  const draft = s.advancedDraft!;
+  draft.nextPickIdx++;
+  if (draft.nextPickIdx >= draft.pickOrder.length) completeAdvancedDraft(s);
+}
+
 export function applyAction(prev: GameState, action: Action): GameState {
   const s: GameState = structuredClone(prev);
   s.expandedIntoCityThisTurn ??= false;
@@ -1848,10 +1886,23 @@ export function applyAction(prev: GameState, action: Action): GameState {
   if (!p) throw new RuleViolation("Unknown player");
 
   switch (action.type) {
+    case "setup.acknowledgeOrder": {
+      ensurePhase(s, "setup");
+      const setup = s.setup!;
+      if (setup.stage !== "order_reveal") throw new RuleViolation("The setup order has already been acknowledged");
+      if (setup.chooserOrder[0] !== action.playerId) throw new RuleViolation("The high roller must acknowledge the setup order");
+      setup.stage = s.advancedDraft ? "advanced_draft" : "faction_selection";
+      emit(s, "SetupOrderAcknowledged", action.playerId, { order: setup.chooserOrder, rolls: setup.rolls });
+      emit(s, "SetupStageChanged", undefined, { stage: setup.stage });
+      return s;
+    }
+
     case "draft.pick": {
       ensurePhase(s, "setup");
       const draft = s.advancedDraft;
       if (!draft || draft.completed) throw new RuleViolation("No advanced setup draft is open");
+      if (s.setup?.stage !== "advanced_draft") throw new RuleViolation("Acknowledge the high-roll order before drafting");
+      if (draft.pendingCoinClaim) throw new RuleViolation("Take the drafted starting Coin cards before the next pick");
       if (draft.pickOrder[draft.nextPickIdx] !== action.playerId) throw new RuleViolation("Not your draft pick");
       const picks = draft.picks[action.playerId];
       const takeNumber = (available: number[], current: number | undefined, label: string) => {
@@ -1886,30 +1937,27 @@ export function applyAction(prev: GameState, action: Action): GameState {
           break;
       }
       emit(s, "AdvancedDraftCardChosen", action.playerId, { category: action.category, value: action.value });
-      draft.nextPickIdx++;
-      if (draft.nextPickIdx >= draft.pickOrder.length) {
-        for (const playerId of Object.keys(s.players)) {
-          const result = draft.picks[playerId];
-          if (!result.factionId || result.turnOrder === undefined || result.placementOrder === undefined
-              || result.startingTroops === undefined || result.startingCoinCards === undefined) {
-            throw new RuleViolation("Advanced draft ended with an incomplete player card set");
-          }
-          s.players[playerId].startingTroops = result.startingTroops;
-          for (let i = 0; i < result.startingCoinCards; i++) {
-            const coin = s.sideboard.coinPile.shift();
-            if (!coin) throw new RuleViolation("Not enough Coin cards for advanced draft setup");
-            s.players[playerId].hand.push(coin);
-          }
-        }
-        s.turnOrder = Object.keys(s.players).sort((a, b) => draft.picks[a].turnOrder! - draft.picks[b].turnOrder!);
-        s.setup!.chooserOrder = Object.keys(s.players).sort((a, b) => draft.picks[a].placementOrder! - draft.picks[b].placementOrder!);
-        s.setup!.nextIdx = 0;
-        s.activeIdx = 0;
-        draft.completed = true;
-        emit(s, "AdvancedDraftCompleted", undefined, {
-          turnOrder: s.turnOrder,
-          placementOrder: s.setup!.chooserOrder,
-        });
+      if (action.category === "startingCoinCards" && action.value !== 0 && draft.explicitCoinClaims) {
+        draft.pendingCoinClaim = { playerId: action.playerId, total: action.value as number, remaining: action.value as number };
+      } else advanceAdvancedDraft(s);
+      return s;
+    }
+
+    case "draft.takeStartingCoin": {
+      ensurePhase(s, "setup");
+      const draft = s.advancedDraft;
+      const claim = draft?.pendingCoinClaim;
+      if (!draft || !claim) throw new RuleViolation("No starting Coin-card claim is open");
+      if (claim.playerId !== action.playerId) throw new RuleViolation("Only the drafting player may take starting Coin cards");
+      const cardIndex = s.sideboard.coinPile.indexOf(action.cardId);
+      if (cardIndex < 0) throw new RuleViolation("That card is not in the public Coin pile");
+      const [cardId] = s.sideboard.coinPile.splice(cardIndex, 1);
+      s.players[action.playerId].hand.push(cardId);
+      claim.remaining--;
+      emit(s, "StartingCoinCardTaken", action.playerId, { cardId, remaining: claim.remaining, handCount: s.players[action.playerId].hand.length });
+      if (claim.remaining === 0) {
+        draft.pendingCoinClaim = undefined;
+        advanceAdvancedDraft(s);
       }
       return s;
     }
@@ -1917,6 +1965,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
     case "setup.choose": {
       ensurePhase(s, "setup");
       const setup = s.setup!;
+      if (setup.stage !== "faction_selection" && setup.stage !== "starting_placement") throw new RuleViolation("Faction placement is not the current setup stage");
       if (s.advancedDraft && !s.advancedDraft.completed) throw new RuleViolation("Complete the advanced draft before placing factions");
       if (setup.chooserOrder[setup.nextIdx] !== action.playerId) throw new RuleViolation("Not your pick");
       if (p.factionId) throw new RuleViolation("Already chose");
@@ -1947,6 +1996,8 @@ export function applyAction(prev: GameState, action: Action): GameState {
       emit(s, "FactionChosen", p.id, { factionId: action.factionId, territory: action.territoryId, troops });
       setup.nextIdx++;
       if (setup.nextIdx >= setup.chooserOrder.length) {
+        setup.stage = "mission_setup";
+        emit(s, "SetupStageChanged", undefined, { stage: "mission_setup" });
         const used = new Set(Object.values(s.players).map((x) => x.factionId));
         const unused = factionDefinitions(s.unlockedModules).filter((f) => !used.has(f.id)).map((f) => f.id);
         emit(s, "UnusedFactionsRecorded", undefined, { factions: unused });
@@ -1958,7 +2009,6 @@ export function applyAction(prev: GameState, action: Action): GameState {
             emit(s, "BringerMissilesGranted", bringer.id, { factionId: bringer.factionId, missiles: 2 });
           }
         }
-        s.setup = undefined;
         s.activeIdx = 0;
         s.turnNumber = 1;
         s.phase = "start_turn";
@@ -1972,11 +2022,13 @@ export function applyAction(prev: GameState, action: Action): GameState {
             emit(s, "LeadFactionCapitalBonus", leader, { factionId: s.leadFactionId, territory: s.worldCapitalTerritoryId, troops: 3 });
           }
         }
-        emit(s, "TurnStarted", activePlayer(s), { turn: 1 });
-        enterStartTurn(s, activePlayer(s)); // new (9): per-turn power state + start-of-turn powers
         if (s.unlockedModules.includes("pack_4_lead_faction_private_missions") && !s.legacyCards.activeMission) {
           if (!openLeadMissionChoice(s, "game_start")) drawRandomMission(s);
         }
+        setup.stage = "complete";
+        emit(s, "SetupStageChanged", undefined, { stage: "complete" });
+        emit(s, "TurnStarted", activePlayer(s), { turn: 1 });
+        enterStartTurn(s, activePlayer(s)); // new (9): per-turn power state + start-of-turn powers
       }
       return s;
     }
@@ -1986,6 +2038,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       ensureActive(s, action.playerId);
       const cost = ruleValue<number>("redStarPurchaseCost");
       if (action.cardIds.length !== cost) throw new RuleViolation(`Red Star costs ${cost} Resource cards`);
+      if (new Set(action.cardIds).size !== action.cardIds.length) throw new RuleViolation("Each Resource card may be used only once");
       for (const id of action.cardIds) {
         const idx = p.hand.indexOf(id);
         if (idx < 0) throw new RuleViolation("Card not in hand");
@@ -2082,6 +2135,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       if (!s.recruit) throw new RuleViolation("No recruit in progress");
       if (s.recruit.breakdown.tradeIns > 0) throw new RuleViolation("You may turn in only one set of Resource cards for troops per turn");
       if (action.cardIds.length < 1) throw new RuleViolation("Trade in at least one Resource card");
+      if (new Set(action.cardIds).size !== action.cardIds.length) throw new RuleViolation("Each Resource card may be used only once");
       let resources = 0;
       for (const id of action.cardIds) {
         if (!p.hand.includes(id)) throw new RuleViolation("Card not in hand");
@@ -2682,6 +2736,8 @@ export function waitingOn(s: GameState): PlayerId | undefined {
     return undefined;
   }
   if (s.phase === "setup") {
+    if (s.setup?.stage === "order_reveal") return s.setup.chooserOrder[0];
+    if (s.advancedDraft?.pendingCoinClaim) return s.advancedDraft.pendingCoinClaim.playerId;
     if (s.advancedDraft && !s.advancedDraft.completed) return s.advancedDraft.pickOrder[s.advancedDraft.nextPickIdx];
     return s.setup!.chooserOrder[s.setup!.nextIdx];
   }

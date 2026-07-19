@@ -6,9 +6,20 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import App from "./App.tsx";
 import { LOCAL_CAMPAIGN_KEY } from "./local/campaignStore.ts";
 
+function prepareWorld() {
+  for (let index = 0; index < 12; index++) {
+    fireEvent.click(screen.getByRole("button", { name: /next sticker/ }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Resource sticker slot 1" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "COMMIT STICKER" }));
+  }
+  fireEvent.click(screen.getByRole("button", { name: "CONFIRM REVIEW" }));
+  fireEvent.click(screen.getByRole("button", { name: "SEAL PREPARATION" }));
+}
+
 function startLocalGame() {
   fireEvent.click(screen.getByRole("button", { name: /NEW CAMPAIGN/ }));
-  fireEvent.click(screen.getByRole("button", { name: "START GAME" }));
+  fireEvent.click(screen.getByRole("button", { name: "PREPARE THE WORLD" }));
+  prepareWorld();
 }
 
 afterEach(() => {
@@ -24,6 +35,8 @@ describe("web smoke (TEST-web)", () => {
     expect(screen.getByText("NEW CAMPAIGN")).toBeTruthy();
     expect(document.querySelectorAll("[data-emblem]")).toHaveLength(5);
     expect(screen.getByText("JOIN THE WAR ROOM")).toBeTruthy();
+    expect(screen.getByText("THE LEGACY VAULT")).toBeTruthy();
+    expect(document.querySelectorAll("[data-legacy-packet]")).toHaveLength(6);
     expect(screen.queryByText(/1-web/)).toBeNull();
     expect(screen.queryByText(/npm run/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /NEW CAMPAIGN/ }));
@@ -71,7 +84,7 @@ describe("web smoke (TEST-web)", () => {
     const originalId = JSON.parse(window.localStorage.getItem(LOCAL_CAMPAIGN_KEY)!).id;
 
     fireEvent.click(screen.getByRole("button", { name: /NEW CAMPAIGN/ }));
-    fireEvent.click(screen.getByRole("button", { name: "START GAME" }));
+    fireEvent.click(screen.getByRole("button", { name: "PREPARE THE WORLD" }));
     expect(screen.getByText("REPLACE CAMPAIGN?")).toBeTruthy();
     expect(JSON.parse(window.localStorage.getItem(LOCAL_CAMPAIGN_KEY)!).id).toBe(originalId);
     fireEvent.click(screen.getByRole("button", { name: "CANCEL" }));

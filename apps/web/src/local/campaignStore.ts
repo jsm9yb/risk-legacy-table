@@ -1,12 +1,16 @@
 import {
   applyGameToCampaign,
+  applyCampaignPreparationAction,
+  createUnpreparedCampaign,
   createGame,
   initialCampaign,
+  isCampaignPrepared,
+  type CampaignPreparationAction,
   type CampaignState,
   type GameState,
 } from "@risk/rules";
 import type { LocalConfig } from "../App.tsx";
-import { CURRENT_LOCAL_SAVE_VERSION, migrateLocalSave, validateLocalSaveShape } from "./migrations.ts";
+import { CURRENT_CAMPAIGN_SCHEMA_VERSION, CURRENT_GAME_SCHEMA_VERSION, CURRENT_LOCAL_SAVE_VERSION, migrateLocalSave, validateLocalSaveShape } from "./migrations.ts";
 
 export const LOCAL_CAMPAIGN_KEY = "risk-legacy.localCampaign.v1";
 export const LOCAL_CAMPAIGN_VERSION = CURRENT_LOCAL_SAVE_VERSION;
@@ -58,6 +62,10 @@ function normalizeActiveGame(state: GameState | undefined) {
   state.privateMissionProgress ??= {
     tradedResources: 0, highValueTerritoryCards: 0, forcedOccupation: false, wideBorderAtStart: false,
   };
+  if (state.setup && !state.setup.stage) {
+    state.setup.stage = state.advancedDraft && !state.advancedDraft.completed ? "advanced_draft" : "faction_selection";
+  }
+  if (state.advancedDraft) state.advancedDraft.explicitCoinClaims ??= false;
   return state;
 }
 
@@ -68,6 +76,11 @@ function normalizeCampaignState(state: CampaignState) {
   state.factionPrivateMissions ??= {};
   state.board.ruins ??= [];
   state.board.customConnections ??= [];
+  if (state.gameNumber === 0 && state.preparation && state.preparation.stage !== "complete") {
+    if (state.preparation.stage !== "review") state.preparation.stage = "resource_stickers";
+    state.preparation.factionPowerChoices = {};
+    state.factionPowerChoices = {};
+  }
   return state;
 }
 
@@ -81,6 +94,17 @@ export function loadLocalCampaign(storage: StorageLike = window.localStorage): L
     save.campaignState = normalizeCampaignState(save.campaignState);
     save.activeGame = normalizeActiveGame(save.activeGame);
     if (save.rewind) save.rewind.checkpoints = save.rewind.checkpoints.map((checkpoint) => normalizeActiveGame(checkpoint)!);
+    const interactiveFirstWorld = save.campaignState.gameNumber === 0
+      && save.campaignState.preparation?.resourceStickers.length === 12;
+    if (interactiveFirstWorld) {
+      save.campaignState.factionPowerChoices = {};
+      save.campaignState.preparation!.factionPowerChoices = {};
+      const resetUnchosenSetupPowers = (game: GameState | undefined) => {
+        if (game?.gameNumber === 1 && game.phase === "setup" && Object.values(game.players).every((player) => !player.factionId)) game.factionPowers = {};
+      };
+      resetUnchosenSetupPowers(save.activeGame);
+      for (const checkpoint of save.rewind?.checkpoints ?? []) resetUnchosenSetupPowers(checkpoint);
+    }
     return save;
   } catch {
     return null;
@@ -101,17 +125,20 @@ export function clearLocalCampaign(storage: StorageLike = window.localStorage) {
 }
 
 export function startLocalCampaign(config: LocalConfig, storage: StorageLike = window.localStorage) {
-  const campaignState = initialCampaign(config.worldName ?? "An Unnamed World");
+  const campaignState = config.customization
+    ? initialCampaign(config.worldName ?? "An Unnamed World", config.customization)
+    : createUnpreparedCampaign(config.worldName ?? "An Unnamed World", config.players.map((player, seat) => ({
+      playerId: player.id,
+      name: player.name,
+      seat,
+    })));
   const id = `local-${globalThis.crypto.randomUUID()}`;
-  const activeGame = createGame({
-    gameId: `${id}-g${campaignState.gameNumber + 1}`,
-    seed: config.seed,
-    players: config.players,
-    campaign: campaignState,
-  });
+  const activeGame = isCampaignPrepared(campaignState) ? createGame({
+    gameId: `${id}-g${campaignState.gameNumber + 1}`, seed: config.seed, players: config.players, campaign: campaignState,
+  }) : undefined;
   return saveLocalCampaign({
     version: LOCAL_CAMPAIGN_VERSION,
-    schema: { save: LOCAL_CAMPAIGN_VERSION, game: 1, campaign: 1 },
+    schema: { save: LOCAL_CAMPAIGN_VERSION, game: CURRENT_GAME_SCHEMA_VERSION, campaign: CURRENT_CAMPAIGN_SCHEMA_VERSION },
     id,
     metadata: {
       worldName: campaignState.worldName,
@@ -122,9 +149,15 @@ export function startLocalCampaign(config: LocalConfig, storage: StorageLike = w
     seed: config.seed,
     campaignState,
     activeGame,
-    rewind: { checkpoints: [structuredClone(activeGame)], locked: false },
+    rewind: activeGame ? { checkpoints: [structuredClone(activeGame)], locked: false } : undefined,
     completedSummaries: [],
   }, storage);
+}
+
+export function applyLocalPreparationAction(save: LocalCampaignSave, action: CampaignPreparationAction, storage: StorageLike = window.localStorage) {
+  if (save.activeGame) throw new Error("Campaign preparation cannot change after a game session exists");
+  const campaignState = applyCampaignPreparationAction(save.campaignState, action);
+  return saveLocalCampaign({ ...save, campaignState }, storage);
 }
 
 export function persistActiveGame(save: LocalCampaignSave, activeGame: GameState, storage: StorageLike = window.localStorage) {
@@ -151,6 +184,7 @@ export function foldCompletedLocalGame(save: LocalCampaignSave, finished: GameSt
 }
 
 export function createNextLocalGame(save: LocalCampaignSave, seed = Math.floor(Math.random() * 2 ** 31), storage: StorageLike = window.localStorage) {
+  if (!isCampaignPrepared(save.campaignState)) throw new Error("Prepare the World must be sealed before creating the next game");
   const activeGame = createGame({
     gameId: `${save.id}-g${save.campaignState.gameNumber + 1}`,
     seed,

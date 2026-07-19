@@ -1,6 +1,6 @@
 // Bottom-anchored dock for start/end-of-turn Resource-card decisions.
 import { contentPack } from "@risk/content";
-import { endTurnDecision, hasFactionPower, neighborsOf, type Action, type GameState } from "@risk/rules";
+import { endTurnDecision, hasFactionPower, neighborsOf, resourceCardDefinition, type Action, type GameState } from "@risk/rules";
 import type { UiState } from "./GameScreen.tsx";
 import { cardResources, factionById } from "./labels.ts";
 import ResourceCard, { CoinFace, STAR_PATH } from "./cards/ResourceCard.tsx";
@@ -116,6 +116,9 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
       <div className="flex items-end gap-3 flex-wrap">
         {gs.sideboard.slots.map((cardId, slot) => {
           const matches = decision.matchingSlots.includes(slot);
+          const definition = cardId ? resourceCardDefinition(cardId) : undefined;
+          const canKhanReinforce = decision.canKhanReinforce && definition?.kind === "territory"
+            && gs.territories[definition.territoryId].controller === actor;
           return (
             <div key={slot} className="flex flex-col items-center gap-1.5">
               {cardId
@@ -125,7 +128,7 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
                 <span className="flex flex-col gap-1">
                   <Btn tone="primary" ariaLabel={`Take slot ${slot + 1}`}
                     onClick={() => dispatch({ type: "end.draw", playerId: actor, choice: { slot } })}>TAKE</Btn>
-                  {decision.canKhanReinforce && (
+                  {canKhanReinforce && (
                     <Btn ariaLabel={`Take slot ${slot + 1} and reinforce`}
                       onClick={() => dispatch({ type: "end.draw", playerId: actor, choice: { slot }, khanReinforce: true })}>
                       TAKE +1 TROOP

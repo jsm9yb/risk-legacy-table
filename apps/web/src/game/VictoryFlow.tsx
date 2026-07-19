@@ -8,10 +8,11 @@ import { manifest } from "@risk/map";
 import { ruleValue } from "@risk/content";
 import { territoryCardDefinitions, type Action, type GameState } from "@risk/rules";
 import type { UiState } from "./GameScreen.tsx";
-import { cardResources, continentName, factionById, scarName, territoryName } from "./labels.ts";
+import { cardResources, continentName, factionById, powerName, scarName, territoryName } from "./labels.ts";
 import FactionEmblem from "./FactionEmblem.tsx";
 import ResourceCard from "./cards/ResourceCard.tsx";
 import { Btn, CenterOverlay, DecisionChip, TakeoverOverlay } from "./overlays.tsx";
+import { modulePacketDetail } from "./LegacyVault.tsx";
 
 export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
   gs: GameState;
@@ -34,10 +35,9 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
   const winnerP = gs.players[winner];
   const rewardsOpen = !!gs.rewards && !gs.rewards.committed;
 
-  // Everything after the win is the ritual's material: recap + module reveals.
-  const wonSeq = gs.log.find((e) => e.type === "GameWon")?.seq ?? 0;
-  const postWin = gs.log.filter((e) => e.seq > wonSeq);
-  const revealed = postWin.filter((e) => e.type === "ModuleRevealed");
+  // Permanent changes can happen at any point in the game. The aftermath must
+  // recover them all, including mid-game Scars, packets, powers, and topology.
+  const revealed = gs.log.filter((e) => e.type === "ModuleRevealed");
 
   if (closed) {
     return (
@@ -129,28 +129,39 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
   }
 
   if (revealed.length > 0 && !envelopeDone) {
+    const firstModuleId = typeof revealed[0]?.data?.moduleId === "string" ? revealed[0].data.moduleId : "";
+    const firstPacket = modulePacketDetail(firstModuleId);
     return (
       <TakeoverOverlay label="Sealed pack">
         <div className="flex flex-col items-center text-center gap-4 pt-8">
-          <Envelope torn={torn} />
+          <Envelope torn={torn} label={firstPacket?.label} />
           {!torn ? (
             <>
-              <h2 className="font-display font-bold tracking-widest text-2xl text-signal">THE WORLD HAS CHANGED</h2>
-              <p className="text-sm text-muted">A sealed pack has been unlocked.</p>
+              <p className="font-mono text-[10px] uppercase tracking-widest text-danger">Instruction fulfilled</p>
+              <h2 className="font-display font-bold tracking-widest text-2xl text-signal">
+                {firstPacket ? `${firstPacket.label} IS READY` : "THE WORLD HAS CHANGED"}
+              </h2>
+              <p className="text-sm text-muted max-w-md">{firstPacket?.condition ?? "A sealed packet has been unlocked."}</p>
               <Btn tone="primary" onClick={() => setTorn(true)}>TEAR OPEN</Btn>
             </>
           ) : (
             <>
-              {revealed.map((e, i) => (
-                <p key={i} className="font-display font-bold tracking-widest text-xl text-signal">
-                  {(e.data?.name as string) ?? (e.data?.moduleId as string)}
-                </p>
-              ))}
+              {revealed.map((e, i) => {
+                const moduleId = typeof e.data?.moduleId === "string" ? e.data.moduleId : "";
+                const packet = modulePacketDetail(moduleId);
+                return (
+                  <div key={i}>
+                    <p className="font-display font-bold tracking-widest text-xl text-signal">
+                      {(e.data?.name as string) ?? packet?.label ?? moduleId}
+                    </p>
+                    {packet && <p className="text-sm text-text mt-1">Now active: {packet.contents}.</p>}
+                  </div>
+                );
+              })}
               <p className="text-sm text-muted max-w-md">
-                New rules and materials join the world from the next game on. The host may need to
-                supply sealed card text before the next game begins.
+                This is a permanent campaign change. Every future game on this world will use the opened packet's rules and materials.
               </p>
-              <Btn tone="primary" onClick={() => setEnvelopeDone(true)}>CONTINUE</Btn>
+              <Btn tone="primary" onClick={() => setEnvelopeDone(true)}>ACKNOWLEDGE NEW RULES</Btn>
             </>
           )}
         </div>
@@ -182,7 +193,7 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
       <h3 className="font-display font-bold tracking-widest text-xs text-muted mb-2">HOW THE WORLD CHANGED</h3>
       <div className="font-mono text-xs text-muted space-y-1 mb-8">
         {(() => {
-          const recap = postWin.map((e) => recapLine(gs, e.type, e.playerId, e.data)).filter((x): x is string => !!x);
+          const recap = gs.log.map((e) => recapLine(gs, e.type, e.playerId, e.data)).filter((x): x is string => !!x);
           return recap.length === 0
             ? <p>The board survives unchanged.</p>
             : recap.map((line, i) => <p key={i}>{line}</p>);
@@ -206,25 +217,38 @@ function recapLine(gs: GameState, type: string, playerId?: string, data?: Record
     case "TerritoryCardUpgraded": return `${who} upgraded a Resource card to ${data?.resources} resources.`;
     case "TerritoryCardDestroyed": return `${who} permanently destroyed the ${territoryName(data?.territory as string)} Territory card.`;
     case "ModuleRevealed": return `SEALED PACK OPENED — ${data?.name ?? data?.moduleId}.`;
+    case "ScarPlayed": return data?.territory
+      ? `${who} permanently placed ${scarName(data?.scarId as string)} on ${territoryName(data.territory as string)}.`
+      : `${who} permanently attached ${scarName(data?.scarId as string)} to ${factionById(data?.factionId as string)?.name ?? data?.factionId}.`;
+    case "ComebackPowerChosen": return `${factionById(data?.factionId as string)?.name ?? data?.factionId} gained the permanent Comeback Power “${data?.title ?? "new power"}”.`;
+    case "MissilePowerChosen": return `${factionById(data?.factionId as string)?.name ?? data?.factionId} gained the permanent Missile Power ${powerName(data?.powerId as string)}.`;
+    case "PrivateMissionCaptured": return `${factionById(data?.factionId as string)?.name ?? data?.factionId} permanently captured a Private Mission.`;
+    case "AlienCollaboratorNamed": return `${factionById(data?.factionId as string)?.name ?? data?.factionId} became the Alien Collaborator.`;
+    case "AlienIslandPlaced": return `Alien Island “${data?.name}” permanently joined the board.`;
+    case "BringerOfNuclearFireNamed": return `${factionById(data?.factionId as string)?.name ?? data?.factionId} became the Bringer of Nuclear Fire.`;
+    case "MutantEvolutionApplied": return `The Mutants permanently advanced ${String(data?.evolution ?? "their evolution").replaceAll("_", " ")}.`;
+    case "WorldCapitalFounded": return `${who} permanently founded the World Capital “${data?.name}” in ${territoryName(data?.territory as string)}.`;
     case "WorldNamed": return `${who} completed and named the world “${data?.name}”.`;
     case "EndGameRewardsSkipped": return `Starter rewards have ended (game ${data?.gameNumber}).`;
     default: return null;
   }
 }
 
-function Envelope({ torn }: { torn: boolean }) {
+function Envelope({ torn, label }: { torn: boolean; label?: string }) {
   return (
     <svg viewBox="0 0 120 80" className="w-52" aria-hidden="true">
       <rect x="8" y="16" width="104" height="56" rx="3" fill="#1a2132" stroke="#7d8aa3" strokeWidth="1.5" />
       {torn ? (
         <>
           <path d="M 8 16 L 24 4 L 40 14 L 58 2 L 76 13 L 94 5 L 112 16" fill="none" stroke="#c9504a" strokeWidth="2" strokeLinejoin="round" />
-          <text x="60" y="50" textAnchor="middle" style={{ font: "800 11px var(--font-display)", fill: "#e0a93c", letterSpacing: 2 }}>OPENED</text>
+          <text x="60" y="46" textAnchor="middle" style={{ font: "800 11px var(--font-display)", fill: "#e0a93c", letterSpacing: 2 }}>OPENED</text>
+          {label && <text x="60" y="60" textAnchor="middle" style={{ font: "800 7px var(--font-mono)", fill: "#e0a93c", letterSpacing: 1 }}>{label}</text>}
         </>
       ) : (
         <>
           <path d="M 8 16 L 60 48 L 112 16" fill="none" stroke="#7d8aa3" strokeWidth="1.5" />
-          <text x="60" y="66" textAnchor="middle" style={{ font: "800 8px var(--font-mono)", fill: "#c9504a", letterSpacing: 1 }}>DO NOT OPEN…YET</text>
+          <text x="60" y="58" textAnchor="middle" style={{ font: "800 8px var(--font-mono)", fill: "#c9504a", letterSpacing: 1 }}>{label ?? "SEALED"}</text>
+          <text x="60" y="68" textAnchor="middle" style={{ font: "800 6px var(--font-mono)", fill: "#7d8aa3", letterSpacing: 0.8 }}>DO NOT OPEN…YET</text>
         </>
       )}
     </svg>

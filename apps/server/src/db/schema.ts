@@ -11,6 +11,7 @@ export interface Database {
     state: string | null; // new (10b): folded CampaignState JSON
   };
   campaign_members: { campaign_id: string; user_id: string; role: Generated<string>; joined_at: Generated<Date> };
+  campaign_actions: { campaign_id: string; seq: number; actor_id: string | null; kind: string; payload: string; created_at: Generated<Date> };
   game_sessions: { id: string; campaign_id: string; game_number: number; seed: string; status: Generated<string>; created_at: Generated<Date>; campaign_state: string | null }; // new (10b): seeding snapshot for deterministic replay
   game_seats: { session_id: string; user_id: string; seat_order: number; faction_id: string | null; result: string | null };
   game_actions: { session_id: string; seq: number; actor_id: string | null; kind: string; payload: string; reason: string | null; created_at: Generated<Date> };

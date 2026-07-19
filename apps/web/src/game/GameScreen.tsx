@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   waitingOn, isLegalStart, joinWarTroops, maneuverDecision, startTurnDecision, endTurnDecision, hasFactionPower,
   neighborsOf, territoryIds,
-  type GameState, type Action, type GameEvent,
+  type GameState, type Action, type GameEvent, type TerritoryId,
 } from "@risk/rules";
 import { manifest, territoryById } from "@risk/map";
 import { contentPack, factionDefinitionById } from "@risk/content";
@@ -15,6 +15,7 @@ import SidePanel from "./SidePanel.tsx";
 import Ledger from "./Ledger.tsx";
 import SetupTakeover from "./SetupTakeover.tsx";
 import AdvancedDraftTakeover from "./AdvancedDraftTakeover.tsx";
+import SetupOrderTakeover from "./SetupOrderTakeover.tsx";
 import SetupDecisionBanner from "./SetupDecisionBanner.tsx";
 import CombatOverlay from "./CombatOverlay.tsx";
 import TurnDecisionDock from "./TurnDecisionDock.tsx";
@@ -31,6 +32,7 @@ import FactionEmblem from "./FactionEmblem.tsx";
 import { deriveInteractionModel } from "./interaction/deriveInteractionModel.ts";
 import type { TerritoryIntent } from "./interaction/InteractionPolicy.ts";
 import type { TransitionSource } from "./presentation/types.ts";
+import { modulePacketDetail } from "./LegacyVault.tsx";
 
 type Highlight = "selected" | "highlight-attack" | "highlight-move" | "highlight-start" | "highlight-recruit" | "pulse-continent" | "dimmed";
 
@@ -54,6 +56,7 @@ type ImportantMoment = {
   detail: string;
   playerId?: string;
   tone: "signal" | "danger";
+  persistent?: boolean;
 };
 
 export interface UiState {
@@ -120,6 +123,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
   presentationSource?: TransitionSource;
 }) {
   const [ui, setUi] = useState<UiState>({ placeCount: 1, moveCount: 1, expandCount: 1, selectedCards: [] });
+  const [hoveredResourceTerritory, setHoveredResourceTerritory] = useState<TerritoryId>();
   const [localError, setLocalError] = useState<string | null>(null);
   const [autoDefend, setAutoDefend] = useState<Record<string, boolean>>({}); // new (UI-8): per-player toggle, off by default
   const desktop = useDesktop(); // new (UI-5)
@@ -185,7 +189,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
   }, [gs]);
 
   useEffect(() => {
-    if (!moments[0]) return;
+    if (!moments[0] || moments[0].persistent) return;
     const id = window.setTimeout(() => setMoments((current) => current.slice(1)), 3200);
     return () => window.clearTimeout(id);
   }, [moments]);
@@ -568,6 +572,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
             )}
             <div className="relative w-full max-h-full aspect-[749.819/519.068]">
               <GameTable authoritativeState={gs} viewerId={viewer} interaction={tableInteraction}
+                emphasizedTerritoryId={hoveredResourceTerritory}
                 onTerritoryActivate={onTerritoryClick} source={presentationSource ?? (viewer ? "network" : "local")} />
               <PhaseNotice gs={gs} actor={actor} actorPlayer={actorPlayer} canAct={canAct} />
               <PhaseProceed gs={gs} actor={actor} canAct={canAct} dispatch={doDispatch} />
@@ -662,7 +667,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
               {ui.inspected && ( // new (UI-3): selected-territory inspector tops the rail
                 <Inspector gs={gs} tid={ui.inspected} actor={actor} canAct={canAct} ui={ui} />
               )}
-              <SidePanel gs={gs} actor={actor} playerFaction={playerFaction} />
+              <SidePanel gs={gs} actor={actor} playerFaction={playerFaction} onTerritoryCardHover={setHoveredResourceTerritory} />
             </div>
             <Ledger gs={gs} />{/* new (UI-2): collapsible BATTLE LOG tab */}
           </aside>
@@ -683,7 +688,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
               </div>
               <div className="overflow-y-auto">
                 {ui.inspected && <Inspector gs={gs} tid={ui.inspected} actor={actor} canAct={canAct} ui={ui} />}
-                <SidePanel gs={gs} actor={actor} playerFaction={playerFaction} />
+                <SidePanel gs={gs} actor={actor} playerFaction={playerFaction} onTerritoryCardHover={setHoveredResourceTerritory} />
                 <Ledger gs={gs} />
               </div>
             </div>
@@ -721,12 +726,16 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
         <AlienIslandModal dispatch={doDispatch} setUi={setUi}
           canManage={contentManager} actorId={viewer ?? gs.turnOrder[gs.activeIdx]} />
       )}
-      {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.phase === "setup" && actor && canAct
-        && gs.advancedDraft && !gs.advancedDraft.completed && (
-        <AdvancedDraftTakeover gs={gs} actor={actor} dispatch={doDispatch} you={!!viewer} />
+      {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.phase === "setup" && actor
+        && gs.setup?.stage === "order_reveal" && (
+        <SetupOrderTakeover gs={gs} actor={actor} dispatch={doDispatch} you={canAct} />
+      )}
+      {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.phase === "setup" && actor
+        && gs.setup?.stage !== "order_reveal" && gs.advancedDraft && !gs.advancedDraft.completed && (
+        <AdvancedDraftTakeover gs={gs} actor={actor} dispatch={doDispatch} you={canAct} />
       )}
       {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.phase === "setup" && actor && canAct
-        && (!gs.advancedDraft || gs.advancedDraft.completed) && !setupReady && (
+        && gs.setup?.stage !== "order_reveal" && (!gs.advancedDraft || gs.advancedDraft.completed) && !setupReady && (
         <SetupTakeover gs={gs} ui={ui} setUi={setUi} actor={actor} you={!!viewer} />
       )}
       {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.combat && (
@@ -757,7 +766,9 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
               {moments[0].title}
             </div>
             <p className="mt-3 text-lg text-text leading-snug">{moments[0].detail}</p>
-            <div className="mt-4 font-mono text-[10px] uppercase tracking-widest text-muted">Click anywhere to continue</div>
+            <div className="mt-4 font-mono text-[10px] uppercase tracking-widest text-muted">
+              {moments[0].persistent ? "Acknowledge this permanent change to continue" : "Click anywhere to continue"}
+            </div>
           </div>
         </button>
       )}
@@ -1212,6 +1223,15 @@ function momentForEvent(gs: GameState, event: GameEvent): ImportantMoment[] {
   }
   if (event.type === "PlayerEliminated") {
     return [{ key: event.seq, title: "PLAYER ELIMINATED", detail: `${playerName} has no legal way to rejoin and is out of this game.`, playerId: event.playerId, tone: "danger" }];
+  }
+  if (event.type === "ModuleRevealed") {
+    const moduleId = typeof event.data?.moduleId === "string" ? event.data.moduleId : "";
+    const packet = modulePacketDetail(moduleId);
+    const name = typeof event.data?.name === "string" ? event.data.name : packet?.label ?? "SEALED PACK";
+    const detail = packet
+      ? `${packet.condition.replace("Open when ", "The world has now fulfilled: ")} ${packet.contents} are permanently active in this campaign.`
+      : "A sealed packet has opened. Its new rules and materials are now permanently active in this campaign.";
+    return [{ key: event.seq, title: `${name} OPENED`, detail, tone: "signal", persistent: true }];
   }
   return [];
 }

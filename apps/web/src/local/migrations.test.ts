@@ -24,5 +24,32 @@ describe("local save migrations", () => {
     expect(migrateLocalSave({ ...legacy, version: 999 }).error).toMatch(/newer/i);
     expect(migrateLocalSave("broken").error).toMatch(/json object/i);
   });
-});
 
+  it("moves unfinished v3 saves directly to Coin placement and discards premature faction powers", () => {
+    const result = migrateLocalSave({
+      ...legacy,
+      version: 3,
+      campaignState: {
+        gameNumber: 0,
+        factionPowerChoices: { khan_industries: "hq_reinforcement" },
+        preparation: {
+          stage: "faction_powers",
+          participants: [],
+          actorIndex: 0,
+          factionPowerChoices: { khan_industries: "hq_reinforcement" },
+          resourceStickers: Array.from({ length: 12 }, (_, index) => ({ stickerId: `world-coin-${index + 1}` })),
+        },
+      },
+      activeGame: {
+        gameNumber: 1,
+        phase: "setup",
+        players: { u1: { id: "u1" }, u2: { id: "u2" } },
+        factionPowers: { khan_industries: "hq_reinforcement" },
+      },
+    });
+    expect(result.value?.campaignState.preparation.stage).toBe("resource_stickers");
+    expect(result.value?.campaignState.factionPowerChoices).toEqual({});
+    expect(result.value?.campaignState.preparation.factionPowerChoices).toEqual({});
+    expect(result.value?.activeGame.factionPowers).toEqual({});
+  });
+});

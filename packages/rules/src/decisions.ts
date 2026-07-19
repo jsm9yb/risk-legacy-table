@@ -114,17 +114,11 @@ export interface StartTurnDecision {
   autoAdvance: boolean;
 }
 
-/** The start phase is only a decision while the player can afford a Red Star. */
+/** Start of turn always remains explicit so optional legacy reactions cannot be raced by a timer. */
 export function startTurnDecision(state: GameState, playerId: PlayerId): StartTurnDecision {
   const redStarCost = Number((contentPack.ruleConstants.redStarPurchaseCost as { value: number }).value);
   const canBuyRedStar = (state.players[playerId]?.hand.length ?? 0) >= redStarCost;
-  const canMoveHq = hasFactionPower(state, playerId, "mobile") && !state.mobileHqUsed
-    && Object.entries(state.territories).some(([territoryId, territory]) => territory.controller === playerId && territory.hqFaction
-      && neighborsOf(state, territoryId).some((neighbor) => {
-        const destination = state.territories[neighbor];
-        return destination.controller === playerId && !destination.hqFaction && destination.scars.length === 0;
-      }));
-  return { redStarCost, canBuyRedStar, autoAdvance: state.phase === "start_turn" && !canBuyRedStar && !canMoveHq };
+  return { redStarCost, canBuyRedStar, autoAdvance: false };
 }
 
 const EARLY_MANEUVER_PHASES: Phase[] = ["start_turn", "join_or_recruit", "expand_attack", "end_turn"];

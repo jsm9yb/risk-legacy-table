@@ -29,6 +29,7 @@ export default function NetworkedGame({ socket, sessionId, viewerId, onExit }: {
   const [seated, setSeated] = useState(false);
   const [contentHost, setContentHost] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [rewindStatus, setRewindStatus] = useState<GameStateEnvelope["rewind"]>();
   const errTimer = useRef<number | undefined>(undefined);
   const latestState = useRef<GameState | null>(null);
@@ -57,19 +58,30 @@ export default function NetworkedGame({ socket, sessionId, viewerId, onExit }: {
         setRewindStatus(message.rewind);
       }
     };
-    socket.on("game:state", onState);
-    socket.emit("game:join", { sessionId }, (res: any) => {
+    const joinSession = () => socket.emit("game:join", { sessionId }, (res: any) => {
       if (res?.error) return setError(res.error);
       latestState.current = res.state as GameState;
       setGs(res.state as GameState);
       setSeated(!!res.seated);
       setContentHost(!!res.contentHost);
       setRewindStatus(res.rewind);
+      setConnectionMessage(null);
     });
+    const onDisconnect = () => setConnectionMessage("Connection lost — decisions are paused while the table reconnects.");
+    const onConnect = () => {
+      setConnectionMessage("Reconnected — synchronizing the latest table state…");
+      joinSession();
+    };
+    socket.on("game:state", onState);
+    socket.on("disconnect", onDisconnect);
+    socket.on("connect", onConnect);
+    joinSession();
     return () => {
       window.clearTimeout(errTimer.current);
       socket.emit("game:leave", { sessionId });
       socket.off?.("game:state", onState);
+      socket.off?.("disconnect", onDisconnect);
+      socket.off?.("connect", onConnect);
     };
   }, [socket, sessionId]);
 
@@ -101,7 +113,7 @@ export default function NetworkedGame({ socket, sessionId, viewerId, onExit }: {
     );
   }
   // Spectators get a viewer id that never matches the actor -> view-only.
-  return <GameScreen key={sessionId} gs={gs} dispatch={dispatch} onExit={onExit} error={error} viewer={seated ? viewerId : "__spectator__"}
+  return <GameScreen key={sessionId} gs={gs} dispatch={dispatch} onExit={onExit} error={error ?? connectionMessage} viewer={seated ? viewerId : "__spectator__"}
     canManageContent={contentHost}
     presentationSource={presentationSource}
     rewind={seated && rewindStatus ? {

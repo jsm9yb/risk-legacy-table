@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
+  "version": "1.4.1",
   "continents": [
     {"continentId":"north_america","nameSlot":[126,45.8],"bonusSlot":[188,43]},
     {"continentId":"south_america","nameSlot":[256,259.8],"bonusSlot":[200,257]},
@@ -20,7 +20,7 @@
     {"territoryId":"central_america","cameraFocus":[126.2,241.6],"architectureSlot":[123.7,230.6],"scarSlot":[130.6,244.9],"hqSlot":[110.6,223.4],"markSlot":[117,226.5],"troopSlots":[[144.9,254.5,0.555],[150.4,246.4,0.555],[143.5,246.7,0.555],[149.9,264.7,0.555],[141.9,265.6,0.555]],"profile":"tiny"},
     {"territoryId":"venezuela","cameraFocus":[192.5,285.8],"architectureSlot":[165.9,292.7],"scarSlot":[186.9,281.8],"hqSlot":[166.4,282],"markSlot":[167.5,282],"troopSlots":[[198.8,276.6,0.825],[207.9,280.8,0.825],[198.5,287.6,0.825],[218.6,292.8,0.825],[209.7,294.3,0.825]],"profile":"normal"},
     {"territoryId":"peru","cameraFocus":[186.2,340.2],"architectureSlot":[164.7,336.7],"scarSlot":[180.7,347.3],"hqSlot":[153.4,325.5],"markSlot":[171.5,341.5],"troopSlots":[[194.6,361.2,0.9],[194.7,349.5,0.9],[205.1,351.6,0.9],[213.2,371,0.9],[204.8,366.8,0.9]],"profile":"normal"},
-    {"territoryId":"brazil","cameraFocus":[221.9,343.1],"architectureSlot":[199.9,327.7],"scarSlot":[222.1,336.2],"hqSlot":[199.9,317.4],"markSlot":[257.5,335],"troopSlots":[[239.6,333,1],[252.4,318.6,1],[240.4,318.3,1],[256.9,335.7,1],[244.1,348.5,1]],"profile":"wide"},
+    {"territoryId":"brazil","cameraFocus":[221.9,343.1],"preferredRoutePorts":{"alien_island":[253,350]},"architectureSlot":[199.9,327.7],"scarSlot":[222.1,336.2],"hqSlot":[199.9,317.4],"markSlot":[257.5,335],"troopSlots":[[239.6,333,1],[252.4,318.6,1],[240.4,318.3,1],[256.9,335.7,1],[244.1,348.5,1]],"profile":"wide"},
     {"territoryId":"argentina","cameraFocus":[202.3,419.1],"architectureSlot":[189.1,402.1],"scarSlot":[184.8,421.8],"hqSlot":[190.3,390.9],"markSlot":[183,422.5],"troopSlots":[[206.2,403.4,0.9],[208.6,392.4,0.9],[218.4,395.1,0.9],[217.1,410.7,0.9],[207.1,419,0.9]],"profile":"normal"},
     {"territoryId":"iceland","cameraFocus":[322.1,105.4],"architectureSlot":[316.1,115.3],"scarSlot":[327,103.7],"hqSlot":[311.3,109],"markSlot":[314,108.5],"troopSlots":[[331.7,93.1,0.53],[334.9,102.3,0.53],[341.7,95.3,0.53],[344,105.7,0.53],[337.3,113.7,0.53]],"profile":"tiny"},
     {"territoryId":"great_britain","cameraFocus":[307.2,156.5],"architectureSlot":[290,164.6],"scarSlot":[315.3,157.5],"hqSlot":[306.9,144],"markSlot":[295.5,163.2],"troopSlots":[[309.2,177.8,0.68],[317.8,173.6,0.68],[308.9,187.5,0.68],[317.4,185.4,0.68],[326.3,183.4,0.68]],"profile":"tiny"},
@@ -47,10 +47,10 @@
     {"territoryId":"middle_east","cameraFocus":[457.6,275],"architectureSlot":[472.7,240.3],"scarSlot":[477.8,304.8],"hqSlot":[440.1,249.7],"markSlot":[475.5,292.5],"troopSlots":[[463.2,278.2,1],[474.8,286,1],[453.6,296.1,1],[454.7,283.1,1],[465.1,295.5,1]],"profile":"wide"},
     {"territoryId":"india","cameraFocus":[544.2,274.1],"architectureSlot":[523.2,258],"scarSlot":[547.6,295.5],"hqSlot":[523.7,243.2],"markSlot":[560.8,281.5],"troopSlots":[[557.6,264.3,0.9],[546.7,277,0.9],[568.3,272.3,0.9],[547.6,265.8,0.9],[557.2,277.7,0.9]],"profile":"normal"},
     {"territoryId":"siam","cameraFocus":[602.7,289.2],"architectureSlot":[598.7,286.5],"scarSlot":[618.5,304.3],"hqSlot":[591.7,278],"markSlot":[595.5,288],"troopSlots":[[609.7,274,0.73],[611.9,300,0.73],[621.4,298,0.73],[610.3,283.8,0.73],[614.2,293,0.73]],"profile":"tiny"},
-    {"territoryId":"indonesia","cameraFocus":[610.8,364.5],"architectureSlot":[623.2,352],"scarSlot":[634.1,376.9],"hqSlot":[595,372.8],"markSlot":[596.5,372.5],"troopSlots":[[610.6,382.3,0.75],[610.5,364,0.75],[619.9,390.2,0.75],[610.6,372.9,0.75],[619.2,375.1,0.75]],"profile":"normal"},
+    {"territoryId":"indonesia","cameraFocus":[610.8,364.5],"preferredRoutePorts":{"alien_island":[600,386]},"architectureSlot":[623.2,352],"scarSlot":[634.1,376.9],"hqSlot":[595,372.8],"markSlot":[596.5,372.5],"troopSlots":[[610.6,382.3,0.75],[610.5,364,0.75],[619.9,390.2,0.75],[610.6,372.9,0.75],[619.2,375.1,0.75]],"profile":"normal"},
     {"territoryId":"new_guinea","cameraFocus":[675.6,346.9],"architectureSlot":[668.6,353.2],"scarSlot":[683.9,335.7],"hqSlot":[658.9,342.2],"markSlot":[694,350.5],"troopSlots":[[682,366.2,0.75],[690.4,366.4,0.75],[699.3,367.2,0.75],[684.7,355.5,0.75],[694.7,356.9,0.75]],"profile":"normal"},
     {"territoryId":"western_australia","cameraFocus":[655,434.6],"architectureSlot":[633.6,450],"scarSlot":[683,445.6],"hqSlot":[631.1,434.8],"markSlot":[629.5,432],"troopSlots":[[650.9,435,1],[661.3,452.9,1],[658.4,425.7,1],[652.4,449.6,1],[662.3,440.2,1]],"profile":"wide"},
-    {"territoryId":"eastern_australia","cameraFocus":[697.9,429.6],"architectureSlot":[676.7,415.2],"scarSlot":[710,451.7],"hqSlot":[676.3,401.5],"markSlot":[726,435],"troopSlots":[[710.7,421.9,0.9],[700.1,436.2,0.9],[719.7,431.9,0.9],[701.4,425.1,0.9],[710,435.1,0.9]],"profile":"normal"},
-    {"territoryId":"alien_island","cameraFocus":[565,440],"architectureSlot":[537,429],"scarSlot":[537,451],"hqSlot":[584,428],"troopSlots":[[560,440,1],[565,440,1],[570,440,1],[552,440,1],[578,440,1]],"profile":"wide"}
+    {"territoryId":"eastern_australia","cameraFocus":[697.9,429.6],"preferredRoutePorts":{"alien_island":[700,465]},"architectureSlot":[676.7,415.2],"scarSlot":[710,451.7],"hqSlot":[676.3,401.5],"markSlot":[726,435],"troopSlots":[[710.7,421.9,0.9],[700.1,436.2,0.9],[719.7,431.9,0.9],[701.4,425.1,0.9],[710,435.1,0.9]],"profile":"normal"},
+    {"territoryId":"alien_island","cameraFocus":[565,440],"preferredRoutePorts":{"brazil":[544,433],"indonesia":[575,422],"eastern_australia":[586,442]},"architectureSlot":[537,429],"scarSlot":[537,451],"hqSlot":[584,428],"troopSlots":[[560,440,1],[565,440,1],[570,440,1],[552,440,1],[578,440,1]],"profile":"wide"}
   ]
 }

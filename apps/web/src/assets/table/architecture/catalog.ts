@@ -25,7 +25,7 @@ export const ARCHITECTURE_ATLAS = {
 export const ARCHITECTURE_ATLAS_KEYS = Object.freeze(Object.keys(frames) as ArchitectureAtlasKey[]);
 
 export const ARCHITECTURE_ASSET_PROMPTS = {
-  base: "One isolated neutral architecture miniature, orthographic-like 38-degree downward three-quarter camera, premium prerendered matte resin/plastic, warm upper-left key, cool cyan rim, compact square footprint, strong silhouette at 20 pixels, flat chroma background, no text or runtime state marks.",
+  base: "One isolated printed board-game marker with a crisp navy/cyan/cream arched silhouette, front-facing compact footprint, strong tier distinction at 20 pixels, flat chroma background, no text or runtime state marks.",
   fortification: "Deterministic offline composite: ten fixed perimeter segments consumed clockwise from 12 o'clock; remaining segments bright cyan, spent segments dark and damaged.",
   mode: "Five built-in image generations with local chroma-key removal; 30 fortified variants and the production atlas are built by scripts/build-architecture-assets.py.",
 } as const;

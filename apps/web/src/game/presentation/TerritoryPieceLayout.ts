@@ -63,7 +63,15 @@ function hqBounds(definition: TerritoryPresentationDef): LayoutBounds {
 
 function architectureBounds(definition: TerritoryPresentationDef): LayoutBounds {
   const size = architecturePieceHeight(definition.profile);
-  return centeredBounds("architecture", "architecture", ...definition.architectureSlot, size, size);
+  const [x, y] = definition.architectureSlot;
+  return {
+    id: "architecture",
+    kind: "architecture",
+    left: x - size * 0.95,
+    top: y - size * 0.55,
+    right: x + size * 0.55,
+    bottom: y + size * 0.55,
+  };
 }
 
 function scarBounds(definition: TerritoryPresentationDef): LayoutBounds {

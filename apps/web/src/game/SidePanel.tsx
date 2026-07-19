@@ -1,5 +1,5 @@
-import { redStars, type GameState } from "@risk/rules";
-import { factionById } from "./labels.ts";
+import { redStars, type GameState, type TerritoryId } from "@risk/rules";
+import { factionById, powerName, scarName, titleCase } from "./labels.ts";
 import SideboardMat from "./cards/SideboardMat.tsx";
 import FactionEmblem from "./FactionEmblem.tsx";
 
@@ -7,6 +7,7 @@ type Props = {
   gs: GameState;
   actor?: string;
   playerFaction: (pid?: string) => string | undefined;
+  onTerritoryCardHover?: (territoryId: TerritoryId | undefined) => void;
 };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -18,7 +19,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-export default function SidePanel({ gs, actor, playerFaction }: Props) {
+export default function SidePanel({ gs, actor, playerFaction, onTerritoryCardHover }: Props) {
   return (
     <div>
       {gs.phase === "game_over" && (
@@ -57,6 +58,13 @@ export default function SidePanel({ gs, actor, playerFaction }: Props) {
                     <div className="text-xs text-muted leading-tight truncate">
                       {faction?.name ?? "Faction unchosen"}{pl.knockedOut ? " / KO" : ""}{pl.eliminated ? " / Eliminated" : ""}
                     </div>
+                    {pl.factionId && factionAttachments(gs, pl.factionId).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1" aria-label={`${faction?.name ?? pl.factionId} permanent attachments`}>
+                        {factionAttachments(gs, pl.factionId).map((attachment) => (
+                          <span key={attachment} className="font-mono text-[9px] border border-line rounded-full px-1.5 py-0.5 text-muted">{attachment}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mt-2 font-mono">
@@ -71,10 +79,24 @@ export default function SidePanel({ gs, actor, playerFaction }: Props) {
       </Section>
 
       <Section title="SIDEBOARD">
-        <SideboardMat gs={gs} />
+        <SideboardMat gs={gs} onTerritoryCardHover={onTerritoryCardHover} />
       </Section>
     </div>
   );
+}
+
+function factionAttachments(gs: GameState, factionId: string) {
+  return [
+    gs.factionPowers[factionId] ? `Power: ${powerName(gs.factionPowers[factionId])}` : undefined,
+    gs.comebackPowers[factionId] ? `Comeback: ${gs.comebackPowers[factionId].title}` : undefined,
+    gs.factionMissilePowers[factionId] ? `Missile: ${titleCase(gs.factionMissilePowers[factionId])}` : undefined,
+    gs.factionWeaknesses[factionId] ? `Weakness: ${scarName(`weakness_${gs.factionWeaknesses[factionId]}`)}` : undefined,
+    factionId === "mutants" && gs.mutantEvolution ? `Evolution: ${titleCase(gs.mutantEvolution)}` : undefined,
+    gs.leadFactionId === factionId ? "Lead faction" : undefined,
+    gs.alienCollaboratorFactionId === factionId ? "Alien collaborator" : undefined,
+    gs.bringerOfNuclearFireFactionId === factionId ? "Bringer of Nuclear Fire" : undefined,
+    gs.capturedPrivateMissions[factionId] ? "Private Mission attached" : undefined,
+  ].filter((value): value is string => !!value);
 }
 
 function RailStatus({ gs, actor }: { gs: GameState; actor?: string }) {

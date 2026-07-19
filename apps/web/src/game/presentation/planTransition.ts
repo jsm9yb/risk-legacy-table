@@ -24,6 +24,7 @@ function commandsFor(event: PresentationEvent): SceneCommand[][] {
     case "phase.changed": return [[{ type: "phase.change", phase: event.phase }]];
     case "game.won": return [[{ type: "game.victory", playerId: event.playerId, reason: event.reason }]];
     case "legacy.ritual": return [[{ type: "legacy.ritual", ritual: event.ritual, territoryId: event.territoryId }]];
+    case "presentation.none": return [];
     case "presentation.unknown": return [];
   }
 }

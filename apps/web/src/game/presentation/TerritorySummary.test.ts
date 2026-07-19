@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createGame } from "@risk/rules";
-import { territoryAccessibleLabel, territorySummary } from "./TerritorySummary.ts";
+import { cityEffectSummary, territoryAccessibleLabel, territorySummary } from "./TerritorySummary.ts";
 
 describe("territory summary", () => {
   it("reports exact troops and only the resolved occupants of each visual layer", () => {
@@ -27,7 +27,7 @@ describe("territory summary", () => {
       marks: [
         "Enclave of the Bear HQ",
         "Ruins",
-        "Scar · bunker",
+        "Scar · Bunker — Defender adds +1 to the highest defense die.",
       ],
     });
     expect(territoryAccessibleLabel(state, "alaska", "selected")).toContain("23 troops: 7 × 3 + 2 × 1");
@@ -41,5 +41,29 @@ describe("territory summary", () => {
     expect(territorySummary(state, "alaska").marks).toEqual(["Fallout zone"]);
     expect(territoryAccessibleLabel(state, "alaska")).toContain("Fallout zone");
     expect(territoryAccessibleLabel(state, "alaska")).not.toContain("Scar · fallout");
+  });
+
+  it("explains a city's recruitment, resistance, founder, and fortification effects", () => {
+    const state = createGame({ gameId: "city-summary", seed: 9, players: [
+      { id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" },
+    ] });
+    state.territories.alaska = {
+      troops: 0,
+      scars: [],
+      city: { type: "major", population: 2, name: "Northgate", foundedByPlayerId: "u1" },
+      fortification: { max: 10, remaining: 7 },
+    };
+
+    expect(cityEffectSummary(state, "alaska")).toEqual({
+      territoryId: "alaska",
+      name: "Northgate",
+      typeLabel: "Major City",
+      population: 2,
+      recruitmentEffect: "Counts as +2 in territories + population before dividing by 3.",
+      unoccupiedEntryEffect: "An enemy expanding into this unoccupied city loses 2 troops.",
+      founderEffect: "Its founder may start here when it is unoccupied.",
+      fortificationEffect: "Fortified: +2 more troops to enter unoccupied; +1 to each defense die (7/10 uses).",
+    });
+    expect(territoryAccessibleLabel(state, "alaska")).toContain("population +2");
   });
 });

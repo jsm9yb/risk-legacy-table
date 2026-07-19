@@ -65,7 +65,8 @@ export default function SandboxGame({ config, onExit }: { config: LocalConfig; o
       } else if (next.phase !== current.gs.phase) {
         checkpoints.current.push(structuredClone(next));
       }
-      if (a.type === "attack.declare" || a.type === "scar.play" || a.type === "end.draw"
+      if (a.type === "draft.pick" || a.type === "draft.takeStartingCoin"
+          || a.type === "attack.declare" || a.type === "scar.play" || a.type === "end.draw"
           || a.type === "module.supplyContent" || a.type === "mission.foundWorldCapital"
           || a.type === "mission.complete" || a.type === "event.resolve"
           || a.type === "mission.choose" || a.type === "privateMission.capture" || a.type === "privateMission.activate"

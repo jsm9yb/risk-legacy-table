@@ -3,6 +3,7 @@ import { contentPack } from "@risk/content";
 import type { LocalConfig } from "../App.tsx";
 import boardSvg from "../../../../packages/map/assets/board.svg?raw";
 import FactionEmblem from "../game/FactionEmblem.tsx";
+import LegacyVault from "../game/LegacyVault.tsx";
 import { clearLocalCampaign, loadLocalCampaign } from "../local/campaignStore.ts";
 
 export default function Hub({ onStart, onResume, onLan }: {
@@ -16,13 +17,26 @@ export default function Hub({ onStart, onResume, onLan }: {
   const [seed, setSeed] = useState(() => String(Math.floor(Math.random() * 1e9)));
   const [localSave, setLocalSave] = useState(() => loadLocalCampaign());
   const [pending, setPending] = useState<"replace" | "delete" | null>(null);
+  const normalizedNames = names.map((name) => name.trim());
+  const configIssue = normalizedNames.some((name) => !name)
+    ? "Every seat needs a player name."
+    : new Set(normalizedNames.map((name) => name.toLocaleLowerCase())).size !== normalizedNames.length
+      ? "Player names must be unique so decisions are never ambiguous."
+      : null;
+  const unlockedModules = [...new Set([
+    ...(localSave?.campaignState.unlockedModules ?? []),
+    ...(localSave?.activeGame?.unlockedModules ?? []),
+  ])];
 
   const config = (): LocalConfig => ({
     seed: Number(seed) || 1,
     worldName: worldName.trim() || "An Unnamed World",
     players: names.map((name, index) => ({ id: `seat${index + 1}`, name: name.trim() || `Player ${index + 1}` })),
   });
-  const start = () => localSave ? setPending("replace") : onStart(config());
+  const start = () => {
+    if (configIssue) return;
+    localSave ? setPending("replace") : onStart(config());
+  };
 
   return (
     <div className="relative min-h-full flex flex-col overflow-hidden">
@@ -75,17 +89,22 @@ export default function Hub({ onStart, onResume, onLan }: {
               <span className="block text-sm text-muted mt-2">Select a shared campaign, take an explicit seat, and ready up.</span>
               <span className="block font-display font-bold tracking-widest text-signal mt-5">CONNECT →</span>
             </button>
+            <div className="md:col-span-2">
+              <LegacyVault unlockedModules={unlockedModules} compact />
+            </div>
           </div>
         ) : (
-          <section className="bg-panel/95 border border-line rounded-sm p-6 max-w-3xl mx-auto">
+          <div className="space-y-5 max-w-3xl mx-auto">
+          <section className="bg-panel/95 border border-line rounded-sm p-6">
             <div className="flex items-center gap-3 mb-6">
               <button type="button" onClick={() => setStage("select")} className="font-mono text-xs text-muted hover:text-text">← CAMPAIGNS</button>
               <h3 className="font-display font-black tracking-widest text-xl ml-auto">PLAY AT THIS TABLE</h3>
             </div>
             <label className="block mb-6">
-              <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Campaign world</span>
+              <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Campaign name</span>
               <input aria-label="World name" value={worldName} onChange={(event) => setWorldName(event.target.value)}
                 className="mt-1 w-full bg-ink border border-line rounded-sm px-4 py-2 font-display font-bold tracking-wide text-xl focus:border-signal outline-none" />
+              <span className="block text-xs text-muted mt-1">This identifies the save. After Game 15, the campaign's top winner names the completed world permanently.</span>
             </label>
             <div className="mb-6">
               <div className="font-mono text-[10px] uppercase tracking-widest text-muted mb-2">Seat order</div>
@@ -104,15 +123,24 @@ export default function Hub({ onStart, onResume, onLan }: {
               </div>
               {names.length < 5 && <button type="button" onClick={() => setNames((current) => [...current, `Player ${current.length + 1}`])}
                 className="font-mono text-xs text-signal mt-3">+ ADD SEAT ({names.length}/5)</button>}
+              {configIssue && <p id="campaign-config-error" role="alert" className="font-mono text-xs text-danger mt-3">{configIssue}</p>}
             </div>
-            <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5">
-              <label htmlFor="dice-seed" className="font-mono text-xs text-muted">DICE SEED</label>
-              <input id="dice-seed" value={seed} onChange={(event) => setSeed(event.target.value.replace(/\D/g, ""))}
-                className="w-40 bg-ink border border-line rounded-sm px-3 py-1.5 font-mono text-sm focus:border-signal outline-none" />
-              <button type="button" onClick={() => setSeed(String(Math.floor(Math.random() * 1e9)))} className="text-xs text-muted">reroll</button>
-              <button type="button" onClick={start} className="ml-auto font-display font-black tracking-widest text-lg bg-signal text-ink px-7 py-2.5 rounded-sm">START GAME</button>
+            <div className="flex flex-wrap items-end gap-3 border-t border-line pt-5">
+              <details className="min-w-48">
+                <summary className="font-mono text-[10px] text-muted uppercase tracking-widest cursor-pointer">Advanced: deterministic dice</summary>
+                <div className="flex items-center gap-2 mt-2">
+                  <label htmlFor="dice-seed" className="font-mono text-xs text-muted">SEED</label>
+                  <input id="dice-seed" value={seed} onChange={(event) => setSeed(event.target.value.replace(/\D/g, ""))}
+                    className="w-32 bg-ink border border-line rounded-sm px-3 py-1.5 font-mono text-sm focus:border-signal outline-none" />
+                  <button type="button" onClick={() => setSeed(String(Math.floor(Math.random() * 1e9)))} className="text-xs text-muted">reroll</button>
+                </div>
+              </details>
+              <button type="button" onClick={start} disabled={!!configIssue} aria-describedby={configIssue ? "campaign-config-error" : undefined}
+                className="ml-auto font-display font-black tracking-widest text-lg bg-signal text-ink px-7 py-2.5 rounded-sm disabled:opacity-40 disabled:cursor-not-allowed">PREPARE THE WORLD</button>
             </div>
           </section>
+          <LegacyVault unlockedModules={unlockedModules} compact />
+          </div>
         )}
 
         {pending && (

@@ -109,6 +109,21 @@ export type Phase =
 
 export type DraftCategory = "faction" | "turnOrder" | "placementOrder" | "startingTroops" | "startingCoinCards";
 
+export type SetupStage =
+  | "order_reveal"
+  | "advanced_draft"
+  | "faction_selection"
+  | "mission_setup"
+  | "starting_placement"
+  | "complete";
+
+export interface SetupState {
+  stage: SetupStage;
+  rolls: Record<PlayerId, number>;
+  chooserOrder: PlayerId[];
+  nextIdx: number;
+}
+
 export interface AdvancedDraftPickSet {
   factionId?: FactionId;
   turnOrder?: number;
@@ -128,6 +143,9 @@ export interface AdvancedDraftState {
     startingTroops: number[];
     startingCoinCards: number[];
   };
+  /** New interactive campaigns require the drafted player to take actual Coin cards. */
+  explicitCoinClaims: boolean;
+  pendingCoinClaim?: { playerId: PlayerId; total: number; remaining: number };
   completed: boolean;
 }
 
@@ -170,7 +188,7 @@ export interface GameState {
   gameNumber: number; // new: campaign game number (1 with no campaign history); rewards stop after 15
   rngState: number;
   phase: Phase;
-  setup?: { chooserOrder: PlayerId[]; nextIdx: number; rolls: Record<PlayerId, number> };
+  setup?: SetupState;
   advancedDraft?: AdvancedDraftState;
   turnOrder: PlayerId[];
   activeIdx: number;
@@ -247,7 +265,9 @@ export interface GameState {
 }
 
 export type Action =
+  | { type: "setup.acknowledgeOrder"; playerId: PlayerId }
   | { type: "draft.pick"; playerId: PlayerId; category: DraftCategory; value: string | number }
+  | { type: "draft.takeStartingCoin"; playerId: PlayerId; cardId: CardId }
   | { type: "setup.choose"; playerId: PlayerId; factionId: FactionId; territoryId: TerritoryId; powerId?: string } // new (9): powerId required the first time a faction is played
   | { type: "start.buyRedStar"; playerId: PlayerId; cardIds: CardId[] }
   | { type: "start.moveHq"; playerId: PlayerId; from: TerritoryId; to: TerritoryId }

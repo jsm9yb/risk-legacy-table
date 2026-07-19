@@ -1,6 +1,5 @@
 // new (1-web-a): thin REST client for @risk/server. Token lives in React state only
 // (no browser storage — SPEC §11 fixed contract).
-
 export interface AuthUser { id: string; username: string; displayName: string }
 export interface AuthResult { token: string; user: AuthUser }
 export interface CampaignSummary {
@@ -11,6 +10,7 @@ export interface CampaignSummary {
   inviteCode?: string;
   activeSessionId?: string;
   hasActiveGame?: boolean;
+  preparationStatus?: "not_started" | "faction_powers" | "resource_stickers" | "review" | "complete";
 }
 export interface ContentRequirement { moduleId: string; items: string[] } // new (12)
 export interface CampaignLegacy { worldName: string; gameNumber: number; unlockedModules: string[]; contentRequired: ContentRequirement[] } // new (12)

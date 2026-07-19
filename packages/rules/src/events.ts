@@ -21,6 +21,7 @@ export type GameEventType =
   | "RecruitCalculated" | "RedStarGained" | "RedStarPurchased" | "ResourceCardDrawn" | "ResourceCardsTraded" | "ResourceDrawUnavailable"
   | "RewardPassed" | "RiotTested" | "ScarAttrition" | "ScarCancelled" | "ScarCardsDealt" | "ScarCardsNotDealt" | "ScarPlayed" | "ScarReinforcement"
   | "SeaLineFounded" | "SetupChooserOrder" | "SetupOrderRoll" | "SideboardRefilled" | "SideboardSetup"
+  | "SetupOrderAcknowledged" | "SetupStageChanged" | "StartingCoinCardTaken"
   | "TerritoryCardDestroyed" | "TerritoryCardUpgraded" | "TerritoryCleared" | "TerritoryConquered" | "TerritoryDeckReshuffled" | "TerritoryExpanded"
   | "TimingWindowOpened" | "TroopsPlaced" | "TurnEnded" | "TurnStarted" | "UnusedFactionsRecorded"
   | "WorldCapitalFounded" | "WorldNamed" | "WorldNamingOpened" | "WorldNamingRoll";
@@ -49,4 +50,3 @@ export type GameEventOf<T extends GameEventType> = {
 };
 
 export type GameEvent = { [T in GameEventType]: GameEventOf<T> }[GameEventType];
-

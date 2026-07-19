@@ -104,6 +104,10 @@ function mapEvent(previous: GameState, next: GameState, event: GameEvent): Prese
     case "TerritoryCardUpgraded": return { type: "legacy.ritual", seq: event.seq, ritual: "card.upgraded", playerId: p, territoryId: territory };
     case "WorldNamed": return { type: "legacy.ritual", seq: event.seq, ritual: "world.named", playerId: p };
     case "AlienRuinsPlaced": return { type: "legacy.ritual", seq: event.seq, ritual: "ruins.placed", playerId: p, territoryId: territory };
+    case "SetupOrderAcknowledged":
+    case "SetupStageChanged":
+    case "StartingCoinCardTaken":
+      return { type: "presentation.none", seq: event.seq, sourceType: event.type };
   }
   return { type: "presentation.unknown", seq: event.seq, sourceType: event.type };
 }

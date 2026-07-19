@@ -3,7 +3,7 @@
 // through the real action API, with a per-roll battle log for sieges, explanatory
 // scar/power badges, an ATTACK AGAIN re-arm, and a per-player auto-defend toggle.
 import { useEffect, useRef, useState } from "react";
-import { hasFactionPower, type Action, type CombatModifier, type GameState } from "@risk/rules";
+import { hasFactionPower, waitingOn, type Action, type CombatModifier, type GameState } from "@risk/rules";
 import { factionById, scarName, territoryName } from "./labels.ts";
 import FactionEmblem from "./FactionEmblem.tsx"; // new (UI-10)
 import { Btn, CenterOverlay, DecisionChip, TroopPicker } from "./overlays.tsx";
@@ -201,9 +201,8 @@ export default function CombatOverlay({ gs, dispatch, canActFor, autoDefend, onA
   const [rearm, setRearm] = useState(false);
   useEffect(() => setRearm(false), [rolls.length]);
 
-  const windowActor = c.natural && c.window
-    ? [c.attacker, c.defender].find((pid) => gs.players[pid].missiles > 0 && !c.window!.passed.includes(pid))
-    : undefined;
+  // Missile priority includes observers, not only the two combatants.
+  const windowActor = c.natural && c.window ? waitingOn(gs) : undefined;
 
   const stage = c.awaitingMoveIn ? "movein"
     : c.natural ? "window"

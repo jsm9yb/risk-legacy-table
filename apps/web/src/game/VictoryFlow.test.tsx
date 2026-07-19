@@ -80,7 +80,7 @@ describe("victory & reward flow (UI-12)", () => {
     const envelope = screen.queryByRole("dialog", { name: "Sealed pack" });
     if (envelope) {
       fireEvent.click(screen.getByRole("button", { name: "TEAR OPEN" }));
-      fireEvent.click(screen.getByRole("button", { name: "CONTINUE" }));
+      fireEvent.click(screen.getByRole("button", { name: "ACKNOWLEDGE NEW RULES" }));
     }
     const aftermath = screen.getByRole("dialog", { name: "Aftermath" });
     expect(within(aftermath).getByText(/New Ada Land/)).toBeTruthy(); // world-change recap
@@ -97,7 +97,7 @@ describe("victory & reward flow (UI-12)", () => {
     expect(screen.getByRole("dialog", { name: "Sealed pack" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "TEAR OPEN" }));
     expect(screen.getByText("Pack 3 — Homelands")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "CONTINUE" }));
+    fireEvent.click(screen.getByRole("button", { name: "ACKNOWLEDGE NEW RULES" }));
     expect(screen.getByRole("dialog", { name: "Aftermath" })).toBeTruthy();
     expect(screen.getByText(/SEALED PACK OPENED/)).toBeTruthy();
   });

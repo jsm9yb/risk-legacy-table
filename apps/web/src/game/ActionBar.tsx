@@ -2,6 +2,7 @@
 // bottom = you, right = the table. Non-blocking phase controls live here; blocking
 // decisions stay on the UI-8 overlay surfaces (takeover, combat overlay, dock).
 import { joinWarTroops, maneuverDecision, type Action, type GameState } from "@risk/rules";
+import { troopsForResources } from "@risk/content";
 import type { UiState } from "./GameScreen.tsx";
 import { Btn, TroopPicker } from "./overlays.tsx";
 import { cardResources } from "./labels.ts";
@@ -74,9 +75,9 @@ export default function ActionBar({ gs, ui, setUi, dispatch, actor }: {
           place <TroopPicker label="Recruit troops" value={ui.placeCount} min={1} max={Math.max(1, gs.recruit.remaining)}
             onChange={(n) => setUi((u) => ({ ...u, placeCount: n }))} /> per click
         </span>
-        {ui.selectedCards.length >= 1 && selectedResources >= 2 && selectedResources <= 10 && (
+        {b.tradeIns === 0 && ui.selectedCards.length >= 1 && selectedResources >= 2 && selectedResources <= 10 && (
           <Btn onClick={() => dispatch({ type: "recruit.trade", playerId: actor, cardIds: ui.selectedCards })}>
-            TRADE {selectedResources} RESOURCES
+            TRADE {selectedResources} RESOURCES → {troopsForResources(selectedResources)} TROOPS
           </Btn>
         )}
         {gs.recruit.remaining === 0 && (

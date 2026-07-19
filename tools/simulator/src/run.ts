@@ -1,7 +1,7 @@
 /**
  * Seeded full-game sanity harness: plays a complete game with a naive greedy
  * policy through the real engine API (same actions a client would send).
- * Usage: npm run sim -- [seed] [players]
+ * Usage: npm run sim -- [seed] [players] [games]
  */
 import { createGame, applyAction, waitingOn, redStars, isLegalStart, neighborsOf, initialCampaign, applyGameToCampaign, type GameState, type Action } from "@risk/rules"; // new: isLegalStart; campaign chain (10b)
 import { contentPack } from "@risk/content";
@@ -9,6 +9,7 @@ import { manifest } from "@risk/map";
 
 const seed = Number(process.argv[2] ?? 1234);
 const playerCount = Math.min(5, Math.max(3, Number(process.argv[3] ?? 4))); // new: 3-5 players
+const gameCount = Math.min(15, Math.max(1, Number(process.argv[4] ?? 2)));
 const players = Array.from({ length: playerCount }, (_, i) => ({ id: `p${i + 1}`, name: `Player ${i + 1}` }));
 
 let s = createGame({ gameId: `sim-${seed}`, seed, players });
@@ -26,7 +27,9 @@ function pickAction(s: GameState): Action | null {
   }
 
   if (s.phase === "setup") {
+    if (s.setup?.stage === "order_reveal") return { type: "setup.acknowledgeOrder", playerId: pid };
     if (s.advancedDraft && !s.advancedDraft.completed) {
+      if (s.advancedDraft.pendingCoinClaim) return { type: "draft.takeStartingCoin", playerId: pid, cardId: s.sideboard.coinPile[0] };
       const picks = s.advancedDraft.picks[pid];
       if (!picks.factionId) return { type: "draft.pick", playerId: pid, category: "faction", value: s.advancedDraft.available.factions[0] };
       if (picks.turnOrder === undefined) return { type: "draft.pick", playerId: pid, category: "turnOrder", value: s.advancedDraft.available.turnOrder[0] };
@@ -196,21 +199,34 @@ for (const e of s.log) if (e.type === "FactionPowerApplied") powerCounts[(e.data
 console.log(`powers applied: ${Object.entries(powerCounts).map(([k, v]) => `${k}×${v}`).join(", ") || "none"}`); // new
 console.log(`modules unlocked: ${s.unlockedModules.join(", ") || "none"}`); // new (11)
 
-// 10b reachability: fold the finished game into a campaign and play GAME 2 seeded from it. // new
-if (s.winner && s.rewards?.committed) { // new: whole block
-  const camp = applyGameToCampaign(initialCampaign("Sim World"), s);
-  let g2state = createGame({ gameId: `sim-${seed}-g2`, seed: seed + 1, players, campaign: camp });
-  const w1 = s.winner;
-  console.log(`--- GAME 2 seeded from campaign (gameNumber=${g2state.gameNumber}): ${g2state.players[w1].name} starts with ${g2state.players[w1].missiles} missile(s) + ${g2state.players[w1].redStarTokens} token(s); board carries ${camp.board.cities.length} cities, ${camp.board.scars.length} scars`);
-  const g2 = playToWinner(g2state);
-  g2state = resolveRewards(g2.state);
-  if (g2state.winner) {
-    const g2Powers: Record<string, number> = {}; // new (9)
-    for (const e of g2state.log) if (e.type === "FactionPowerApplied") g2Powers[(e.data as any).powerId] = (g2Powers[(e.data as any).powerId] ?? 0) + 1; // new
-    console.log(`GAME 2 WINNER: ${g2state.players[g2state.winner].name} (${g2state.players[g2state.winner].factionId}) after ${g2.steps} steps — ${g2state.winReason}; signatures=${JSON.stringify(g2state.signatures)}`);
-    console.log(`GAME 2 powers applied: ${Object.entries(g2Powers).map(([k, v]) => `${k}×${v}`).join(", ") || "none"}`); // new
-  } else {
-    console.log(`GAME 2: no winner after ${g2.steps} steps (phase=${g2state.phase})`);
-    process.exitCode = 1; // a campaign-seeded game must still converge
+// Campaign reachability: fold each completed game and seed the requested number of following games.
+let campaign = initialCampaign("Sim World");
+let completed = s;
+for (let gameNumber = 2; gameNumber <= gameCount && completed.winner && completed.rewards?.committed; gameNumber++) {
+  campaign = applyGameToCampaign(campaign, completed);
+  let next = createGame({
+    gameId: `sim-${seed}-g${gameNumber}`,
+    seed: seed + gameNumber - 1,
+    players,
+    campaign,
+  });
+  const priorWinner = completed.winner;
+  console.log(`--- GAME ${gameNumber} seeded from campaign (gameNumber=${next.gameNumber}): ${next.players[priorWinner].name} starts with ${next.players[priorWinner].missiles} missile(s) + ${next.players[priorWinner].redStarTokens} token(s); board carries ${campaign.board.cities.length} cities, ${campaign.board.scars.length} scars`);
+  const played = playToWinner(next);
+  next = resolveRewards(played.state);
+  if (!next.winner) {
+    console.log(`GAME ${gameNumber}: no winner after ${played.steps} steps (phase=${next.phase})`);
+    process.exitCode = 1;
+    break;
   }
+  const powers: Record<string, number> = {};
+  for (const event of next.log) {
+    if (event.type === "FactionPowerApplied") {
+      const powerId = (event.data as { powerId: string }).powerId;
+      powers[powerId] = (powers[powerId] ?? 0) + 1;
+    }
+  }
+  console.log(`GAME ${gameNumber} WINNER: ${next.players[next.winner].name} (${next.players[next.winner].factionId}) after ${played.steps} steps — ${next.winReason}; signatures=${JSON.stringify(next.signatures)}`);
+  console.log(`GAME ${gameNumber} powers applied: ${Object.entries(powers).map(([key, value]) => `${key}×${value}`).join(", ") || "none"}`);
+  completed = next;
 }

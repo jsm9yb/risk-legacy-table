@@ -92,7 +92,10 @@ def pack_sheet(source: Path, destination: Path) -> dict[str, dict[str, int]]:
             }
 
         destination.parent.mkdir(parents=True, exist_ok=True)
-        atlas.save(destination, "WEBP", quality=92, method=6, lossless=False)
+        # The miniature masters contain fine material and edge detail that turns
+        # visibly grainy after lossy WebP compression at table scale. Lossless
+        # WebP stays comfortably within the per-faction transfer budget.
+        atlas.save(destination, "WEBP", method=6, lossless=True, exact=True)
         return frames
 
 

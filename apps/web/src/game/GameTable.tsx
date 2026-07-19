@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { GameState, TerritoryId } from "@risk/rules";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { territoryCardDefinitions, type GameState, type TerritoryId } from "@risk/rules";
 import AccessibleBoard from "./accessibility/AccessibleBoard.tsx";
 import PresentationSettings from "./settings/PresentationSettings.tsx";
 import type { InteractionModel } from "./interaction/InteractionPolicy.ts";
@@ -7,7 +7,7 @@ import { createStateTransition } from "./presentation/events.ts";
 import { RafPresentationClock } from "./presentation/PresentationClock.ts";
 import { createPresentationDirector, type PresentationDirector } from "./presentation/PresentationDirector.ts";
 import { WebAudioTableAudioAdapter, type TableAudio } from "./presentation/TableAudio.ts";
-import { territorySummary } from "./presentation/TerritorySummary.ts";
+import { cityEffectSummary, territorySummary } from "./presentation/TerritorySummary.ts";
 import type { MotionPreference, PresentationSnapshot, TransitionSource } from "./presentation/types.ts";
 
 export default function GameTable({
@@ -15,11 +15,13 @@ export default function GameTable({
   interaction,
   onTerritoryActivate,
   onPresentationStateChange,
+  emphasizedTerritoryId,
   source = "local",
 }: {
   authoritativeState: GameState;
   viewerId?: string;
   interaction: InteractionModel;
+  emphasizedTerritoryId?: TerritoryId;
   onTerritoryActivate: (territoryId: TerritoryId) => void;
   onPresentationStateChange?: (snapshot: PresentationSnapshot) => void;
   source?: TransitionSource;
@@ -32,7 +34,8 @@ export default function GameTable({
   const [snapshot, setSnapshot] = useState<PresentationSnapshot>({ status: "loading", queuedTransitions: 0, canSkip: false, inputBlocked: true });
   const [failure, setFailure] = useState<string>();
   const [attempt, setAttempt] = useState(0);
-  const [hovered, setHovered] = useState<{ territoryId: TerritoryId; clientX: number; clientY: number }>();
+  const [hovered, setHovered] = useState<{ territoryId: TerritoryId; target: "territory" | "city"; clientX: number; clientY: number }>();
+  const [resourceView, setResourceView] = useState(false);
   const [motion, setMotion] = useState<MotionPreference>(() => (localStorage.getItem("risk.table.motion") as MotionPreference | null) ?? (matchMedia("(prefers-reduced-motion: reduce)").matches ? "reduced" : "full"));
   const [quality, setQuality] = useState<"high" | "balanced" | "low">(() => (localStorage.getItem("risk.table.quality") as "high" | "balanced" | "low" | null) ?? "balanced");
   const [muted, setMuted] = useState(() => localStorage.getItem("risk.table.muted") === "true");
@@ -44,6 +47,21 @@ export default function GameTable({
   const activationRef = useRef(onTerritoryActivate);
   stateRef.current = authoritativeState;
   activationRef.current = onTerritoryActivate;
+
+  const resourceValues = useMemo(() => Object.fromEntries(
+    territoryCardDefinitions(!!authoritativeState.alienIsland).map((card) => [
+      card.territoryId,
+      authoritativeState.sideboard.destroyed.includes(card.id)
+        ? 0
+        : authoritativeState.cardModifications[card.id]?.resources ?? card.resources,
+    ]),
+  ) as Partial<Record<TerritoryId, number>>, [authoritativeState.alienIsland, authoritativeState.cardModifications, authoritativeState.sideboard.destroyed]);
+  const tableInteraction = useMemo(() => ({
+    selectedTerritoryId: interaction.selectedTerritoryId,
+    intents: interaction.territories,
+    emphasizedTerritoryId,
+    resourceValues: resourceView ? resourceValues : undefined,
+  }), [emphasizedTerritoryId, interaction, resourceValues, resourceView]);
 
   useEffect(() => {
     let disposed = false;
@@ -61,7 +79,8 @@ export default function GameTable({
           clock,
           quality,
           onTerritoryActivate: (id) => activationRef.current(id),
-          onTerritoryHover: (territoryId, point) => setHovered(territoryId && point ? { territoryId, ...point } : undefined),
+          onTerritoryHover: (territoryId, point) => setHovered(territoryId && point ? { territoryId, target: "territory", ...point } : undefined),
+          onCityHover: (territoryId, point) => setHovered(territoryId && point ? { territoryId, target: "city", ...point } : undefined),
           onContextRestored: () => directorRef.current?.settleImmediately(stateRef.current, "context_loss"),
         });
         await scene.mount(hostRef.current, { state: stateRef.current, revision: stateRef.current.eventSeq });
@@ -71,7 +90,7 @@ export default function GameTable({
         director.mount(stateRef.current);
         setSnapshot({ status: "idle", queuedTransitions: 0, canSkip: false, inputBlocked: false });
         director.setMotionPreference(motion);
-        director.setInteractionState({ selectedTerritoryId: interaction.selectedTerritoryId, intents: interaction.territories });
+        director.setInteractionState(tableInteraction);
         const unsubscribe = director.subscribe((next) => { setSnapshot(next); onPresentationStateChange?.(next); });
         observer = new ResizeObserver(([entry]) => scene.resize({ width: entry.contentRect.width, height: entry.contentRect.height, devicePixelRatio }));
         observer.observe(hostRef.current);
@@ -100,8 +119,8 @@ export default function GameTable({
   useEffect(() => { audioRef.current?.setVolume(volume); localStorage.setItem("risk.table.volume", String(volume)); }, [volume]);
 
   useEffect(() => {
-    directorRef.current?.setInteractionState({ selectedTerritoryId: interaction.selectedTerritoryId, intents: interaction.territories });
-  }, [interaction]);
+    directorRef.current?.setInteractionState(tableInteraction);
+  }, [tableInteraction]);
 
   useEffect(() => {
     const previous = previousRef.current;
@@ -116,18 +135,49 @@ export default function GameTable({
     }
   }, [authoritativeState, source]);
 
-  const hoverSummary = hovered ? territorySummary(authoritativeState, hovered.territoryId) : undefined;
+  const hoverSummary = hovered?.target === "territory" ? territorySummary(authoritativeState, hovered.territoryId) : undefined;
+  const citySummary = hovered?.target === "city" ? cityEffectSummary(authoritativeState, hovered.territoryId) : undefined;
   const tableBounds = tableRef.current?.getBoundingClientRect();
   const tooltipPosition = hovered && tableBounds ? {
     left: Math.max(8, Math.min(tableBounds.width - 272, hovered.clientX - tableBounds.left + 12)),
-    top: Math.max(8, Math.min(tableBounds.height - 176, hovered.clientY - tableBounds.top + 12)),
+    top: Math.max(8, Math.min(tableBounds.height - (citySummary ? 244 : 176), hovered.clientY - tableBounds.top + 12)),
   } : undefined;
 
   return (
     <div ref={tableRef} className="game-table relative h-full w-full overflow-hidden rounded-lg bg-[#080c12] shadow-2xl shadow-black/40"
       data-presentation-status={snapshot.status} data-presentation-seq={snapshot.activeEventSeq ?? "idle"}>
       <div ref={hostRef} className="absolute inset-0" data-testid="pixi-table-host" />
-      <AccessibleBoard state={authoritativeState} interaction={interaction} onActivate={onTerritoryActivate} />
+      <AccessibleBoard state={authoritativeState} interaction={interaction} onActivate={onTerritoryActivate}
+        emphasizedTerritoryId={emphasizedTerritoryId} resourceValues={resourceView ? resourceValues : undefined} />
+      <button type="button" aria-label={resourceView ? "Return to tactical board" : "Show territory resource values"}
+        aria-pressed={resourceView} data-testid="resource-view-toggle" onClick={() => setResourceView((current) => !current)}
+        className={`absolute left-3 top-12 z-30 flex items-center gap-1.5 rounded border px-2.5 py-1.5 font-mono text-[10px] font-bold tracking-wider shadow-lg backdrop-blur-sm ${
+          resourceView ? "border-[#f3cf6a] bg-[#6d4a12]/95 text-[#fff1bd]" : "border-white/20 bg-black/70 text-white hover:border-signal"
+        }`}>
+        <span aria-hidden="true" className="grid size-4 place-items-center rounded-full border border-current text-[9px]">●</span>
+        {resourceView ? "COINS ON" : "COINS"}
+      </button>
+      {citySummary && tooltipPosition && (
+        <div role="tooltip" data-testid="city-tooltip" style={tooltipPosition}
+          className="pointer-events-none absolute z-40 w-64 rounded-md border border-[#77cbea]/45 bg-[#071522]/95 p-3 text-left shadow-2xl shadow-black/70 backdrop-blur-sm">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="font-display text-sm font-bold uppercase tracking-[0.14em] text-[#f4e6c8]">{citySummary.name}</div>
+              <div className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-[#85cce5]">{citySummary.typeLabel}</div>
+            </div>
+            <div className="rounded border border-[#a9e5f6]/60 bg-[#0d3550] px-2 py-1 text-center shadow-inner">
+              <div className="font-mono text-[8px] font-bold uppercase tracking-widest text-[#a9e5f6]">Population</div>
+              <div className="font-mono text-xl font-black leading-none text-white">+{citySummary.population}</div>
+            </div>
+          </div>
+          <div className="mt-2 border-t border-white/10 pt-2 font-mono text-[10px] leading-4 text-[#d7e0e8]">
+            <div><span className="font-bold uppercase text-[#d5ba76]">Recruit</span> · {citySummary.recruitmentEffect}</div>
+            <div className="mt-1"><span className="font-bold uppercase text-[#d5ba76]">Unoccupied</span> · {citySummary.unoccupiedEntryEffect}</div>
+            {citySummary.founderEffect && <div className="mt-1 text-[#a9e5f6]">{citySummary.founderEffect}</div>}
+            {citySummary.fortificationEffect && <div className="mt-1 text-[#a9e5f6]">{citySummary.fortificationEffect}</div>}
+          </div>
+        </div>
+      )}
       {hoverSummary && tooltipPosition && (
         <div role="tooltip" data-testid="territory-tooltip" style={tooltipPosition}
           className="pointer-events-none absolute z-40 w-64 rounded-md border border-white/20 bg-[#080d14]/95 p-3 text-left shadow-2xl shadow-black/70 backdrop-blur-sm">

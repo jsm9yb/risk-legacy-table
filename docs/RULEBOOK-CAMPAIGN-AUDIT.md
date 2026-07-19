@@ -26,7 +26,7 @@ The 18 fixtures cover fresh Game 1, returning and developed campaigns, every Pac
 
 | Rule element | Result | Executable evidence |
 |---|---|---|
-| Game 1 customization | Verified | Exactly one permanent starting power per base faction and exactly 12 starting resource stickers; no Territory card may begin above 3 resources. |
+| Prepare the World | Verified | Before Game 1, exactly 12 individually committed Coin stickers are persisted. Clockwise seats alternate placements; a card may receive both legal sticker slots but may not begin above 3 resources. Game creation is blocked until review and sealing. The first player to select each faction later chooses that faction's permanent green power during setup. |
 | Players and setup | Verified | 3-5 players, 8 starting troops, unique high-roll chooser, clockwise order, legal unoccupied/unmarked starts, founder-only Major City exception, and no adjacent opposing HQ. Ruins count as marks. |
 | Signatures | Verified | No signature gives one Red Star token; each prior signature instead gives one Missile. |
 | Scar deal | Verified | One Scar per player only when enough physical instances remain for everyone. |

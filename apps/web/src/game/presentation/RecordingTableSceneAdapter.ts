@@ -39,7 +39,9 @@ export class RecordingTableSceneAdapter implements TableScene {
     if (!signal.aborted) this.records.push(describe(command));
     if (this.clock) await this.clock.wait(durationMs, signal);
   }
-  setInteraction(model: TableInteractionModel) { this.records.push(`interaction selected=${model.selectedTerritoryId ?? "none"}`); }
+  setInteraction(model: TableInteractionModel) {
+    this.records.push(`interaction selected=${model.selectedTerritoryId ?? "none"} emphasized=${model.emphasizedTerritoryId ?? "none"} resources=${Object.keys(model.resourceValues ?? {}).length}`);
+  }
   resize(viewport: TableViewport) { this.records.push(`resize ${viewport.width}x${viewport.height}@${viewport.devicePixelRatio}`); }
   async captureDiagnostics(): Promise<TableSceneDiagnostics> { return { renderer: "recording", quality: "balanced", texturesBytes: 0, activeSprites: 0, activeParticles: 0, contextLosses: 0 }; }
   dispose() { this.records.push("dispose"); }

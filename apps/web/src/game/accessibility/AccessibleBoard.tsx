@@ -3,11 +3,14 @@ import { anchor, manifest, territoryPath } from "@risk/map";
 import type { GameState, TerritoryId } from "@risk/rules";
 import type { InteractionModel } from "../interaction/InteractionPolicy.ts";
 import { territoryAccessibleLabel } from "../presentation/TerritorySummary.ts";
+import { alienIslandRouteModels, alienIslandRoutePath } from "../presentation/AlienIslandRoutes.ts";
 
-export default function AccessibleBoard({ state, interaction, onActivate }: {
+export default function AccessibleBoard({ state, interaction, onActivate, emphasizedTerritoryId, resourceValues }: {
   state: GameState;
   interaction: InteractionModel;
   onActivate: (territoryId: TerritoryId) => void;
+  emphasizedTerritoryId?: TerritoryId;
+  resourceValues?: Readonly<Partial<Record<TerritoryId, number>>>;
 }) {
   const territoryIds = useMemo(() => Object.keys(state.territories), [state.territories]);
   const [focused, setFocused] = useState<TerritoryId>(() => interaction.selectedTerritoryId ?? territoryIds[0]);
@@ -36,15 +39,15 @@ export default function AccessibleBoard({ state, interaction, onActivate }: {
         <title>Stylized Risk-inspired campaign board</title>
         {state.alienIsland && (
           <g id="alien-sea-routes">
-            {state.alienIsland.connections.map((connection) => (
-              <path key={connection} data-alien-route={connection} d="M565 440 L565 440" />
+            {alienIslandRouteModels(state.alienIsland.connections).map((route) => (
+              <path key={route.territoryId} data-alien-route={route.territoryId} d={alienIslandRoutePath(route)} />
             ))}
           </g>
         )}
         <g transform="translate(-167.99651 -118.55507)">
           {manifest.territories.map((territory) => (
             <path key={territory.id} id={territory.id} d={territoryPath(territory.id)?.d}
-              className={`territory-border territory ${highlightClass(interaction.territories[territory.id])}`}
+              className={`territory-border territory ${highlightClass(interaction.territories[territory.id])} ${emphasizedTerritoryId === territory.id ? "resource-card-hover" : ""}`}
               onClick={() => onActivate(territory.id)} />
           ))}
         </g>
@@ -52,6 +55,10 @@ export default function AccessibleBoard({ state, interaction, onActivate }: {
         {manifest.territories.map((territory) => {
           const point = anchor(territory);
           return <text key={territory.id} className="territory-label" x={point.x} y={point.y} fontSize="6.2">{territory.name}</text>;
+        })}
+        {resourceValues && manifest.territories.map((territory) => {
+          const point = anchor(territory);
+          return <text key={territory.id} data-resource-value={territory.id} x={point.x} y={point.y + 8}>{resourceValues[territory.id]}</text>;
         })}
         {manifest.continents.map((continent, index) => (
           <g key={continent.id} data-continent={continent.id} className="continent-callout" transform={`translate(${20 + index * 20} 500)`}>
@@ -72,7 +79,7 @@ export default function AccessibleBoard({ state, interaction, onActivate }: {
             type="button"
             data-accessible-territory={territoryId}
             tabIndex={focused === territoryId ? 0 : -1}
-            aria-label={territoryAccessibleLabel(state, territoryId, interaction.territories[territoryId])}
+            aria-label={`${territoryAccessibleLabel(state, territoryId, interaction.territories[territoryId])}${resourceValues?.[territoryId] !== undefined ? `, ${resourceValues[territoryId]} coins` : ""}`}
             aria-current={selected ? "true" : undefined}
             aria-pressed={selected}
             onFocus={() => setFocused(territoryId)}

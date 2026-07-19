@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { api, type AuthResult, type CampaignSummary, type ContentRequirement } from "./api.ts";
 import NetworkedGame from "./NetworkedGame.tsx"; // new (1-web-b)
+import LegacyVault from "../game/LegacyVault.tsx";
+import PrepareWorldScreen from "../game/PrepareWorldScreen.tsx";
+import { campaignPreparationStatus, type CampaignPreparationAction, type CampaignState } from "@risk/rules";
 
 interface LobbyMember { userId: string; name: string; role: string; ready: boolean; connected: boolean; seat: number | null }
 
@@ -35,8 +38,11 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
   const [campaigns, setCampaigns] = useState<CampaignSummary[] | null>(null);
   const [lobby, setLobby] = useState<{ campaign: CampaignSummary; members: LobbyMember[] } | null>(null);
   const [contentRequired, setContentRequired] = useState<ContentRequirement[]>([]); // new (12)
+  const [legacyModules, setLegacyModules] = useState<string[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [preparation, setPreparation] = useState<CampaignState | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const lobbyCampaignRef = useRef<CampaignSummary | null>(null);
 
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
   const refreshCampaigns = (a: AuthResult) => api.campaigns(serverUrl, a.token).then(setCampaigns).catch(fail);
@@ -48,7 +54,26 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
     socketRef.current = socket;
     socket.on("lobby:state", (members: LobbyMember[]) => setLobby((l) => (l ? { ...l, members } : l)));
     socket.on("game:created", ({ sessionId }: { sessionId: string }) => setSessionId(sessionId));
+    socket.on("preparation:state", ({ state }: { state: CampaignState }) => setPreparation(state));
     socket.on("connect_error", (e: Error) => setError(e.message));
+    socket.on("disconnect", () => setError("Connection lost — reconnecting to the War Room…"));
+    socket.on("connect", () => {
+      setError(null);
+      const campaign = lobbyCampaignRef.current;
+      if (!campaign) return;
+      socket.emit("lobby:join", { campaignId: campaign.id }, (res: any) => {
+        if (res?.error) return setError(res.error);
+        setLobby({ campaign, members: res?.members ?? [] });
+      });
+      socket.emit("preparation:join", { campaignId: campaign.id }, (res: any) => {
+        if (res?.error) return setError(res.error);
+        setPreparation(res.state);
+      });
+      api.campaignLegacy(serverUrl, auth.token, campaign.id).then((legacy) => {
+        setContentRequired(legacy.contentRequired);
+        setLegacyModules(legacy.unlockedModules);
+      }).catch(fail);
+    });
     return () => { socket.disconnect(); socketRef.current = null; };
   }, [auth, serverUrl]);
 
@@ -56,17 +81,37 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
     setError(null);
     setSessionId(null);
     setContentRequired([]);
+    setLegacyModules([]);
+    lobbyCampaignRef.current = campaign;
     socketRef.current?.emit("lobby:join", { campaignId: campaign.id }, (res: any) => {
       if (res?.error) return setError(res.error);
       setLobby({ campaign, members: res?.members ?? [] });
     });
-    if (auth) api.campaignLegacy(serverUrl, auth.token, campaign.id).then((l) => setContentRequired(l.contentRequired)).catch(fail); // new (12)
+    socketRef.current?.emit("preparation:join", { campaignId: campaign.id }, (res: any) => {
+      if (res?.error) return setError(res.error);
+      setPreparation(res.state);
+    });
+    if (auth) api.campaignLegacy(serverUrl, auth.token, campaign.id).then((legacy) => {
+      setContentRequired(legacy.contentRequired);
+      setLegacyModules(legacy.unlockedModules);
+    }).catch(fail); // new (12)
   };
 
   // new (1-web-b): a created session takes over the whole screen with the networked game
   if (auth && sessionId && socketRef.current) {
     return <NetworkedGame key={sessionId} socket={socketRef.current} sessionId={sessionId} viewerId={auth.user.id}
-      onExit={() => { setSessionId(null); setLobby(null); refreshCampaigns(auth); }} />;
+      onExit={() => { setSessionId(null); setLobby(null); lobbyCampaignRef.current = null; refreshCampaigns(auth); }} />;
+  }
+
+  const preparationStage = preparation ? campaignPreparationStatus(preparation) : lobby?.campaign.preparationStatus;
+  if (auth && lobby && preparation && preparationStage !== "not_started" && preparationStage !== "complete") {
+    const dispatch = (action: CampaignPreparationAction) => socketRef.current?.emit(
+      "preparation:action", { campaignId: lobby.campaign.id, action }, (res: any) => res?.error ? setError(res.error) : setError(null),
+    );
+    return <PrepareWorldScreen campaign={preparation} dispatch={dispatch} viewerId={auth.user.id}
+      adminOverride={lobby.campaign.role === "host"} onExit={() => {
+      setLobby(null); setPreparation(null); lobbyCampaignRef.current = null; refreshCampaigns(auth);
+    }} />;
   }
 
   return (
@@ -94,12 +139,20 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
               <ContentWizard key={lobby.campaign.id} serverUrl={serverUrl} auth={auth} campaignId={lobby.campaign.id}
                 entries={contentRequired} onUpdated={setContentRequired} onError={fail} />
             )}
+            <div className="mb-4">
+              <LegacyVault unlockedModules={legacyModules} compact />
+            </div>
             <LobbyPanel auth={auth} lobby={lobby}
+              preparationStatus={preparationStage ?? "not_started"}
               onSeat={(seat) => socketRef.current?.emit("lobby:seat", { campaignId: lobby.campaign.id, seat }, (res: any) => {
                 if (res?.error) setError(res.error);
                 else setError(null);
               })}
               onReady={(ready) => socketRef.current?.emit("lobby:ready", { campaignId: lobby.campaign.id, ready })}
+              onBeginPreparation={() => socketRef.current?.emit("preparation:begin", { campaignId: lobby.campaign.id }, (res: any) => {
+                if (res?.error) return setError(res.error);
+                if (res?.state) setPreparation(res.state);
+              })}
               onLaunch={() => socketRef.current?.emit("game:create", { campaignId: lobby.campaign.id }, (res: any) => {
                 if (res?.error) return setError(res.error);
                 if (res?.sessionId) setSessionId(res.sessionId);
@@ -108,6 +161,9 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
                 socketRef.current?.emit("lobby:leave", { campaignId: lobby.campaign.id });
                 setLobby(null);
                 setSessionId(null);
+                setLegacyModules([]);
+                setPreparation(null);
+                lobbyCampaignRef.current = null;
                 refreshCampaigns(auth);
               }} />
           </>
@@ -174,18 +230,25 @@ function CampaignsPanel({ serverUrl, auth, campaigns, onRefresh, onOpen, onResum
           </div>
         )}
       </section>
-      <section className="bg-panel border border-line rounded-sm p-6 grid grid-cols-2 gap-6">
-        <div>
+      <section className="bg-panel border border-line rounded-sm p-6">
+        <div className="grid sm:grid-cols-2 gap-6 mb-5">
+          <div>
           <h3 className="font-display font-bold tracking-wide mb-2">NEW CAMPAIGN</h3>
           <Field label="World name" value={worldName} onChange={setWorldName} testId="world-name" />
-          <Btn tone="primary" onClick={() => api.createCampaign(serverUrl, auth.token, worldName).then(onRefresh).catch(onError)}>CREATE</Btn>
-        </div>
-        <div>
+          <p className="text-xs text-muted">Invite and seat the players first. The table prepares the world together afterward.</p>
+          </div>
+          <div>
           <h3 className="font-display font-bold tracking-wide mb-2">JOIN BY INVITE</h3>
           <Field label="Invite code" value={inviteCode} onChange={setInviteCode} testId="invite-code" />
           <Btn onClick={() => api.joinCampaign(serverUrl, auth.token, inviteCode).then(onRefresh).catch(onError)}>JOIN</Btn>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Btn tone="primary" disabled={!worldName.trim()}
+            onClick={() => api.createCampaign(serverUrl, auth.token, worldName).then(onRefresh).catch(onError)}>CREATE CAMPAIGN</Btn>
         </div>
       </section>
+      <LegacyVault compact />
     </div>
   );
 }
@@ -222,14 +285,17 @@ function ContentWizard({ serverUrl, auth, campaignId, entries, onUpdated, onErro
   );
 }
 
-function LobbyPanel({ auth, lobby, onSeat, onReady, onLaunch, onBack }: {
+function LobbyPanel({ auth, lobby, preparationStatus, onSeat, onReady, onBeginPreparation, onLaunch, onBack }: {
   auth: AuthResult; lobby: { campaign: CampaignSummary; members: LobbyMember[] };
-  onSeat: (seat: number) => void; onReady: (ready: boolean) => void; onLaunch: () => void; onBack: () => void;
+  preparationStatus: string;
+  onSeat: (seat: number) => void; onReady: (ready: boolean) => void; onBeginPreparation: () => void; onLaunch: () => void; onBack: () => void;
 }) {
   const me = lobby.members.find((m) => m.userId === auth.user.id);
   const isHost = me?.role === "host";
   const readyCount = lobby.members.filter((m) => m.role !== "spectator" && m.connected && m.ready).length;
-  const canLaunch = readyCount >= 3 && readyCount <= 5;
+  const seatedCount = lobby.members.filter((m) => m.role !== "spectator" && m.connected && m.seat !== null).length;
+  const prepared = preparationStatus === "complete";
+  const canLaunch = prepared && readyCount >= 3 && readyCount <= 5;
   return (
     <section className="bg-panel border border-line rounded-sm p-6">
       <div className="flex items-baseline gap-3 mb-4">
@@ -253,11 +319,12 @@ function LobbyPanel({ auth, lobby, onSeat, onReady, onLaunch, onBack }: {
             {[1, 2, 3, 4, 5].map((seat) => {
               const occupant = lobby.members.find((member) => member.seat === seat);
               const mine = occupant?.userId === auth.user.id;
+              const reclaimable = !!occupant && !occupant.connected && !mine;
               return (
-                <button key={seat} type="button" disabled={!!occupant && !mine} onClick={() => onSeat(seat)}
+                <button key={seat} type="button" disabled={!!occupant && !mine && !reclaimable} onClick={() => onSeat(seat)}
                   className={`border rounded-sm px-3 py-3 text-left disabled:opacity-40 ${mine ? "border-signal bg-signal/10" : "border-line hover:border-signal"}`}>
                   <span className="block font-display font-bold tracking-widest text-sm">SEAT {seat}</span>
-                  <span className="block font-mono text-[10px] text-muted truncate">{occupant?.name ?? "available"}</span>
+                  <span className="block font-mono text-[10px] text-muted truncate">{reclaimable ? `${occupant!.name} offline · reclaim` : occupant?.name ?? "available"}</span>
                 </button>
               );
             })}
@@ -265,16 +332,19 @@ function LobbyPanel({ auth, lobby, onSeat, onReady, onLaunch, onBack }: {
         </div>
       )}
       <div className="flex gap-2">
-        {me && me.role !== "spectator" && (
+        {prepared && me && me.role !== "spectator" && (
           <Btn tone="primary" disabled={me.seat === null} onClick={() => onReady(!me.ready)}>{me.ready ? "UNREADY" : me.seat === null ? "CHOOSE A SEAT" : "READY"}</Btn>
         )}
-        {isHost && <Btn onClick={onLaunch} disabled={!canLaunch}>LAUNCH GAME ({readyCount} ready)</Btn>}
+        {isHost && !prepared && <Btn tone="primary" onClick={onBeginPreparation} disabled={seatedCount < 3 || seatedCount > 5}>BEGIN PREPARATION ({seatedCount} seated)</Btn>}
+        {isHost && prepared && <Btn onClick={onLaunch} disabled={!canLaunch}>LAUNCH GAME ({readyCount} ready)</Btn>}
       </div>{/* new (1-web-b): game:created now mounts NetworkedGame instead of a banner */}
-      {isHost && !canLaunch && (
+      {isHost && prepared && !canLaunch && (
         <p className="font-mono text-xs text-muted mt-3">
           {readyCount < 3 ? `${3 - readyCount} more connected player${3 - readyCount === 1 ? "" : "s"} must ready.` : "At most 5 players may join."}
         </p>
       )}
+      {!prepared && <p className="font-mono text-xs text-muted mt-3">Seat 3-5 connected players. Beginning preparation snapshots this clockwise order and locks seats until the world is sealed.</p>}
+      {prepared && <p className="font-mono text-[10px] text-muted mt-3">Seat order becomes clockwise setup order. Launch includes connected, seated players who are READY.</p>}
     </section>
   );
 }

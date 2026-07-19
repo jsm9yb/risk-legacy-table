@@ -15,6 +15,14 @@ test("populated Pixi table renders generated pieces, permanent marks, and intera
   await expectHealthyTable(page);
   await expect(page).toHaveScreenshot("table-desktop-populated.png");
 
+  const resourceToggle = page.getByTestId("resource-view-toggle");
+  await resourceToggle.click();
+  await expect(resourceToggle).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => (await page.evaluate(() => (globalThis as any).__riskTableDiagnostics.capture())).resourceValueBadges).toBe(42);
+  await expect(page).toHaveScreenshot("table-resource-values.png");
+  await resourceToggle.click();
+  await expect.poll(async () => (await page.evaluate(() => (globalThis as any).__riskTableDiagnostics.capture())).resourceValueBadges).toBe(0);
+
   for (const factionId of ["die_mechaniker", "enclave_of_the_bear", "imperial_balkania", "khan_industries", "saharan_republic", "mutants", "aliens"]) {
     await page.getByLabel("Demo faction").selectOption(factionId);
     await page.waitForTimeout(300);
@@ -76,6 +84,7 @@ test("the global clutter fixture exposes exact troop counts on hover", async ({ 
   expect(diagnostics.minimumTerritoryLabelAlpha).toBe(0.2);
   expect(diagnostics.maximumTerritoryLabelAlpha).toBe(0.2);
   expect(diagnostics.boundaryOcclusions).toBeGreaterThan(0);
+  expect(diagnostics.placedContentAboveTerritoryLines).toBe(true);
   expect(diagnostics.missingHqAtlasIds).toEqual([]);
   expect(diagnostics.hqFallbacks).toBe(0);
   await expect(page).toHaveScreenshot("table-global-clutter-audit.png");
@@ -89,6 +98,17 @@ test("the global clutter fixture exposes exact troop counts on hover", async ({ 
   await expect(tooltip).toContainText("Die Mechaniker");
   await expect(tooltip).toContainText("Fortification 10/10");
   await expect(tooltip).toContainText(/scar.*bunker/i);
+
+  const cityPoint = await page.evaluate(() => (globalThis as any).__riskTableDiagnostics.cityClientPoint("alaska"));
+  await page.mouse.move(cityPoint.x, cityPoint.y);
+  const cityTooltip = page.getByTestId("city-tooltip");
+  await expect(cityTooltip).toBeVisible();
+  await expect(cityTooltip).toContainText("Layer Audit");
+  await expect(cityTooltip).toContainText("Major City");
+  await expect(cityTooltip).toContainText("Population+2");
+  await expect(cityTooltip).toContainText("before dividing by 3");
+  await expect(cityTooltip).toContainText("loses 2 troops");
+  await expect(cityTooltip).toContainText("10/10 uses");
 
   for (const [territoryId, durability] of [["alberta", 9], ["ontario", 5], ["quebec", 1]] as const) {
     const durabilityPoint = await page.evaluate((id) => (globalThis as any).__riskTableDiagnostics.territoryClientPoint(id), territoryId);
@@ -149,16 +169,14 @@ test.describe("ordinary movement and legacy rituals use semantic full-motion seq
   });
 });
 
-test("reduced motion preserves changes without camera travel", async ({ browser }) => {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, reducedMotion: "reduce" });
-  const page = await context.newPage();
-  await page.goto("http://127.0.0.1:4173/?table-demo=1");
+test("reduced motion preserves changes without camera travel", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/?table-demo=1");
   await expectHealthyTable(page);
   await page.getByRole("button", { name: "SCAR", exact: true }).click();
   await page.waitForTimeout(180);
   await expect(page.getByRole("button", { name: "SKIP" })).toBeHidden();
   await expect(page).toHaveScreenshot("table-reduced-motion.png");
-  await context.close();
 });
 
 test("phone portrait keeps the table and decisions usable", async ({ page }) => {
@@ -176,11 +194,36 @@ test("tablet portrait keeps authored territory alignment", async ({ page }) => {
   await expect(page).toHaveScreenshot("table-tablet-portrait.png");
 });
 
+test("Prepare the World deck keeps all cards, rules, and map reference in one view", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /NEW CAMPAIGN/ }).click();
+  await page.getByLabel("World name").fill("Visual World");
+  await page.getByRole("button", { name: "PREPARE THE WORLD" }).click();
+  await expect(page.locator('[aria-label="All 42 Territory cards"] [data-card-id]')).toHaveCount(42);
+  await expect(page.locator("[data-sticker-id]")).toHaveCount(12);
+  await expect(page.getByRole("button", { name: /randomize remaining.*admin override/i })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Territory map reference" })).toBeVisible();
+  await expect(page.getByText("HOW RESOURCE CARDS WORK")).toBeVisible();
+  await expect(page).toHaveScreenshot("prepare-world-deck.png");
+});
+
 test("real local campaign enters the production Pixi table", async ({ page }) => {
+  test.setTimeout(60_000);
   await page.goto("/");
   await page.getByRole("button", { name: /NEW CAMPAIGN/ }).click();
   await page.getByLabel("World name").fill("E2E World");
-  await page.getByRole("button", { name: "START GAME" }).click();
+  await page.getByRole("button", { name: "PREPARE THE WORLD" }).click();
+  await page.locator('[data-sticker-id="world-coin-01"]').dragTo(page.locator('[data-card-id="0"]'));
+  await expect(page.getByRole("dialog", { name: "Confirm permanent sticker" })).toBeVisible();
+  await page.getByRole("button", { name: "COMMIT STICKER" }).click();
+  for (let sticker = 1; sticker < 12; sticker++) {
+    await page.getByRole("button", { name: /next sticker/ }).click();
+    await page.getByRole("button", { name: "Resource sticker slot 1" }).first().click();
+    await page.getByRole("button", { name: "COMMIT STICKER" }).click();
+  }
+  await page.getByRole("button", { name: "CONFIRM REVIEW" }).click();
+  await page.getByRole("button", { name: "SEAL PREPARATION" }).click();
   await expectHealthyTable(page);
+  await page.getByRole("button", { name: "BEGIN SETUP" }).click();
   await expect(page.getByText(/Choose a faction/i)).toBeVisible();
 });

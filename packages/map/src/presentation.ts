@@ -14,6 +14,8 @@ export type TroopPlacementSlots = [
 interface AuthoredTerritoryPresentationDef {
   territoryId: string;
   cameraFocus: [number, number];
+  /** Connection-specific points inside this territory's mask. */
+  preferredRoutePorts?: Partial<Record<string, [number, number]>>;
   /** Exactly one city, ruin, or fallout asset occupies this permanent-mark position. */
   architectureSlot: [number, number];
   /** Exactly one ordinary territory scar occupies this permanent-mark position. */
@@ -78,7 +80,7 @@ function expand(def: AuthoredTerritoryPresentationDef): TerritoryPresentationDef
     scarSlot: def.scarSlot,
     fortificationSlot: def.architectureSlot,
     labelAvoidance: [[x - spread * 1.5, y - 2, spread * 3, 8]],
-    preferredRoutePorts: {},
+    preferredRoutePorts: { ...def.preferredRoutePorts },
   };
 }
 
@@ -121,7 +123,8 @@ export function validatePresentationManifest(): string[] {
     if (definition.architectureSlot[0] === definition.scarSlot[0] && definition.architectureSlot[1] === definition.scarSlot[1]) errors.push(`${definition.territoryId}: architecture and scar slots must be distinct`);
     if (definition.hqSlot[0] === definition.scarSlot[0] && definition.hqSlot[1] === definition.scarSlot[1]) errors.push(`${definition.territoryId}: HQ and scar slots must be distinct`);
     if (definition.hqSlot[0] === definition.architectureSlot[0] && definition.hqSlot[1] === definition.architectureSlot[1]) errors.push(`${definition.territoryId}: HQ and architecture slots must be distinct`);
-    const points = [definition.cameraFocus, definition.countSlot, definition.overflowSlot, definition.architectureSlot, definition.hqSlot, definition.citySlot, definition.scarSlot, definition.fortificationSlot, ...definition.pieceSlots];
+    const routePorts = Object.values(definition.preferredRoutePorts).filter((point): point is [number, number] => point !== undefined);
+    const points = [definition.cameraFocus, definition.countSlot, definition.overflowSlot, definition.architectureSlot, definition.hqSlot, definition.citySlot, definition.scarSlot, definition.fortificationSlot, ...definition.pieceSlots, ...routePorts];
     for (const [x, y] of points) if (x < 0 || x > 749.819 || y < 0 || y > 519.068) errors.push(`${definition.territoryId}: point outside board viewBox`);
   }
   for (const id of required) if (!ids.has(id)) errors.push(`${id}: missing presentation definition`);

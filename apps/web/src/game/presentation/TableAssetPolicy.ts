@@ -20,7 +20,14 @@ const TEXT_RESOLUTION_LIMITS: Record<TableQuality, { min: number; max: number }>
   balanced: { min: 3, max: 6 },
   high: { min: 4, max: 8 },
 };
-const MAX_TABLE_ZOOM = 2.4;
+export const MAX_TABLE_ZOOM = 3.2;
+
+export function tableMiniatureTextureSourceOptions() {
+  return {
+    scaleMode: "linear" as const,
+    autoGenerateMipmaps: true,
+  };
+}
 
 export function tableTextTextureResolution(
   quality: TableQuality,

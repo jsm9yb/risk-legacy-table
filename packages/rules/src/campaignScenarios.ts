@@ -142,7 +142,15 @@ export function advanceCampaignScenarioToFirstTurn(initial: GameState): Campaign
   const suppliedContent = supplied.suppliedContent;
   const setupChoices: CampaignScenarioFlow["setupChoices"] = [];
 
+  if (state.setup?.stage === "order_reveal") {
+    state = applyAction(state, { type: "setup.acknowledgeOrder", playerId: state.setup.chooserOrder[0] });
+  }
+
   while (state.advancedDraft && !state.advancedDraft.completed) {
+    if (state.advancedDraft.pendingCoinClaim) {
+      state = applyAction(state, { type: "draft.takeStartingCoin", playerId: state.advancedDraft.pendingCoinClaim.playerId, cardId: state.sideboard.coinPile[0] });
+      continue;
+    }
     const playerId = waitingOn(state);
     if (!playerId) throw new Error("Campaign scenario draft has no active picker");
     const picks = state.advancedDraft.picks[playerId];

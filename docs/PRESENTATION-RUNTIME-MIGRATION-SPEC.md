@@ -483,8 +483,7 @@ Territory interaction and owner treatment do not depend on raster pixels. A buil
 ### 10.4 Camera
 
 - Default camera fits the full board with 2–4% safe margin.
-- Desktop maximum zoom: 1.8×.
-- phone/tablet maximum zoom: 2.4×.
+- Maximum manual zoom on all viewports: 3.2×.
 - Pointer wheel/pinch zoom centers on the pointer midpoint.
 - Drag pan has 8% elastic overscroll and snaps back inside board bounds.
 - Selecting a territory may nudge focus but may not steal manual camera control.

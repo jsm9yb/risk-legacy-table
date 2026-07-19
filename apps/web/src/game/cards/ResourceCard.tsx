@@ -7,9 +7,10 @@ import { continentColors, territoryById, territoryPath } from "@risk/map";
 import { cardDef, territoryName } from "../labels.ts";
 import { CARD_TEXTURE_URL } from "./texture.ts";
 
-export type CardSize = "xs" | "sm" | "md" | "lg";
+export type CardSize = "xs" | "prep" | "sm" | "md" | "lg";
 const SIZES: Record<CardSize, string> = {
   xs: "w-12 text-[5px]",
+  prep: "w-[clamp(3rem,4.5vw,3.75rem)] text-[6px]",
   sm: "w-16 text-[6.5px]",
   md: "w-24 text-[9px]",
   lg: "w-32 text-[12px]",
@@ -31,36 +32,45 @@ export function CoinFace({ className = "", pile }: { className?: string; pile?: 
   );
 }
 
-function CoinPip({ filled }: { filled: boolean }) {
-  return (
-    filled
-      ? <CoinFace className="block aspect-square rounded-full" />
-      : <span data-coin="empty" className="block aspect-square rounded-full border border-[#8a6d1c]/50" />
+function CoinPip({ filled, slot, active, onDrop }: { filled: boolean; slot?: 1 | 2; active?: boolean; onDrop?: () => void }) {
+  const pip = filled
+    ? <CoinFace className="block aspect-square rounded-full" />
+    : <span data-coin="empty" className={`block aspect-square rounded-full border ${active ? "border-signal ring-2 ring-signal/60" : "border-[#8a6d1c]/50"}`} />;
+  if (slot && onDrop) return (
+    <button type="button" data-resource-sticker-slot={slot} aria-label={`Resource sticker slot ${slot}`} onClick={onDrop}
+      className="block rounded-full focus:outline-none focus:ring-2 focus:ring-signal">
+      {pip}
+    </button>
   );
+  return (
+    <span data-resource-sticker-slot={slot} className="block">{pip}</span>
+  );
+}
+
+export interface ResourceStickerSlots {
+  filledBy: Record<1 | 2, string | undefined>;
+  activeDropSlot?: 1 | 2;
+  onDropSlot?: (slot: 1 | 2) => void;
 }
 
 function TerritoryArt({ territoryId }: { territoryId: string }) {
   const geo = territoryPath(territoryId);
   if (!geo) return null;
   const territory = territoryById(territoryId);
-  const context = territory.neighbors
-    .filter((id) => territoryById(id).continent === territory.continent)
-    .map((id) => ({ id, geo: territoryPath(id)! }))
-    .filter((entry) => !!entry.geo);
-  const crop = unionBox([geo, ...context.map((entry) => entry.geo)].map((entry) => entry.bbox));
-  const [x1, y1, x2, y2] = crop;
+  // territory-path bboxes are stored after the board source transform while the
+  // SVG path commands remain in source coordinates. Undo that transform so the
+  // card viewBox and path share one coordinate system.
+  const [tx, ty] = geo.sourceTransform;
+  const [bx1, by1, bx2, by2] = geo.bbox;
+  const [x1, y1, x2, y2] = [bx1 - tx, by1 - ty, bx2 - tx, by2 - ty];
   const w = x2 - x1;
   const h = y2 - y1;
-  const pad = Math.max(w, h) * 0.12;
+  const pad = Math.max(w, h) * 0.08;
   const color = continentColors[territory.continent] ?? "#9a9a94";
   const stroke = Math.max(Math.max(w, h) * 0.018, 1.8);
   return (
     <svg data-territory-art viewBox={`${x1 - pad} ${y1 - pad} ${w + pad * 2} ${h + pad * 2}`}
       preserveAspectRatio="xMidYMid meet" className="absolute inset-0 w-full h-full" aria-hidden="true">
-      {context.map((entry) => (
-        <path key={entry.id} data-context-territory={entry.id} d={entry.geo.d}
-          fill={color} opacity="0.28" stroke="#f7f2da" strokeWidth={stroke * 0.55} strokeLinejoin="round" />
-      ))}
       <path data-selected-territory={territoryId} d={geo.d} fill={color}
         stroke="#fff7cf" strokeWidth={stroke} strokeLinejoin="round" />
       <path d={geo.d} fill="none" stroke="#15120b" strokeWidth={stroke * 0.34} strokeLinejoin="round" opacity="0.55" />
@@ -68,16 +78,7 @@ function TerritoryArt({ territoryId }: { territoryId: string }) {
   );
 }
 
-function unionBox(boxes: readonly (readonly [number, number, number, number])[]) {
-  return boxes.reduce<readonly [number, number, number, number]>((acc, box) => [
-    Math.min(acc[0], box[0]),
-    Math.min(acc[1], box[1]),
-    Math.max(acc[2], box[2]),
-    Math.max(acc[3], box[3]),
-  ], boxes[0]);
-}
-
-export default function ResourceCard({ cardId, resources, size = "md", faceDown, selected, onClick, title }: {
+export default function ResourceCard({ cardId, resources, size = "md", faceDown, selected, onClick, onHoverChange, title, resourceStickerSlots }: {
   /** Omit (with faceDown) for anonymous backs in decks/hidden hands. */
   cardId?: string;
   /** Current resource value incl. upgrades; defaults to the pack's printed value. */
@@ -86,14 +87,17 @@ export default function ResourceCard({ cardId, resources, size = "md", faceDown,
   faceDown?: boolean;
   selected?: boolean;
   onClick?: () => void;
+  /** Reports pointer and keyboard focus hover without coupling cards to the board renderer. */
+  onHoverChange?: (hovered: boolean) => void;
   title?: string;
+  resourceStickerSlots?: ResourceStickerSlots;
 }) {
   const frame = `${SIZES[size]} aspect-[5/7] relative shrink-0 rounded-[6%] overflow-hidden shadow-md shadow-black/40 ${
     selected ? "ring-2 ring-signal" : ""} ${onClick ? "cursor-pointer hover:ring-1 hover:ring-signal/60" : ""}`;
 
   if (faceDown || !cardId) {
     return (
-      <Frame frame={frame} onClick={onClick} title={title}>
+      <Frame frame={frame} onClick={onClick} onHoverChange={onHoverChange} title={title}>
         <div data-card-back className="absolute inset-0 bg-[#101215] flex items-center justify-center"
           style={{ backgroundImage: `url(${CARD_TEXTURE_URL})` }}>
           <svg viewBox="0 0 24 24" className="w-1/2" aria-hidden="true">
@@ -109,7 +113,7 @@ export default function ResourceCard({ cardId, resources, size = "md", faceDown,
 
   if (def.kind === "coin") {
     return (
-      <Frame frame={frame} onClick={onClick} title={title} cardId={cardId}>
+      <Frame frame={frame} onClick={onClick} onHoverChange={onHoverChange} title={title} cardId={cardId}>
         <div className="absolute inset-0 bg-[#efe7d2] flex items-center justify-center"
           style={{ backgroundImage: `url(${CARD_TEXTURE_URL})` }}>
           <CoinFace className="block w-[58%] aspect-square rounded-full" />
@@ -120,7 +124,7 @@ export default function ResourceCard({ cardId, resources, size = "md", faceDown,
   }
 
   return (
-    <Frame frame={frame} onClick={onClick} title={title ?? territoryName(def.territoryId)} cardId={cardId}>
+    <Frame frame={frame} onClick={onClick} onHoverChange={onHoverChange} title={title ?? territoryName(def.territoryId)} cardId={cardId}>
       <div className="absolute inset-0 bg-[#efe7d2] flex flex-col" style={{ backgroundImage: `url(${CARD_TEXTURE_URL})` }}>
         <div className="bg-[#e0b73b] border-b border-[#8a6d1c]/40 text-[#161006] font-display font-bold uppercase text-center leading-tight px-[4%] py-[4%] text-[1.15em] min-h-[16%] flex items-center justify-center">
           {territoryName(def.territoryId)}
@@ -131,7 +135,15 @@ export default function ResourceCard({ cardId, resources, size = "md", faceDown,
         </div>
         <div className="bg-[#e0b73b] border-t border-[#8a6d1c]/40 px-[14%] pt-[4%] pb-[6%]">
           <div className="grid grid-cols-3 gap-[6%]">
-            {Array.from({ length: 6 }, (_, i) => <CoinPip key={i} filled={i < value} />)}
+            {Array.from({ length: 6 }, (_, index) => {
+              const slot = index === 1 ? 1 : index === 2 ? 2 : undefined;
+              const filled = resourceStickerSlots && slot
+                ? !!resourceStickerSlots.filledBy[slot]
+                : index < value;
+              return <CoinPip key={index} filled={filled} slot={slot}
+                active={!!slot && resourceStickerSlots?.activeDropSlot === slot}
+                onDrop={slot && !filled && resourceStickerSlots?.onDropSlot ? () => resourceStickerSlots.onDropSlot!(slot) : undefined} />;
+            })}
           </div>
         </div>
         <span className="absolute bottom-[1%] right-[4%] font-mono text-[0.85em] text-[#6b5b23]">{def.id}</span>
@@ -140,15 +152,21 @@ export default function ResourceCard({ cardId, resources, size = "md", faceDown,
   );
 }
 
-function Frame({ frame, onClick, title, cardId, children }: {
-  frame: string; onClick?: () => void; title?: string; cardId?: string; children: React.ReactNode;
+function Frame({ frame, onClick, onHoverChange, title, cardId, children }: {
+  frame: string; onClick?: () => void; onHoverChange?: (hovered: boolean) => void; title?: string; cardId?: string; children: React.ReactNode;
 }) {
+  const hoverProps = {
+    onMouseEnter: () => onHoverChange?.(true),
+    onMouseLeave: () => onHoverChange?.(false),
+    onFocus: () => onHoverChange?.(true),
+    onBlur: () => onHoverChange?.(false),
+  };
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} title={title} data-card-id={cardId} className={frame}>
+      <button type="button" onClick={onClick} title={title} data-card-id={cardId} className={frame} {...hoverProps}>
         {children}
       </button>
     );
   }
-  return <div title={title} data-card-id={cardId} className={frame}>{children}</div>;
+  return <div title={title} data-card-id={cardId} className={frame} tabIndex={onHoverChange ? 0 : undefined} {...hoverProps}>{children}</div>;
 }

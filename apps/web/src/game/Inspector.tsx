@@ -1,7 +1,7 @@
 import { isLegalStart, neighborsOf, type GameState } from "@risk/rules";
 import { manifest } from "@risk/map";
 import type { UiState } from "./GameScreen.tsx";
-import { continentName, factionById, scarName, territoryName } from "./labels.ts";
+import { continentName, factionById, scarById, scarName, territoryName } from "./labels.ts";
 import FactionEmblem from "./FactionEmblem.tsx";
 import { ignoresManeuverConnectivity, maneuverDestinations } from "./maneuverUi.ts";
 
@@ -38,7 +38,12 @@ export default function Inspector({ gs, tid, actor, canAct, ui }: {
         </div>
         {t.hqFaction && <div className="text-muted">HQ: <span className="text-text">{factionById(t.hqFaction)?.name}</span> (worth a Red Star to its holder)</div>}
         {t.city && <div className="text-muted">{t.city.type === "major" ? "Major" : t.city.type === "minor" ? "Minor" : "World"} City{t.city.name ? ` "${t.city.name}"` : ""} / population {t.city.population}</div>}
-        {t.scars.map((sid) => <div key={sid} className="text-danger">Scar: {scarName(sid)}</div>)}
+        {t.scars.map((sid) => (
+          <div key={sid} className="text-danger">
+            Scar: {scarName(sid)}
+            {!!scarById(sid)?.text && <span className="block pl-3 text-xs text-muted">{String(scarById(sid)!.text)}</span>}
+          </div>
+        ))}
         {t.fortification && <div className="text-muted">Fortification {t.fortification.remaining}/{t.fortification.max} (+1 each defense die)</div>}
       </div>
       {actor && canAct && <NextClick gs={gs} tid={tid} actor={actor} ui={ui} />}

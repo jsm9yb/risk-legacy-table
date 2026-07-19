@@ -1,0 +1,8 @@
+/node_modules/
+/.next/
+/.vinext/
+/dist/
+/.wrangler/
+/public/game/
+next-env.d.ts
+*.tsbuildinfo

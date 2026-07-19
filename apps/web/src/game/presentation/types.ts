@@ -25,6 +25,7 @@ export type PresentationEvent =
   | { type: "phase.changed"; seq: number; phase: GameState["phase"] }
   | { type: "game.won"; seq: number; playerId: PlayerId; reason: string }
   | { type: "legacy.ritual"; seq: number; ritual: "board.signed" | "continent.named" | "card.upgraded" | "world.named" | "ruins.placed"; playerId?: PlayerId; territoryId?: TerritoryId }
+  | { type: "presentation.none"; seq: number; sourceType: string }
   | { type: "presentation.unknown"; seq: number; sourceType: string };
 
 export interface StateTransition {
@@ -43,6 +44,10 @@ export interface TableRenderModel {
 export interface TableInteractionModel {
   selectedTerritoryId?: TerritoryId;
   intents: Readonly<Record<TerritoryId, string>>;
+  /** Ephemeral cross-surface emphasis, such as hovering a face-up Territory card. */
+  emphasizedTerritoryId?: TerritoryId;
+  /** Informational board mode keyed by territory; omitted during ordinary play. */
+  resourceValues?: Readonly<Partial<Record<TerritoryId, number>>>;
 }
 
 export interface TableViewport {
@@ -65,6 +70,9 @@ export interface TableSceneDiagnostics {
   missingHqAtlasIds?: string[];
   hqFallbacks?: number;
   boundaryOcclusions?: number;
+  placedContentAboveTerritoryLines?: boolean;
+  resourceValueBadges?: number;
+  emphasizedTerritoryId?: TerritoryId;
 }
 
 export type SceneCommand =

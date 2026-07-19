@@ -167,6 +167,16 @@ function pickAction(s: GameState): Action | null {
 }
 
 describe("networked game (1-web-b)", () => {
+  it("rejoins and refreshes authoritative state after a socket reconnect", () => {
+    const session = new FakeSession(93, [{ id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" }]);
+    const socket = session.connect("u1");
+    render(<NetworkedGame socket={socket} sessionId="net-1" viewerId="u1" onExit={() => {}} />);
+    expect(socket.emitted.filter((entry) => entry.event === "game:join")).toHaveLength(1);
+    act(() => socket.handlers.get("disconnect")?.());
+    act(() => socket.handlers.get("connect")?.());
+    expect(socket.emitted.filter((entry) => entry.event === "game:join")).toHaveLength(2);
+  });
+
   it("clears campaign-local setup choices when the session changes", () => {
     const players = [{ id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" }];
     const session = new FakeSession(94, players);
