@@ -4,5 +4,7 @@
 /dist/
 /.wrangler/
 /public/game/
+/outputs/
+/mac/
 next-env.d.ts
 *.tsbuildinfo

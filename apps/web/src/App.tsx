@@ -18,6 +18,7 @@ type View = { kind: "hub" } | { kind: "local"; cfg: LocalConfig } | { kind: "lan
 
 export default function App() {
   if (new URLSearchParams(window.location.search).has("table-demo")) return <TableDemo />;
+  if (import.meta.env.VITE_MULTIPLAYER_ONLY === "true") return <LanApp onExit={() => {}} />;
   const [view, setView] = useState<View>({ kind: "hub" }); // new
   if (view.kind === "local") return <LocalCampaign config={view.cfg} onExit={() => setView({ kind: "hub" })} />; // new
   if (view.kind === "lan") return <LanApp onExit={() => setView({ kind: "hub" })} />; // new

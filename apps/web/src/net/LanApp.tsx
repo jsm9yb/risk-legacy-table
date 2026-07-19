@@ -32,7 +32,9 @@ function Btn({ onClick, children, tone = "default", disabled }: {
 }
 
 export default function LanApp({ onExit }: { onExit: () => void }) {
-  const [serverUrl, setServerUrl] = useState(`http://${window.location.hostname}:8787`);
+  const [serverUrl, setServerUrl] = useState(
+    () => import.meta.env.VITE_MULTIPLAYER_SERVER_URL?.trim() || `http://${window.location.hostname}:8787`,
+  );
   const [auth, setAuth] = useState<AuthResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignSummary[] | null>(null);
@@ -118,7 +120,7 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
     <div className="min-h-full flex flex-col">
       <header className="border-b border-line px-8 py-5 flex items-baseline gap-4">
         <button onClick={onExit} className="font-mono text-xs text-muted hover:text-text">← HUB</button>
-        <h1 className="font-display font-extrabold tracking-wide text-2xl text-signal">LAN CAMPAIGNS</h1>
+        <h1 className="font-display font-extrabold tracking-wide text-2xl text-signal">MULTIPLAYER CAMPAIGNS</h1>
         {auth && <span className="font-mono text-xs text-muted">signed in as {auth.user.displayName}</span>}
       </header>
 
@@ -183,7 +185,11 @@ function AuthPanel({ serverUrl, setServerUrl, onAuthed, onError }: {
   return (
     <section className="bg-panel border border-line rounded-sm p-6">
       <h2 className="font-display font-bold text-xl tracking-wide mb-1">SIGN IN</h2>
-      <p className="text-muted text-sm mb-5">Accounts live on the LAN server (run <code className="font-mono text-xs">npm run dev:server</code> on the host).</p>
+      <p className="text-muted text-sm mb-5">
+        {import.meta.env.VITE_MULTIPLAYER_SERVER_URL
+          ? "Create an account for this private War Room, then create or join a shared campaign."
+          : <>Accounts live on the LAN server (run <code className="font-mono text-xs">npm run dev:server</code> on the host).</>}
+      </p>
       <Field label="Server" value={serverUrl} onChange={setServerUrl} testId="server-url" />
       <Field label="Username" value={username} onChange={setUsername} testId="username" />
       <Field label="Password" value={password} onChange={setPassword} type="password" testId="password" />
