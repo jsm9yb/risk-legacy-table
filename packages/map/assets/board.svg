@@ -3,23 +3,23 @@
 <desc>Web-ready stylized Risk-inspired SVG game board using canonical 42-territory ids, dark ocean, refined strokes, and continent-coordinated colors.</desc>
 <defs>
   <linearGradient id="board-bg" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#0b1f2a" />
-    <stop offset="0.46" stop-color="#173347" />
-    <stop offset="1" stop-color="#07131b" />
+    <stop offset="0" stop-color="#263c40" />
+    <stop offset="0.46" stop-color="#304b50" />
+    <stop offset="1" stop-color="#1d3238" />
   </linearGradient>
   <radialGradient id="board-light" cx="50%" cy="42%" r="72%">
-    <stop offset="0" stop-color="#6cb6ca" stop-opacity="0.22" />
+    <stop offset="0" stop-color="#d8dfc9" stop-opacity="0.08" />
     <stop offset="0.52" stop-color="#ffffff" stop-opacity="0.035" />
-    <stop offset="1" stop-color="#000000" stop-opacity="0.44" />
+    <stop offset="1" stop-color="#000000" stop-opacity="0.20" />
   </radialGradient>
   <pattern id="table-grain" width="42" height="42" patternUnits="userSpaceOnUse">
     <path d="M0 0H42M0 21H42M0 42H42M0 0V42M21 0V42M42 0V42" fill="none" stroke="#b7d8df" stroke-opacity="0.055" stroke-width="0.65" />
     <path d="M0 10C8 7 17 13 26 9S36 6 42 10M0 33C9 29 18 36 27 32S36 30 42 34" fill="none" stroke="#ffffff" stroke-opacity="0.026" stroke-width="0.8" />
   </pattern>
   <filter id="land-shadow" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
-    <feGaussianBlur in="SourceAlpha" stdDeviation="2.0" result="blur" />
-    <feOffset in="blur" dx="0" dy="2.6" result="offset" />
-    <feFlood flood-color="#000000" flood-opacity="0.45" result="shadowColor" />
+    <feGaussianBlur in="SourceAlpha" stdDeviation="1.0" result="blur" />
+    <feOffset in="blur" dx="0" dy="1.2" result="offset" />
+    <feFlood flood-color="#000000" flood-opacity="0.24" result="shadowColor" />
     <feComposite in="shadowColor" in2="offset" operator="in" result="shadow" />
     <feMerge>
       <feMergeNode in="shadow" />
@@ -39,22 +39,22 @@
     <stop offset="1" stop-color="#9ec8d6" stop-opacity="0.32" />
   </linearGradient>
   <linearGradient id="continent-north_america" x1="0" y1="0" x2="0.8" y2="1">
-    <stop offset="0" stop-color="#a9df62" /><stop offset="0.52" stop-color="#8cc63f" /><stop offset="1" stop-color="#5ea62d" />
+    <stop offset="0" stop-color="#b1c77d" /><stop offset="0.52" stop-color="#9bb764" /><stop offset="1" stop-color="#88a451" />
   </linearGradient>
   <linearGradient id="continent-south_america" x1="0" y1="0" x2="0.8" y2="1">
-    <stop offset="0" stop-color="#ffc25b" /><stop offset="0.52" stop-color="#f89a1c" /><stop offset="1" stop-color="#d96c14" />
+    <stop offset="0" stop-color="#dfb36b" /><stop offset="0.52" stop-color="#d19b50" /><stop offset="1" stop-color="#bd8840" />
   </linearGradient>
   <linearGradient id="continent-europe" x1="0" y1="0" x2="0.8" y2="1">
-    <stop offset="0" stop-color="#aebbe4" /><stop offset="0.52" stop-color="#8293c4" /><stop offset="1" stop-color="#6576ad" />
+    <stop offset="0" stop-color="#b2bacd" /><stop offset="0.52" stop-color="#9aa7c1" /><stop offset="1" stop-color="#8695b0" />
   </linearGradient>
   <linearGradient id="continent-africa" x1="0" y1="0" x2="0.8" y2="1">
-    <stop offset="0" stop-color="#c78b4d" /><stop offset="0.52" stop-color="#a66a2a" /><stop offset="1" stop-color="#784517" />
+    <stop offset="0" stop-color="#c6a276" /><stop offset="0.52" stop-color="#b18d60" /><stop offset="1" stop-color="#9d7b50" />
   </linearGradient>
   <linearGradient id="continent-asia" x1="0" y1="0" x2="0.8" y2="1">
-    <stop offset="0" stop-color="#81a452" /><stop offset="0.52" stop-color="#5b8038" /><stop offset="1" stop-color="#405d28" />
+    <stop offset="0" stop-color="#a2b381" /><stop offset="0.52" stop-color="#8d9f6d" /><stop offset="1" stop-color="#778c59" />
   </linearGradient>
   <linearGradient id="continent-australia" x1="0" y1="0" x2="0.8" y2="1">
-    <stop offset="0" stop-color="#9a7f8d" /><stop offset="0.52" stop-color="#755b65" /><stop offset="1" stop-color="#59404e" />
+    <stop offset="0" stop-color="#b19ba2" /><stop offset="0.52" stop-color="#9e8892" /><stop offset="1" stop-color="#8b7783" />
   </linearGradient>
 </defs>
 <style>
@@ -66,10 +66,10 @@
   .signature-num { font-family: "IBM Plex Mono", Consolas, monospace; font-weight: 800; fill: #e8f4f7; stroke: #06131a; stroke-width: 0.28; font-size: 4.8px; opacity: 0.48; }
   .signature-line { stroke: #d8eef3; stroke-width: 0.85; stroke-opacity: 0.38; }
   .top-slot { fill: none; stroke: #d6eef3; stroke-width: 1.55; stroke-linecap: round; opacity: 0.46; }
-  .route-line { fill: none; stroke: #f5d37f; stroke-width: 1.7; stroke-linecap: round; stroke-opacity: 0.72; stroke-dasharray: 6 5; filter: url(#soft-glow); }
-  .route-node { fill: #f6d784; stroke: #07131b; stroke-width: 1.45; opacity: 0.92; }
-  .territory-halo { fill: none; stroke: #07131b; stroke-width: 4.35; stroke-linejoin: round; filter: url(#land-shadow); pointer-events: none; opacity: 0.88; }
-  .territory-border { stroke: #f2ecd9; stroke-width: 0.86; stroke-linejoin: round; stroke-linecap: round; cursor: pointer; vector-effect: non-scaling-stroke; shape-rendering: geometricPrecision; transition: filter 120ms ease, stroke 120ms ease, opacity 120ms ease; }
+  .route-line { fill: none; stroke: #ded2ac; stroke-width: 1.15; stroke-linecap: round; stroke-opacity: 0.70; stroke-dasharray: 5 4; }
+  .route-node { fill: #ded2ac; stroke: #243b40; stroke-width: 1; opacity: 0.86; }
+  .territory-halo { fill: none; stroke: #182e32; stroke-width: 2.3; stroke-linejoin: round; filter: url(#land-shadow); pointer-events: none; opacity: 0.78; }
+  .territory-border { stroke: #e4ddc5; stroke-width: 0.65; stroke-linejoin: round; stroke-linecap: round; cursor: pointer; vector-effect: non-scaling-stroke; shape-rendering: geometricPrecision; transition: filter 120ms ease, stroke 120ms ease, opacity 120ms ease; }
   .territory-border[data-continent="north_america"] { fill: url(#continent-north_america); }
   .territory-border[data-continent="south_america"] { fill: url(#continent-south_america); }
   .territory-border[data-continent="europe"] { fill: url(#continent-europe); }
@@ -77,8 +77,8 @@
   .territory-border[data-continent="asia"] { fill: url(#continent-asia); }
   .territory-border[data-continent="australia"] { fill: url(#continent-australia); }
   .territory-border:hover { filter: brightness(1.12) saturate(1.05); stroke: #ffffff; }
-  .territory-label { font-family: "Inter", "Segoe UI", "Arial Narrow", sans-serif; font-weight: 850; fill: #07131a; stroke: #fff4d6; stroke-width: 0.62px; paint-order: stroke fill; pointer-events: none; letter-spacing: -0.04px; }
-  .continent-lead { fill: none; stroke-width: 1.55; stroke-linecap: round; stroke-opacity: 0.82; stroke-dasharray: 4.5 4; filter: url(#soft-glow); }
+  .territory-label { font-family: "Inter", "Segoe UI", "Arial Narrow", sans-serif; font-weight: 700; fill: #24332e; stroke: #e9e1cc; stroke-width: 0.7px; paint-order: stroke fill; pointer-events: none; letter-spacing: 0.04px; }
+  .continent-lead { fill: none; stroke-width: 1.1; stroke-linecap: round; stroke-opacity: 0.64; stroke-dasharray: 4.5 4; }
   .continent-callout-box { stroke: #ffffff; stroke-opacity: 0.78; stroke-width: 1.2; filter: url(#land-shadow); opacity: 0.94; }
   .continent-callout-notch { stroke: #ffffff; stroke-opacity: 0.72; stroke-width: 0.9; }
   .continent-name-guide { fill: none; stroke: #ffffff; stroke-width: 0.7; stroke-opacity: 0.4; stroke-linecap: round; }

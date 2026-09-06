@@ -1,7 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <circle cx="64" cy="64" r="59" fill="#111b17" stroke="#070b09" stroke-width="8"/>
-  <circle cx="64" cy="64" r="49" fill="#276b49" stroke="#58b67d" stroke-width="6"/>
-  <circle cx="64" cy="62" r="18" fill="#e5b75b" stroke="#17271f" stroke-width="5"/>
-  <path d="M64 22l9 24-9 16-9-16zm0 84l-9-24 9-16 9 16zM24 64l24-9 16 9-16 9zm80 0l-24 9-16-9 16-9z" fill="#f2dfad" stroke="#17271f" stroke-width="4" stroke-linejoin="round"/>
-  <path d="M42 86l22-24 22 24-22-9z" fill="#e5b75b" stroke="#17271f" stroke-width="4" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Saharan Republic">
+  <circle cx="64" cy="66" r="59" fill="#151915"/>
+  <circle cx="64" cy="63" r="58" fill="#e6dcc3" stroke="#242522" stroke-width="3"/>
+  <circle cx="64" cy="63" r="53" fill="#598368"/>
+  <circle cx="64" cy="63" r="47" fill="#242522"/>
+  <path d="M24 32 32 24M96 102 104 94" stroke="#e6dcc3" stroke-width="3"/>
+  <circle cx="64" cy="63" r="28" fill="none" stroke="#bfa16b" stroke-width="4"/>
+    <path d="M64 22 73 54 104 63 73 72 64 104 55 72 24 63 55 54Z" fill="#e6dcc3"/>
+    <path d="M64 22V63L55 54ZM104 63H64L73 72ZM64 104V63L55 72Z" fill="#bfa16b"/>
+    <path d="M64 54 73 63 64 72 55 63Z" fill="#242522"/>
+  <!-- Sparse edge wear stays outside the semantic silhouette. -->
+  <path d="M16 45 19 38M28 104 35 109M105 30 109 38M88 113 94 110" fill="none" stroke="#e6dcc3" stroke-width="2"/>
 </svg>

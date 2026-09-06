@@ -82,7 +82,7 @@ test("the global clutter fixture exposes exact troop counts on hover", async ({ 
   const diagnostics = await page.evaluate(() => (globalThis as any).__riskTableDiagnostics.capture());
   expect(diagnostics.textResolution).toBeGreaterThanOrEqual(4);
   expect(diagnostics.minimumTerritoryLabelAlpha).toBe(0.2);
-  expect(diagnostics.maximumTerritoryLabelAlpha).toBe(0.2);
+  expect(diagnostics.maximumTerritoryLabelAlpha).toBe(0.78);
   expect(diagnostics.boundaryOcclusions).toBeGreaterThan(0);
   expect(diagnostics.placedContentAboveTerritoryLines).toBe(true);
   expect(diagnostics.missingHqAtlasIds).toEqual([]);
@@ -123,21 +123,29 @@ test("the global clutter fixture exposes exact troop counts on hover", async ({ 
 });
 
 test("battle and conquest execute as skippable semantic sequences", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.clock.install();
+  await page.clock.resume();
   await page.goto("/?table-demo=1");
   await expectHealthyTable(page);
-  await page.getByRole("button", { name: "BATTLE", exact: true }).click();
+  // Freeze before dispatch so the skip control cannot expire between assertions
+  // on a busy machine. Capture each beat at an explicit director-clock instant.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 60_000));
+  await page.getByRole("button", { name: "BATTLE", exact: true }).dispatchEvent("click");
   const skip = page.getByTestId("presentation-skip");
   await expect(skip).toBeVisible();
   await skip.dispatchEvent("click");
   await expect(skip).toBeHidden();
 
-  await page.getByRole("button", { name: "BATTLE", exact: true }).click();
-  await page.waitForTimeout(1_040);
+  await page.getByRole("button", { name: "BATTLE", exact: true }).dispatchEvent("click");
+  await page.clock.runFor(1_040);
   expect(await page.screenshot()).toMatchSnapshot("table-battle-impact.png", { maxDiffPixelRatio: 0.02, threshold: 0.3 });
+  await page.clock.fastForward(1_000);
+  await page.clock.fastForward(1_000);
   await expect(page.locator(".game-table")).toHaveAttribute("data-presentation-status", "idle");
 
-  await page.getByRole("button", { name: "CONQUEST", exact: true }).click();
-  await page.waitForTimeout(250);
+  await page.getByRole("button", { name: "CONQUEST", exact: true }).dispatchEvent("click");
+  await page.clock.runFor(250);
   expect(await page.screenshot()).toMatchSnapshot("table-conquest-travel.png", { maxDiffPixelRatio: 0.02, threshold: 0.3 });
 });
 
@@ -161,7 +169,7 @@ test.describe("ordinary movement and legacy rituals use semantic full-motion seq
     await page.clock.resume();
     await page.goto("/?table-demo=1&fixture=marks");
     await expectHealthyTable(page);
-    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 60_000));
     await page.getByRole("button", { name: button, exact: true }).dispatchEvent("click");
     await page.clock.runFor(delay);
     const image = await page.screenshot();

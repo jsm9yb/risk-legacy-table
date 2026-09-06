@@ -1,8 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <circle cx="64" cy="64" r="59" fill="#17131f" stroke="#080a0c" stroke-width="8"/>
-  <circle cx="64" cy="64" r="49" fill="#7e57c2" stroke="#d7c8ef" stroke-width="5"/>
-  <path d="M64 25l8 10 13-5-3 13 12 7-11 8 7 26-19-9-7 24-7-24-19 9 7-26-11-8 12-7-3-13 13 5z" fill="#eee9f7" stroke="#21172f" stroke-width="5" stroke-linejoin="round"/>
-  <path d="M50 49l14 11 14-11-5 21H55z" fill="#7e57c2"/>
-  <path d="M64 57v31M52 68h24" stroke="#21172f" stroke-width="5"/>
-  <circle cx="64" cy="26" r="6" fill="#e0a93c" stroke="#21172f" stroke-width="3"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Imperial Balkania">
+  <circle cx="64" cy="66" r="59" fill="#151915"/>
+  <circle cx="64" cy="63" r="58" fill="#e6dcc3" stroke="#242522" stroke-width="3"/>
+  <circle cx="64" cy="63" r="53" fill="#806080"/>
+  <circle cx="64" cy="63" r="47" fill="#242522"/>
+  <path d="M24 32 32 24M96 102 104 94" stroke="#e6dcc3" stroke-width="3"/>
+  <path d="M58 39 48 30 55 23 64 28 73 23 80 30 70 39 69 51 101 37 98 52 77 62 96 58 92 70 74 74 87 78 81 88 69 81 74 102 64 96 54 102 59 81 47 88 41 78 54 74 36 70 32 58 51 62 30 52 27 37 59 51Z" fill="#e6dcc3"/>
+    <path d="M57 57H71L68 76 64 82 60 76Z" fill="#242522"/>
+    <path d="M57 19H71" stroke="#bfa16b" stroke-width="4"/>
+  <!-- Sparse edge wear stays outside the semantic silhouette. -->
+  <path d="M16 45 19 38M28 104 35 109M105 30 109 38M88 113 94 110" fill="none" stroke="#e6dcc3" stroke-width="2"/>
 </svg>

@@ -1,6 +1,6 @@
 # Table art source
 
-`generated/pieces/<faction>/atlas-master.png` contains the lossless transparent master produced from the approved faction prompt. Production atlases are downsampled to 768×512 WebP under `apps/web/src/assets/table/pieces/`.
+`generated/pieces/<faction>/atlas-master-v2.png` contains the current lossless transparent master. The earlier `atlas-master.png` is retained as a reference. Production atlases are packed into 768×512 lossless WebP under `apps/web/src/assets/table/pieces/`.
 
 All faction sheets use the same three-column contract:
 
@@ -8,7 +8,7 @@ All faction sheets use the same three-column contract:
 2. three-troop miniature;
 3. faction HQ.
 
-The normalized shared prompt and generation mode are recorded in `apps/web/src/assets/table/catalog.ts`. Generated source images used a flat chroma background, then the installed image-generation skill's soft-matte/despill helper removed it. Production exports were validated for RGBA alpha, transparent corners, subject coverage, and the 700 KB-per-faction transfer budget.
+The exact current prompts and built-in generation mode are recorded in `generated/pieces/prompts-v2.json`. The `chroma-v2.png` sources use a flat magenta technical key. Run `python scripts/build-faction-atlases.py` (Pillow, NumPy, SciPy) to isolate the three silhouettes, unmix antialiased key edges, and export the masters, lossless WebP atlases, and `pieces/frames.json`. The exporter enforces three isolated subjects, transparent padding and the 700 KB-per-faction transfer budget. Frames have 16px minimum horizontal gutters and share a baseline at y=496.
 
 ## Architecture atlas
 

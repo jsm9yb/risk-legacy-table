@@ -1,10 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <circle cx="64" cy="64" r="59" fill="#171b12" stroke="#080a0c" stroke-width="8"/>
-  <circle cx="64" cy="64" r="49" fill="#9aa83f" stroke="#dce68a" stroke-width="5"/>
-  <path d="M34 76c0-23 12-39 31-39 18 0 31 16 31 39l-9 27H42z" fill="#262d1d" stroke="#080a0c" stroke-width="6" stroke-linejoin="round"/>
-  <path d="M35 52L22 37l20 2M93 47l14-17-3 23M46 99l-12 12M83 101l13 10" fill="none" stroke="#9aa83f" stroke-width="7" stroke-linecap="round"/>
-  <path d="M43 66c7-10 17-10 23 0-7 9-17 9-23 0z" fill="#dce68a" stroke="#080a0c" stroke-width="4"/>
-  <circle cx="55" cy="66" r="4" fill="#080a0c"/>
-  <path d="M71 60l17 7-15 10z" fill="#dce68a" stroke="#080a0c" stroke-width="4" stroke-linejoin="round"/>
-  <path d="M51 87h27M56 87v12M65 87v12M74 87v12" fill="none" stroke="#dce68a" stroke-width="5" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Mutants">
+  <circle cx="64" cy="66" r="59" fill="#151915"/>
+  <circle cx="64" cy="63" r="58" fill="#e6dcc3" stroke="#242522" stroke-width="3"/>
+  <circle cx="64" cy="63" r="53" fill="#98a05a"/>
+  <circle cx="64" cy="63" r="47" fill="#242522"/>
+  <path d="M24 32 32 24M96 102 104 94" stroke="#e6dcc3" stroke-width="3"/>
+  <path d="M39 43 54 27 76 31 91 49 88 77 79 85 77 99 51 102 48 84 36 75Z" fill="#e6dcc3"/>
+    <path d="M42 52 60 55 58 68 45 66ZM70 54 84 49 81 64 70 67ZM63 69 70 81H57Z" fill="#242522"/>
+    <path d="M53 87V98M63 86V101M72 85V98M60 30 55 42 68 47" stroke="#242522" stroke-width="4"/>
+    <path d="M28 34 38 41M95 34 88 44M27 87 39 80M90 84 101 92" stroke="#98a05a" stroke-width="5"/>
+  <!-- Sparse edge wear stays outside the semantic silhouette. -->
+  <path d="M16 45 19 38M28 104 35 109M105 30 109 38M88 113 94 110" fill="none" stroke="#e6dcc3" stroke-width="2"/>
 </svg>

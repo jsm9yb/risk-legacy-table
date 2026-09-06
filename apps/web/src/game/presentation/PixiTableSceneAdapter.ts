@@ -21,6 +21,7 @@ import {
 } from "../../assets/table/architecture/catalog.ts";
 import { FACTION_PIECE_ATLASES, type FactionPieceAtlas } from "../../assets/table/catalog.ts";
 import { composeArmyStack } from "./ArmyStack.ts";
+import { cameraPanForFocus } from "./CameraFraming.ts";
 import { projectTerritoryLayers } from "./ArchitecturePresentation.ts";
 import { splitBoardArtwork } from "./BoardArtwork.ts";
 import { continentMarkModels } from "./ContinentMarks.ts";
@@ -37,6 +38,7 @@ import { scarMarkAsset } from "./ScarPresentation.ts";
 import { alienIslandRouteModels } from "./AlienIslandRoutes.ts";
 import {
   ARMY_PIECE_HEIGHT,
+  ARMY_PIECE_MAX_ASPECT,
   architecturePieceHeight,
   hqPieceHeight,
   scarDisplaySlot,
@@ -211,8 +213,8 @@ export class PixiTableSceneAdapter implements TableScene {
     this.backdrop.addChild(board);
     for (const territory of manifest.territories) {
       this.boundaryLayer.addChild(pathGraphic(territory.id, 0xffffff, 0, {
-        color: 0xf2ecd9,
-        width: 0.86,
+        color: 0xe4ddc5,
+        width: 0.65,
         alpha: 1,
       }));
     }
@@ -221,13 +223,13 @@ export class PixiTableSceneAdapter implements TableScene {
       const label = this.tableText({
         text: definition.text,
         style: {
-          fill: 0xfff1cf,
+          fill: 0x24332e,
           fontFamily: '"Arial Narrow", "Roboto Condensed", "Segoe UI", sans-serif',
           fontSize: definition.fontSize,
-          fontWeight: "900",
+          fontWeight: "700",
           lineHeight: definition.lineHeight,
           align: "center",
-          stroke: { color: 0x07131a, width: 1.6 },
+          stroke: { color: 0xe9e1cc, width: 0.8 },
         },
       });
       label.anchor.set(0.5);
@@ -327,8 +329,8 @@ export class PixiTableSceneAdapter implements TableScene {
     if (!texture) return undefined;
     const sprite = new Sprite(texture);
     sprite.anchor.set(0.5, 1);
-    sprite.height = height;
-    sprite.scale.x = sprite.scale.y;
+    const maxAspect = kind === "hq" ? 1.2 : ARMY_PIECE_MAX_ASPECT[kind === "one" ? 1 : 3];
+    sprite.scale.set(Math.min(height / texture.height, height * maxAspect / texture.width));
     return sprite;
   }
 
@@ -496,7 +498,16 @@ export class PixiTableSceneAdapter implements TableScene {
         .cut();
     }
 
-    for (const label of this.territoryLabels.values()) label.alpha = territoryLabelAlpha();
+    for (const label of this.territoryLabels.values()) label.alpha = this.mapLabelAlpha(label);
+  }
+
+  private mapLabelAlpha(label: Text) {
+    const halfWidth = label.width / 2 + 1;
+    const halfHeight = label.height / 2 + 1;
+    const overlaps = this.placementBounds.some((bounds) =>
+      label.x + halfWidth > bounds.left && label.x - halfWidth < bounds.right
+      && label.y + halfHeight > bounds.top && label.y - halfHeight < bounds.bottom);
+    return territoryLabelAlpha(overlaps);
   }
 
   private renderMarks(state: GameState) {
@@ -657,7 +668,7 @@ export class PixiTableSceneAdapter implements TableScene {
     this.marksLayer.visible = !resourceView;
     this.armyLayer.visible = !resourceView;
     this.effectsLayer.visible = !resourceView;
-    for (const label of this.territoryLabels.values()) label.alpha = resourceView ? 0.88 : territoryLabelAlpha();
+    for (const label of this.territoryLabels.values()) label.alpha = resourceView ? 0.88 : this.mapLabelAlpha(label);
 
     if (this.interaction.resourceValues) {
       for (const territory of manifest.territories) {
@@ -754,9 +765,9 @@ export class PixiTableSceneAdapter implements TableScene {
       case "scar.apply": return this.animateScar(command.territoryId, command.scarId, durationMs, signal);
       case "city.place": return this.animatePulse(command.territoryId, 0xe8d084, durationMs, signal);
       case "city.fortify": return this.animatePulse(command.territoryId, 0xd8c074, durationMs, signal);
-      case "hq.move": return this.animateMove(command.from, command.to, 1, durationMs, signal, 0xe0a93c);
+      case "hq.move": return this.animateMove(command.from, command.to, 1, durationMs, signal, "hq", command.factionId);
       case "redStar.gain": return command.territoryId ? this.animatePulse(command.territoryId, 0xe0a93c, durationMs, signal) : this.options.clock.wait(durationMs, signal);
-      case "missile.commit": return this.animateMove(command.from, command.to, 1, durationMs, signal, 0xf0c15b);
+      case "missile.commit": return this.animateMove(command.from, command.to, 1, durationMs, signal, "missile");
       case "module.reveal": return this.animateModuleReveal(command.moduleId, durationMs, signal);
       case "nuclear.resolve": return this.animateNuclear(command.territories, durationMs, signal);
       case "alienIsland.place": return this.animatePulse(command.territoryId, 0x6dced1, durationMs, signal);
@@ -772,7 +783,15 @@ export class PixiTableSceneAdapter implements TableScene {
     if (durationMs <= 0 || signal.aborted) { update(1); done?.(); return Promise.resolve(); }
     return new Promise<void>((resolve) => {
       const start = this.options.clock.now();
-      const finish = () => { this.app.ticker.remove(tick); done?.(); resolve(); };
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        this.app.ticker.remove(tick);
+        signal.removeEventListener("abort", finish);
+        done?.();
+        resolve();
+      };
       const tick = () => {
         const progress = Math.min(1, (this.options.clock.now() - start) / durationMs);
         update(progress);
@@ -790,13 +809,17 @@ export class PixiTableSceneAdapter implements TableScene {
     const targetX = points.reduce((sum, point) => sum + point[0], 0) / points.length;
     const targetY = points.reduce((sum, point) => sum + point[1], 0) / points.length;
     const startPan = { ...this.pan };
-    const targetPan = { x: WORLD_WIDTH / 2 - targetX, y: WORLD_HEIGHT / 2 - targetY };
+    const targetZoom = 1.18;
+    const targetPan = cameraPanForFocus([targetX, targetY], { width: WORLD_WIDTH, height: WORLD_HEIGHT }, {
+      width: this.app.renderer.width / this.app.renderer.resolution,
+      height: this.app.renderer.height / this.app.renderer.resolution,
+    }, this.fitScale * targetZoom);
     const startZoom = this.zoom;
     return this.animate(durationMs, signal, (p) => {
-      const eased = 1 - Math.pow(1 - p, 3);
+      const eased = p * p * (3 - 2 * p);
       this.pan.x = startPan.x + (targetPan.x - startPan.x) * eased;
       this.pan.y = startPan.y + (targetPan.y - startPan.y) * eased;
-      this.zoom = startZoom + (1.18 - startZoom) * eased;
+      this.zoom = startZoom + (targetZoom - startZoom) * eased;
       this.applyCamera();
     });
   }
@@ -811,31 +834,38 @@ export class PixiTableSceneAdapter implements TableScene {
       city: !!territory?.city || !!territory?.ruin,
       fortification: !!territory?.fortification,
     });
-    const [x, y] = layout.pieceSlots[0];
+    const [x, y, slotScale] = layout.pieceSlots[0];
     const factionId = this.current!.state.players[playerId]?.factionId;
-    const token = this.atlasSprite(factionId, "one", 25) ?? pieceGraphic(1, factionColor(this.current!.state, territoryId), 1);
-    token.position.set(x, y - 28);
+    const token = this.atlasSprite(factionId, "one", 17 * slotScale) ?? pieceGraphic(1, factionColor(this.current!.state, territoryId), slotScale);
+    const baseScale = { x: token.scale.x, y: token.scale.y };
+    token.position.set(x, y - 8);
     this.effectsLayer.addChild(token);
     return this.animate(durationMs, signal, (p) => {
       const bounce = 1 - Math.pow(1 - p, 3);
-      token.y = y - 28 * (1 - bounce);
-      token.scale.set(0.7 + 0.3 * bounce, 0.7 + 0.3 * bounce);
+      token.y = y - 8 * (1 - bounce);
+      token.scale.set(baseScale.x, baseScale.y);
+      token.alpha = 0.5 + 0.5 * bounce;
     }, () => token.destroy({ children: true }));
   }
 
-  private animateMove(from: string, to: string, count: number, durationMs: number, signal: AbortSignal, overrideColor?: number) {
+  private animateMove(from: string, to: string, count: number, durationMs: number, signal: AbortSignal, kind: "army" | "hq" | "missile" = "army", movingFaction?: string) {
     const start = presentationFor(from).cameraFocus;
     const end = presentationFor(to).cameraFocus;
     const group = new Container();
     const controller = this.current!.state.territories[from]?.controller;
-    const factionId = controller ? this.current!.state.players[controller]?.factionId : undefined;
-    for (let i = 0; i < Math.min(5, Math.max(1, count)); i++) {
-      const denomination = i % 3 === 0 ? 3 : 1;
-      const token = overrideColor === undefined
-        ? (this.atlasSprite(factionId, denomination === 3 ? "three" : "one", denomination === 3 ? 25 : 20)
-          ?? pieceGraphic(denomination, factionColor(this.current!.state, from), 0.72))
-        : pieceGraphic(denomination, overrideColor, 0.72);
-      token.position.set((i - 2) * 3, (i % 2) * 2);
+    const factionId = movingFaction ?? (controller ? this.current!.state.players[controller]?.factionId : undefined);
+    const pieces = composeArmyStack(count, `${from}:${to}:move`).pieces;
+    const shadow = new Graphics().ellipse(0, 4, 9 + pieces.length * 2, 3).fill({ color: 0x161b18, alpha: 0.28 });
+    shadow.position.set(...start);
+    this.effectsLayer.addChild(shadow);
+    for (let i = 0; i < (kind === "army" ? pieces.length : 1); i++) {
+      const denomination = pieces[i]?.denomination ?? 1;
+      const token = kind === "missile"
+        ? new Graphics().poly([0, -13, 3, -5, 3, 5, 6, 10, 2, 9, 0, 12, -2, 9, -6, 10, -3, 5, -3, -5]).fill({ color: 0xd9d2ba }).stroke({ color: 0x34372f, width: 1 })
+        : (this.atlasSprite(factionId, kind === "hq" ? "hq" : denomination === 3 ? "three" : "one", kind === "hq" ? 25 : denomination === 3 ? 22 : 17)
+          ?? pieceGraphic(denomination, factionColor(this.current!.state, from), 0.72));
+      token.position.set(kind === "army" ? (i - (pieces.length - 1) / 2) * 9 : 0, (i % 2) * 3);
+      if (kind === "missile") token.rotation = Math.atan2(end[1] - start[1], end[0] - start[0]) + Math.PI / 2;
       group.addChild(token);
     }
     group.position.set(...start);
@@ -843,49 +873,66 @@ export class PixiTableSceneAdapter implements TableScene {
     return this.animate(durationMs, signal, (p) => {
       const eased = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
       group.x = start[0] + (end[0] - start[0]) * eased;
-      group.y = start[1] + (end[1] - start[1]) * eased - Math.sin(Math.PI * p) * 10;
-      group.rotation = Math.sin(Math.PI * p) * 0.08;
-    }, () => group.destroy({ children: true }));
+      const lift = Math.sin(Math.PI * p);
+      shadow.position.set(group.x, start[1] + (end[1] - start[1]) * eased + 4);
+      shadow.scale.set(1 - lift * 0.15);
+      shadow.alpha = 1 - lift * 0.4;
+      group.y = start[1] + (end[1] - start[1]) * eased - lift * (kind === "missile" ? 16 : 5);
+      group.rotation = kind === "army" ? lift * 0.025 : 0;
+    }, () => { shadow.destroy(); group.destroy({ children: true }); });
   }
 
   private animateRemoval(territoryId: string, count: number, durationMs: number, signal: AbortSignal) {
+    if (count <= 0) return this.options.clock.wait(durationMs, signal);
     const point = presentationFor(territoryId).cameraFocus;
     const group = new Container();
-    for (let i = 0; i < Math.min(5, Math.max(1, count)); i++) {
-      const shard = new Graphics().poly([0, -4, 3, 3, -3, 2]).fill({ color: 0xe9d4b3 }).stroke({ color: 0x3a2422, width: 0.7 });
-      shard.position.set((i - 2) * 3, (i % 2) * 2);
-      group.addChild(shard);
+    const controller = this.current!.state.territories[territoryId]?.controller;
+    const factionId = controller ? this.current!.state.players[controller]?.factionId : undefined;
+    const pieces = composeArmyStack(count, `${territoryId}:loss`).pieces;
+    for (const [i, piece] of pieces.entries()) {
+      const token = this.atlasSprite(factionId, piece.denomination === 3 ? "three" : "one", piece.denomination === 3 ? 22 : 17)
+        ?? pieceGraphic(piece.denomination, factionColor(this.current!.state, territoryId), 0.72);
+      token.position.set((i - (pieces.length - 1) / 2) * 8, (i % 2) * 3);
+      group.addChild(token);
     }
     group.position.set(...point);
     this.effectsLayer.addChild(group);
     return this.animate(durationMs, signal, (p) => {
-      group.y = point[1] - p * 12;
-      group.alpha = 1 - p;
-      group.rotation = p * 0.35;
+      const fall = p * p;
+      group.y = point[1] + fall * 5;
+      group.alpha = 1 - p * p;
+      group.rotation = fall * 0.28;
     }, () => group.destroy({ children: true }));
   }
 
   private animateImpact(from: string, to: string, durationMs: number, signal: AbortSignal) {
     const start = presentationFor(from).cameraFocus;
     const end = presentationFor(to).cameraFocus;
-    const flash = new Graphics().moveTo(...start).lineTo(...end).stroke({ color: 0xf6df9a, width: 3, alpha: 0.9 });
-    const ring = new Graphics().circle(0, 0, 7).stroke({ color: 0xf0b058, width: 2.5 });
+    // A short directional strike and dust burst, kept local to the defender.
+    const dx = end[0] - start[0], dy = end[1] - start[1];
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const flash = new Graphics().moveTo(end[0] - dx / distance * 18, end[1] - dy / distance * 18).lineTo(...end).stroke({ color: 0xe3c18a, width: 1.6, alpha: 0.9 });
+    const ring = new Graphics().ellipse(0, 0, 8, 4).fill({ color: 0xb59b70, alpha: 0.2 }).stroke({ color: 0xd1b17c, width: 1 });
+    for (let i = 0; i < 7; i++) {
+      const angle = i * Math.PI * 2 / 7;
+      ring.moveTo(Math.cos(angle) * 5, Math.sin(angle) * 3).lineTo(Math.cos(angle) * 11, Math.sin(angle) * 7).stroke({ color: 0xd1b17c, width: 1 });
+    }
     ring.position.set(...end);
     this.effectsLayer.addChild(flash, ring);
     return this.animate(durationMs, signal, (p) => {
-      flash.alpha = 1 - p;
-      ring.scale.set(0.6 + p * 2.3);
-      ring.alpha = 1 - p;
+      flash.alpha = Math.pow(1 - p, 3);
+      ring.scale.set(0.6 + (1 - Math.pow(1 - p, 3)) * 1.5);
+      ring.alpha = Math.pow(1 - p, 2);
     }, () => { flash.destroy(); ring.destroy(); });
   }
 
   private animatePulse(territoryId: string, color: number, durationMs: number, signal: AbortSignal) {
     const definition = presentationFor(territoryId);
-    const ring = new Graphics().circle(0, 0, 12).stroke({ color, width: 2.5, alpha: 0.9 });
+    const ring = new Graphics().ellipse(0, 0, 12, 7).stroke({ color, width: 1.2, alpha: 0.75 });
     ring.position.set(...definition.cameraFocus);
     this.effectsLayer.addChild(ring);
     return this.animate(durationMs, signal, (p) => {
-      ring.scale.set(0.7 + p * 1.6);
+      ring.scale.set(0.9 + p * 0.45);
       ring.alpha = Math.sin(Math.PI * p);
     }, () => ring.destroy());
   }
@@ -899,7 +946,7 @@ export class PixiTableSceneAdapter implements TableScene {
     } else {
       const asset = scarMarkAsset(scarId);
       if (asset) {
-        sticker.addChild(scarAssetGraphic(asset, 16));
+        sticker.addChild(scarAssetGraphic(asset, 10));
       } else {
         const visual = SCAR_VISUALS[scarId] ?? { color: 0x8a3936, glyph: "!" };
         const chip = new Graphics().circle(0, 0, 8).fill({ color: visual.color }).stroke({ color: 0xffe1af, width: 1.2 });
@@ -911,10 +958,10 @@ export class PixiTableSceneAdapter implements TableScene {
     sticker.position.set(point[0], point[1] - 34);
     this.effectsLayer.addChild(sticker);
     return this.animate(durationMs, signal, (p) => {
-      const settle = 1 - Math.pow(1 - p, 3);
+      const settle = 1 - Math.pow(1 - Math.min(1, p / 0.72), 3);
       sticker.y = point[1] - 34 * (1 - settle);
       sticker.rotation = (1 - settle) * -0.28;
-      sticker.scale.set(0.85 + Math.sin(Math.min(1, p * 2) * Math.PI) * 0.18);
+      sticker.scale.set(1 + (1 - settle) * 0.12);
     }, () => sticker.destroy({ children: true }));
   }
 
@@ -947,21 +994,25 @@ export class PixiTableSceneAdapter implements TableScene {
 
   private animateNuclear(territories: readonly string[], durationMs: number, signal: AbortSignal) {
     const group = new Container();
-    const flash = new Graphics().rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill({ color: 0xffe7a2, alpha: 0.75 });
+    const flash = new Graphics();
+    for (const territoryId of territories) {
+      const [x, y] = presentationFor(territoryId).cameraFocus;
+      flash.ellipse(x, y, 27, 18).fill({ color: 0xe6cea0, alpha: 0.32 });
+    }
     group.addChild(flash);
     const rings = territories.map((territoryId) => {
-      const ring = new Graphics().circle(0, 0, 12).stroke({ color: 0xffd56a, width: 4 });
+      const ring = new Graphics().ellipse(0, 0, 12, 8).fill({ color: 0x75664f, alpha: 0.24 }).stroke({ color: 0xc6ad7e, width: 1.5 });
       ring.position.set(...presentationFor(territoryId).cameraFocus);
       group.addChild(ring);
       return ring;
     });
     this.effectsLayer.addChild(group);
     return this.animate(durationMs, signal, (p) => {
-      flash.alpha = Math.max(0, 0.78 - p * 2.4);
+      flash.alpha = Math.max(0, 1 - p * 4);
       rings.forEach((ring, index) => {
         const local = Math.max(0, Math.min(1, p * 1.5 - index * 0.08));
-        ring.scale.set(0.35 + local * 4.2);
-        ring.alpha = 1 - local;
+        ring.scale.set(0.5 + (1 - Math.pow(1 - local, 3)) * 3.2);
+        ring.alpha = Math.pow(1 - local, 2);
       });
     }, () => group.destroy({ children: true }));
   }
@@ -983,7 +1034,7 @@ export class PixiTableSceneAdapter implements TableScene {
     return this.animate(durationMs, signal, (p) => {
       const enter = 1 - Math.pow(1 - Math.min(1, p * 2), 3);
       group.alpha = Math.min(1, p * 5) * Math.min(1, (1 - p) * 5);
-      halo.scale.set(0.7 + enter * 0.3 + Math.sin(p * Math.PI * 4) * 0.025);
+      halo.scale.set(0.9 + enter * 0.1);
       title.scale.set(0.82 + enter * 0.18);
     }, () => group.destroy({ children: true }));
   }

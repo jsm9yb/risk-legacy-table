@@ -1,7 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <circle cx="64" cy="64" r="58" fill="#4b5157" stroke="#16191c" stroke-width="8"/>
-  <path d="M25 92l7-42 20-20h24l20 20 7 42z" fill="#c4c8c9" stroke="#171a1c" stroke-width="6" stroke-linejoin="round"/>
-  <path d="M42 55h44l5 37H37z" fill="#747b7e" stroke="#171a1c" stroke-width="5"/>
-  <rect x="49" y="62" width="30" height="11" rx="2" fill="#171a1c"/>
-  <path d="M64 79v19M54 89h20" stroke="#f1c85b" stroke-width="7"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Bunker">
+  <circle cx="64" cy="66" r="59" fill="#151915"/>
+  <circle cx="64" cy="63" r="58" fill="#e6dcc3" stroke="#242522" stroke-width="3"/>
+  <circle cx="64" cy="63" r="53" fill="#738084"/>
+
+  <path d="M25 94 32 52 49 34H79L96 52 103 94Z" fill="#e6dcc3" stroke="#242522" stroke-width="5"/>
+    <path d="M32 55H96L103 94H25Z" fill="#a5aaa2"/>
+    <path d="M43 62H85V73H43ZM27 91H101V98H27Z" fill="#242522"/>
+    <path d="M36 53 51 39H76" fill="none" stroke="#e6dcc3" stroke-width="3"/>
+  <!-- Sparse edge wear stays outside the semantic silhouette. -->
+  <path d="M16 45 19 38M28 104 35 109M105 30 109 38M88 113 94 110" fill="none" stroke="#e6dcc3" stroke-width="2"/>
 </svg>

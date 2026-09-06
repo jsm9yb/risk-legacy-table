@@ -130,8 +130,8 @@ body::after {
 
 /* new (UI-8): combat dice get a short tumble when a roll lands */
 @keyframes die-tumble {
-  0% { transform: rotate(-14deg) scale(0.6); opacity: 0; }
-  60% { transform: rotate(8deg) scale(1.08); opacity: 1; }
+  0% { transform: translateY(-5px) rotate(-18deg); opacity: 0; }
+  65% { transform: translateY(1px) rotate(3deg); opacity: 1; }
   100% { transform: rotate(0deg) scale(1); opacity: 1; }
 }
 .die-tumble { animation: die-tumble 320ms ease-out; }
@@ -512,13 +512,13 @@ body::after {
   transform: rotate(18deg) scaleY(0);
   transform-origin: top;
   background: linear-gradient(to bottom, transparent, #f4ddd9 12%, var(--color-danger) 55%, transparent);
-  box-shadow: 0 0 14px rgba(201, 80, 74, 0.7);
+  box-shadow: 1px 0 2px rgba(38, 27, 21, 0.5);
   animation: tear-slash-drop 620ms ease-out forwards;
   pointer-events: none;
 }
 @keyframes power-keep-seal {
-  0% { transform: scale(0.98); filter: brightness(0.85); }
-  58% { transform: scale(1.025); filter: brightness(1.2); }
+  0% { transform: translateY(-2px) scale(1.015); filter: brightness(0.95); }
+  58% { transform: translateY(0) scale(0.998); filter: brightness(1.03); }
   100% { transform: scale(1); filter: brightness(1); }
 }
 @keyframes power-tear-fade {

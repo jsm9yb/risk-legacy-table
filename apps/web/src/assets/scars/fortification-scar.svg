@@ -1,6 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <circle cx="64" cy="64" r="58" fill="#e8eef2" stroke="#173b60" stroke-width="8"/>
-  <path d="M23 84V68a41 41 0 0 1 82 0v16" fill="none" stroke="#139fe0" stroke-width="12" stroke-dasharray="13 5"/>
-  <path d="M35 58v39h58V58l-11 8-9-10-9 10-9-10-9 10z" fill="#226997" stroke="#173b60" stroke-width="5" stroke-linejoin="round"/>
-  <path d="M64 69l13 6-3 14-10 8-10-8-3-14z" fill="#dcecf4" stroke="#173b60" stroke-width="4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Fortification">
+  <circle cx="64" cy="66" r="59" fill="#151915"/>
+  <circle cx="64" cy="63" r="58" fill="#e6dcc3" stroke="#242522" stroke-width="3"/>
+  <circle cx="64" cy="63" r="53" fill="#7397a7"/>
+
+  <path d="M30 36H44V48H56V36H72V48H84V36H98V96H30Z" fill="#e6dcc3" stroke="#242522" stroke-width="5"/>
+    <path d="M56 76Q64 65 72 76V98H56ZM31 61H97M44 61V75M84 61V75" fill="#242522" stroke="#242522" stroke-width="4"/>
+    <path d="M24 101H104" stroke="#242522" stroke-width="6"/>
+  <!-- Sparse edge wear stays outside the semantic silhouette. -->
+  <path d="M16 45 19 38M28 104 35 109M105 30 109 38M88 113 94 110" fill="none" stroke="#e6dcc3" stroke-width="2"/>
 </svg>

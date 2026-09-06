@@ -1,10 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <circle cx="64" cy="64" r="59" fill="#101c22" stroke="#080a0c" stroke-width="8"/>
-  <circle cx="64" cy="64" r="49" fill="#6dced1" stroke="#d7fffb" stroke-width="5"/>
-  <path d="M64 25c24 0 36 14 33 34-3 22-18 42-33 50-15-8-30-28-33-50-3-20 9-34 33-34z" fill="#d7fffb" stroke="#080a0c" stroke-width="6" stroke-linejoin="round"/>
-  <path d="M38 58c10-9 20-10 28-3-4 13-15 20-28 3zM90 58c-10-9-20-10-28-3 4 13 15 20 28 3z" fill="#14252c" stroke="#080a0c" stroke-width="4" stroke-linejoin="round"/>
-  <path d="M57 86c5 3 9 3 14 0" fill="none" stroke="#14252c" stroke-width="4" stroke-linecap="round"/>
-  <path d="M19 46c-8 12-8 24 0 36M109 46c8 12 8 24 0 36" fill="none" stroke="#6dced1" stroke-width="6" stroke-linecap="round"/>
-  <circle cx="17" cy="40" r="5" fill="#d7fffb" stroke="#080a0c" stroke-width="3"/>
-  <circle cx="111" cy="40" r="5" fill="#d7fffb" stroke="#080a0c" stroke-width="3"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Aliens">
+  <circle cx="64" cy="66" r="59" fill="#151915"/>
+  <circle cx="64" cy="63" r="58" fill="#e6dcc3" stroke="#242522" stroke-width="3"/>
+  <circle cx="64" cy="63" r="53" fill="#77a9aa"/>
+  <circle cx="64" cy="63" r="47" fill="#242522"/>
+  <path d="M24 32 32 24M96 102 104 94" stroke="#e6dcc3" stroke-width="3"/>
+  <path d="M64 26C88 26 98 42 93 61 88 81 73 97 64 104 55 97 40 81 35 61 30 42 40 26 64 26Z" fill="#e6dcc3"/>
+    <path d="M39 52C51 51 59 58 60 72 47 71 40 66 39 52ZM89 52C77 51 69 58 68 72 81 71 88 66 89 52ZM60 87H68L64 91Z" fill="#242522"/>
+    <path d="M23 44V81M105 44V81" stroke="#77a9aa" stroke-width="3"/>
+  <!-- Sparse edge wear stays outside the semantic silhouette. -->
+  <path d="M16 45 19 38M28 104 35 109M105 30 109 38M88 113 94 110" fill="none" stroke="#e6dcc3" stroke-width="2"/>
 </svg>

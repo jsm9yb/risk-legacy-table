@@ -1,6 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <circle cx="64" cy="64" r="58" fill="#71519a" stroke="#201729" stroke-width="8"/>
-  <path d="M64 19l37 14-5 38c-3 20-15 31-32 39-17-8-29-19-32-39l-5-38z" fill="#d9ccea" stroke="#201729" stroke-width="6" stroke-linejoin="round"/>
-  <path d="M66 24L52 52l16 8-15 18 9 28M34 39l18 13M96 37L68 60M53 78l-15 14M62 106l27-24" fill="none" stroke="#71519a" stroke-width="8" stroke-linejoin="round"/>
-  <path d="M47 48l17 9-8 16 18 7" fill="none" stroke="#201729" stroke-width="4" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Weakness">
+  <circle cx="64" cy="66" r="59" fill="#151915"/>
+  <circle cx="64" cy="63" r="58" fill="#e6dcc3" stroke="#242522" stroke-width="3"/>
+  <circle cx="64" cy="63" r="53" fill="#88728e"/>
+
+  <path d="M64 24 98 36 92 74Q85 96 64 106 43 96 36 74L30 36Z" fill="#e6dcc3" stroke="#242522" stroke-width="5"/>
+    <path d="M67 25 54 52 72 60 55 80 64 105M54 52 35 43M72 60 95 47M55 80 43 92" fill="none" stroke="#242522" stroke-width="7"/>
+  <!-- Sparse edge wear stays outside the semantic silhouette. -->
+  <path d="M16 45 19 38M28 104 35 109M105 30 109 38M88 113 94 110" fill="none" stroke="#e6dcc3" stroke-width="2"/>
 </svg>

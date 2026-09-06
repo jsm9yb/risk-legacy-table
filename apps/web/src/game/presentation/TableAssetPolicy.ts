@@ -39,6 +39,6 @@ export function tableTextTextureResolution(
   return Math.max(limits.min, Math.min(limits.max, zoomReadyResolution));
 }
 
-export function territoryLabelAlpha() {
-  return 0.2;
+export function territoryLabelAlpha(overlapsPiece = false) {
+  return overlapsPiece ? 0.2 : 0.78;
 }

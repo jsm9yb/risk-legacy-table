@@ -1,10 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <circle cx="64" cy="64" r="59" fill="#201313" stroke="#080a0c" stroke-width="8"/>
-  <circle cx="64" cy="64" r="49" fill="#b3403a" stroke="#e9c9a2" stroke-width="5"/>
-  <ellipse cx="64" cy="76" rx="25" ry="22" fill="#f0dfc5" stroke="#271515" stroke-width="5"/>
-  <ellipse cx="38" cy="49" rx="10" ry="15" transform="rotate(-28 38 49)" fill="#f0dfc5" stroke="#271515" stroke-width="4"/>
-  <ellipse cx="55" cy="39" rx="10" ry="15" transform="rotate(-8 55 39)" fill="#f0dfc5" stroke="#271515" stroke-width="4"/>
-  <ellipse cx="73" cy="39" rx="10" ry="15" transform="rotate(8 73 39)" fill="#f0dfc5" stroke="#271515" stroke-width="4"/>
-  <ellipse cx="90" cy="49" rx="10" ry="15" transform="rotate(28 90 49)" fill="#f0dfc5" stroke="#271515" stroke-width="4"/>
-  <path d="M50 79c7-11 21-11 28 0-5 11-23 11-28 0z" fill="#b3403a"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Enclave of the Bear">
+  <circle cx="64" cy="66" r="59" fill="#151915"/>
+  <circle cx="64" cy="63" r="58" fill="#e6dcc3" stroke="#242522" stroke-width="3"/>
+  <circle cx="64" cy="63" r="53" fill="#a95549"/>
+  <circle cx="64" cy="63" r="47" fill="#242522"/>
+  <path d="M24 32 32 24M96 102 104 94" stroke="#e6dcc3" stroke-width="3"/>
+  <path d="M35 66 29 52 34 39 43 43 47 59ZM50 53 44 34 50 23 59 30 60 51ZM68 51 68 30 78 23 83 35 78 54ZM86 61 87 43 97 38 101 51 94 68ZM38 90 44 75 57 60H73L86 75 91 90 81 101 64 95 48 102Z" fill="#e6dcc3"/>
+    <path d="M49 88 62 72 69 76 62 86 77 88 67 93Z" fill="#242522"/>
+  <!-- Sparse edge wear stays outside the semantic silhouette. -->
+  <path d="M16 45 19 38M28 104 35 109M105 30 109 38M88 113 94 110" fill="none" stroke="#e6dcc3" stroke-width="2"/>
 </svg>
