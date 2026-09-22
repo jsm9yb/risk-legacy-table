@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { territoryCardDefinitions, type GameState, type TerritoryId } from "@risk/rules";
 import AccessibleBoard from "./accessibility/AccessibleBoard.tsx";
 import PresentationSettings from "./settings/PresentationSettings.tsx";
+import { PublicBoardHistory, openingTour, openingOrder, type TableHistoryControls } from "./history/PublicBoardHistory.ts";
+import type { DomAnchorRegistry } from "./presentation/DomAnchorRegistry.ts";
 import type { InteractionModel } from "./interaction/InteractionPolicy.ts";
+import { actionPreview, type PreviewConfiguration } from "./interaction/preview.ts";
 import { createStateTransition } from "./presentation/events.ts";
 import { RafPresentationClock } from "./presentation/PresentationClock.ts";
 import { createPresentationDirector, type PresentationDirector } from "./presentation/PresentationDirector.ts";
@@ -12,18 +15,27 @@ import type { MotionPreference, PresentationSnapshot, TransitionSource } from ".
 
 export default function GameTable({
   authoritativeState,
+  viewerId,
+  anchors,
   interaction,
   onTerritoryActivate,
   onPresentationStateChange,
+  onVisualStateChange,
+  onPresentationReady,
   emphasizedTerritoryId,
+  previewConfiguration,
   source = "local",
 }: {
   authoritativeState: GameState;
   viewerId?: string;
+  anchors?: DomAnchorRegistry;
   interaction: InteractionModel;
   emphasizedTerritoryId?: TerritoryId;
+  previewConfiguration?: PreviewConfiguration;
   onTerritoryActivate: (territoryId: TerritoryId) => void;
   onPresentationStateChange?: (snapshot: PresentationSnapshot) => void;
+  onVisualStateChange?: (state: GameState | undefined) => void;
+  onPresentationReady?: (controls: TableHistoryControls | undefined) => void;
   source?: TransitionSource;
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
@@ -31,11 +43,13 @@ export default function GameTable({
   const directorRef = useRef<PresentationDirector>();
   const audioRef = useRef<TableAudio>();
   const previousRef = useRef(authoritativeState);
+  const history = useMemo(() => new PublicBoardHistory(authoritativeState.gameId, localStorage), [authoritativeState.gameId]);
   const [snapshot, setSnapshot] = useState<PresentationSnapshot>({ status: "loading", queuedTransitions: 0, canSkip: false, inputBlocked: true });
   const [failure, setFailure] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [hovered, setHovered] = useState<{ territoryId: TerritoryId; target: "territory" | "city"; clientX: number; clientY: number }>();
   const [resourceView, setResourceView] = useState(false);
+  const [focusedTerritory, setFocusedTerritory] = useState<TerritoryId>();
   const [motion, setMotion] = useState<MotionPreference>(() => (localStorage.getItem("risk.table.motion") as MotionPreference | null) ?? (matchMedia("(prefers-reduced-motion: reduce)").matches ? "reduced" : "full"));
   const [quality, setQuality] = useState<"high" | "balanced" | "low">(() => (localStorage.getItem("risk.table.quality") as "high" | "balanced" | "low" | null) ?? "balanced");
   const [muted, setMuted] = useState(() => localStorage.getItem("risk.table.muted") === "true");
@@ -45,6 +59,10 @@ export default function GameTable({
   });
   const stateRef = useRef(authoritativeState);
   const activationRef = useRef(onTerritoryActivate);
+  const visualCallbackRef = useRef(onVisualStateChange);
+  const viewerRef = useRef(viewerId);
+  visualCallbackRef.current = onVisualStateChange;
+  viewerRef.current = viewerId;
   stateRef.current = authoritativeState;
   activationRef.current = onTerritoryActivate;
 
@@ -56,15 +74,21 @@ export default function GameTable({
         : authoritativeState.cardModifications[card.id]?.resources ?? card.resources,
     ]),
   ) as Partial<Record<TerritoryId, number>>, [authoritativeState.alienIsland, authoritativeState.cardModifications, authoritativeState.sideboard.destroyed]);
+  const preview = useMemo(() => !resourceView && snapshot.status === "idle" && previewConfiguration
+    ? actionPreview(authoritativeState, interaction, previewConfiguration, hovered?.territoryId ?? focusedTerritory)
+    : undefined, [authoritativeState, interaction, previewConfiguration, hovered?.territoryId, focusedTerritory, resourceView, snapshot.status]);
   const tableInteraction = useMemo(() => ({
     selectedTerritoryId: interaction.selectedTerritoryId,
     intents: interaction.territories,
     emphasizedTerritoryId,
     resourceValues: resourceView ? resourceValues : undefined,
-  }), [emphasizedTerritoryId, interaction, resourceValues, resourceView]);
+    preview,
+  }), [emphasizedTerritoryId, interaction, resourceValues, resourceView, preview]);
 
   useEffect(() => {
     let disposed = false;
+    const mountedGameId = authoritativeState.gameId;
+    const mountedViewerId = viewerId;
     let observer: ResizeObserver | undefined;
     const clock = new RafPresentationClock();
     const audio = new WebAudioTableAudioAdapter();
@@ -78,6 +102,7 @@ export default function GameTable({
         const scene = new PixiTableSceneAdapter({
           clock,
           quality,
+          anchors,
           onTerritoryActivate: (id) => activationRef.current(id),
           onTerritoryHover: (territoryId, point) => setHovered(territoryId && point ? { territoryId, target: "territory", ...point } : undefined),
           onCityHover: (territoryId, point) => setHovered(territoryId && point ? { territoryId, target: "city", ...point } : undefined),
@@ -85,8 +110,15 @@ export default function GameTable({
         });
         await scene.mount(hostRef.current, { state: stateRef.current, revision: stateRef.current.eventSeq });
         if (disposed) { scene.dispose(); return; }
-        const director = createPresentationDirector(scene, clock, audio);
+        const director = createPresentationDirector(scene, clock, audio, (state) => {
+          if (!disposed && stateRef.current.gameId === mountedGameId && viewerRef.current === mountedViewerId) visualCallbackRef.current?.(state);
+        });
         directorRef.current = director;
+        onPresentationReady?.({ skip: () => director.skipCurrentSequence(),
+          playHistory: (frames, options) => director.playHistory(frames, options),
+          history: () => history.list(stateRef.current),
+          opening: () => openingTour(stateRef.current), order: () => openingOrder(stateRef.current),
+        });
         director.mount(stateRef.current);
         setSnapshot({ status: "idle", queuedTransitions: 0, canSkip: false, inputBlocked: false });
         director.setMotionPreference(motion);
@@ -97,7 +129,18 @@ export default function GameTable({
         setFailure(undefined);
         return unsubscribe;
       } catch (error) {
-        if (!disposed) setFailure(error instanceof Error ? error.message : String(error));
+        if (!disposed) {
+          const message = error instanceof Error ? error.message : String(error);
+          const failed: PresentationSnapshot = { status: "failed", queuedTransitions: 0, canSkip: false, inputBlocked: false, failure: message };
+          directorRef.current?.dispose();
+          directorRef.current = undefined;
+          onPresentationReady?.(undefined);
+          audio.dispose();
+          visualCallbackRef.current?.(undefined);
+          setSnapshot(failed);
+          onPresentationStateChange?.(failed);
+          setFailure(message);
+        }
       }
     };
     let unsubscribe: (() => void) | undefined;
@@ -108,11 +151,12 @@ export default function GameTable({
       unsubscribe?.();
       directorRef.current?.dispose();
       directorRef.current = undefined;
+      visualCallbackRef.current?.(undefined);
+      onPresentationReady?.(undefined);
       audioRef.current = undefined;
     };
     // A retry intentionally remounts the full GPU scene.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attempt]);
+  }, [attempt, authoritativeState.gameId, viewerId]);
 
   useEffect(() => { directorRef.current?.setMotionPreference(motion); localStorage.setItem("risk.table.motion", motion); }, [motion]);
   useEffect(() => { audioRef.current?.setMuted(muted); localStorage.setItem("risk.table.muted", String(muted)); }, [muted]);
@@ -124,6 +168,7 @@ export default function GameTable({
 
   useEffect(() => {
     const previous = previousRef.current;
+    history.capture(previous, authoritativeState);
     previousRef.current = authoritativeState;
     if (previous === authoritativeState || !directorRef.current) return;
     try {
@@ -145,10 +190,17 @@ export default function GameTable({
 
   return (
     <div ref={tableRef} className="game-table relative h-full w-full overflow-hidden rounded-lg bg-[#080c12] shadow-2xl shadow-black/40"
+      data-history-mode={snapshot.replay ? "replay" : "live"} data-history-title={snapshot.replay?.title} data-history-side={snapshot.replay?.side}
       data-presentation-status={snapshot.status} data-presentation-seq={snapshot.activeEventSeq ?? "idle"}>
       <div ref={hostRef} className="absolute inset-0" data-testid="pixi-table-host" />
       <AccessibleBoard state={authoritativeState} interaction={interaction} onActivate={onTerritoryActivate}
+        onTerritoryFocus={setFocusedTerritory} previewLabel={preview?.label}
         emphasizedTerritoryId={emphasizedTerritoryId} resourceValues={resourceView ? resourceValues : undefined} />
+      {preview && (
+        <div role="status" data-testid="action-preview" className="pointer-events-none absolute left-1/2 top-3 z-30 max-w-[65%] -translate-x-1/2 rounded border border-dashed border-signal/60 bg-panel/95 px-3 py-2 text-center font-mono text-[10px] text-text shadow-lg">
+          {preview.label}
+        </div>
+      )}
       <button type="button" aria-label={resourceView ? "Return to tactical board" : "Show territory resource values"}
         aria-pressed={resourceView} data-testid="resource-view-toggle" onClick={() => setResourceView((current) => !current)}
         className={`absolute left-3 top-12 z-30 flex items-center gap-1.5 rounded border px-2.5 py-1.5 font-mono text-[10px] font-bold tracking-wider shadow-lg backdrop-blur-sm ${

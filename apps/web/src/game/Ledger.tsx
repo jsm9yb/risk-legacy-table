@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { GameState } from "@risk/rules";
-import { territoryName } from "./labels.ts"; // new (UI-1)
+import { territoryName } from "./labels.ts";
 
-const WINDOW = 50; // new (UI-2): render the latest ~50 events; older ones expand lazily
+const WINDOW = 50; // render the latest ~50 events; older ones expand lazily
 
 /** Comms-style monospace action ledger — a collapsible BATTLE LOG tab in the rail (UI-2). */
 export default function Ledger({ gs }: { gs: GameState }) {

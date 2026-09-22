@@ -2,21 +2,16 @@
  * Deterministic Risk Legacy rules engine.
  * Pure-ish: applyAction clones state, validates, mutates the clone, appends events, returns it.
  * All randomness flows through state.rngState (seeded, replayable).
- *
- * v1 scope: setup draft, start-of-turn, join-the-war/recruit, expand & attack with
- * missile timing windows, maneuver, end-turn sideboard draw, coin depletion award,
- * knockout/elimination, victory + automatic result classification.
- * Deferred (next slices): faction power executable handlers, unlock module activation. // new
  */
 import { manifest, visualConnections } from "@risk/map";
-import { contentPack, factionDefinitionById, factionDefinitions, ruleValue, troopsForResources, cityPopulation } from "@risk/content"; // new: cityPopulation for reward founding
+import { contentPack, factionDefinitionById, factionDefinitions, ruleValue, troopsForResources, cityPopulation } from "@risk/content"; // cityPopulation for reward founding
 import { rollDie, shuffled } from "./rng.ts";
 import { canClaimFaceUpTerritory, endTurnDecision, expansionistDrawEarned, hasFactionPower as hasPower } from "./decisions.ts";
 import type {
   Action, GameState, GameEvent, PlayerId, TerritoryId, FactionId, RecruitBreakdown, PendingCombat, LegacyCard,
 } from "./types.ts";
 import type { GameEventPayloads, GameEventType } from "./events.ts";
-import { isCampaignPrepared, type CampaignState } from "./campaign.ts"; // new (10b)
+import { isCampaignPrepared, type CampaignState } from "./campaign.ts";
 import { ALIEN_ISLAND_ID, isBaseTerritory, neighborsOf, territoryIds } from "./topology.ts";
 import { ALIEN_ISLAND_CARD_ID, resourceCardDefinition, territoryCardDefinitions } from "./resourceCards.ts";
 
@@ -24,8 +19,8 @@ export class RuleViolation extends Error {}
 
 const card = resourceCardDefinition;
 
-/** Card resource value with upgrade_territory_card modifications overlaid on the pack base value. */ // new
-const cardResources = (s: GameState, id: string) => s.cardModifications[id]?.resources ?? card(id)!.resources; // new
+/** Card resource value with upgrade_territory_card modifications overlaid on the pack base value. */
+const cardResources = (s: GameState, id: string) => s.cardModifications[id]?.resources ?? card(id)!.resources;
 
 const ADVANCED_DRAFT_MODULE = "pack_1_advanced_draft_biohazards";
 const ADVANCED_DRAFT_CATEGORIES = ["faction", "turnOrder", "placementOrder", "startingTroops", "startingCoinCards"] as const;
@@ -40,23 +35,23 @@ export interface NewGameConfig {
   gameId: string;
   seed: number;
   players: { id: PlayerId; name: string; redStarTokens?: number; missiles?: number }[];
-  campaign?: CampaignState; // new (10b): seed this game from persisted campaign legacy
+  campaign?: CampaignState; // seed this game from persisted campaign legacy
 }
 
 export function createGame(cfg: NewGameConfig): GameState {
-  if (cfg.players.length < 3 || cfg.players.length > 5) throw new RuleViolation("3-5 players (2-player is not a supported starter mode)"); // new: starter rules
-  const camp = cfg.campaign; // new
+  if (cfg.players.length < 3 || cfg.players.length > 5) throw new RuleViolation("3-5 players (2-player is not a supported starter mode)"); // starter rules
+  const camp = cfg.campaign;
   if (camp && !isCampaignPrepared(camp)) throw new RuleViolation("Prepare the World must be sealed before Game 1 can begin");
-  // Pack 1 (D5): the advanced setup draft REPLACES base roll setup and blocks until draft card values are host-entered. // new (11)
-  if (camp?.unlockedModules.includes(ADVANCED_DRAFT_MODULE) // new
-      && camp.contentRequired?.some((c) => c.moduleId === ADVANCED_DRAFT_MODULE && c.items.includes("draft"))) { // new
-    throw new RuleViolation("Pack 1 is open: the advanced setup draft replaces base roll setup and needs host-entered draft card values (import wizard)"); // new
-  } // new
+  // Pack 1 (D5): the advanced setup draft REPLACES base roll setup and blocks until draft card values are host-entered.
+  if (camp?.unlockedModules.includes(ADVANCED_DRAFT_MODULE)
+      && camp.contentRequired?.some((c) => c.moduleId === ADVANCED_DRAFT_MODULE && c.items.includes("draft"))) {
+    throw new RuleViolation("Pack 1 is open: the advanced setup draft replaces base roll setup and needs host-entered draft card values (import wizard)");
+  }
   const s: GameState = {
     gameId: cfg.gameId,
     seed: cfg.seed,
     worldName: camp?.worldName ?? "An Unnamed World",
-    gameNumber: (camp?.gameNumber ?? 0) + 1, // new: campaign game counter (1 with no history)
+    gameNumber: (camp?.gameNumber ?? 0) + 1, // campaign game counter (1 with no history)
     rngState: cfg.seed >>> 0,
     phase: "setup",
     turnOrder: [],
@@ -74,7 +69,7 @@ export function createGame(cfg: NewGameConfig): GameState {
     },
     startTurnDone: false,
     maneuverUsed: false,
-    factionPowers: { ...camp?.factionPowerChoices }, // new (9): powers attach to factions; campaign carries prior choices
+    factionPowers: { ...camp?.factionPowerChoices }, // powers attach to factions; campaign carries prior choices
     comebackPowers: structuredClone(camp?.factionComebackPowers ?? {}),
     factionMissilePowers: structuredClone(camp?.factionMissilePowers ?? {}),
     factionWeaknesses: structuredClone(camp?.factionWeaknesses ?? {}),
@@ -89,19 +84,19 @@ export function createGame(cfg: NewGameConfig): GameState {
     blockedResourceDraws: [],
     comebackQueue: [],
     factionHistory: structuredClone(camp?.factionHistory ?? {}),
-    blockedAttackTargets: [], // new (9)
-    expandedThisTurn: 0, // new (9)
+    blockedAttackTargets: [],
+    expandedThisTurn: 0,
     expandedIntoCityThisTurn: false,
     mobileHqUsed: false,
     endTurnScarsApplied: false,
-    signatures: Object.fromEntries(cfg.players.map((p) => [p.id, camp?.signatures[p.id] ?? 0])), // new: seeded from campaign history
-    continents: {}, // new: continent names/bonus marks (rewards write these; 10b carries them)
-    inventories: camp // new: reward inventories carry across games
-      ? { cancelStickers: camp.inventories.cancelStickers, fortifyMarks: camp.inventories.fortifyMarks, majorCities: camp.inventories.majorCities, minorCities: camp.inventories.minorCities } // new
-      : { ...ruleValue<GameState["inventories"]>("rewardInventories") }, // new: finite reward inventories from pack data
-    cardModifications: {}, // new: territory-card upgrades, overlaid on pack card values
-    unlockedModules: [...(camp?.unlockedModules ?? [])], // new (11): previously revealed modules stay active
-    pendingUnlocks: [], // new (11)
+    signatures: Object.fromEntries(cfg.players.map((p) => [p.id, camp?.signatures[p.id] ?? 0])), // seeded from campaign history
+    continents: {}, // continent names/bonus marks (rewards write these; 10b carries them)
+    inventories: camp // reward inventories carry across games
+      ? { cancelStickers: camp.inventories.cancelStickers, fortifyMarks: camp.inventories.fortifyMarks, majorCities: camp.inventories.majorCities, minorCities: camp.inventories.minorCities }
+      : { ...ruleValue<GameState["inventories"]>("rewardInventories") }, // finite reward inventories from pack data
+    cardModifications: {}, // territory-card upgrades, overlaid on pack card values
+    unlockedModules: [...(camp?.unlockedModules ?? [])], // previously revealed modules stay active
+    pendingUnlocks: [],
     contentRequired: structuredClone(camp?.contentRequired ?? []),
     hostContent: structuredClone(camp?.hostContent ?? {}),
     worldCapitalTerritoryId: camp?.worldCapitalTerritoryId,
@@ -121,26 +116,26 @@ export function createGame(cfg: NewGameConfig): GameState {
   };
   if (s.alienIsland) s.territories[s.alienIsland.territoryId] = { troops: 0, scars: [] };
   for (const p of cfg.players) {
-    const sig = s.signatures[p.id]; // new: signature-driven setup (SPEC §4/§7)
+    const sig = s.signatures[p.id]; // signature-driven setup (SPEC §4/§7)
     s.players[p.id] = {
       id: p.id, name: p.name,
       startingTroops: startingTroops(),
-      redStarTokens: p.redStarTokens ?? (sig >= 1 ? 0 : 1), // new: >=1 signature -> no starting token
-      missiles: p.missiles ?? sig, // new: missiles = signature count (0 with no history)
-      hand: [], scarHand: [], scarCardCount: 0, // new: scarHand holds dealt starter scars (identity hidden)
+      redStarTokens: p.redStarTokens ?? (sig >= 1 ? 0 : 1), // >=1 signature -> no starting token
+      missiles: p.missiles ?? sig, // missiles = signature count (0 with no history)
+      hand: [], scarHand: [], scarCardCount: 0, // scarHand holds dealt starter scars (identity hidden)
       knockedOut: false, eliminated: false, conqueredEnemyThisTurn: false,
     };
   }
-  if (camp) { // new (10b): apply persisted board legacy before any placement
-    for (const sc of camp.board.scars) s.territories[sc.territoryId].scars.push(sc.scarId); // new
+  if (camp) { // apply persisted board legacy before any placement
+    for (const sc of camp.board.scars) s.territories[sc.territoryId].scars.push(sc.scarId);
     for (const tid of camp.board.ruins ?? []) if (s.territories[tid]) s.territories[tid].ruin = true;
-    for (const c of camp.board.cities) s.territories[c.territoryId].city = { type: c.type, population: cityPopulation(c.type), name: c.name, foundedByPlayerId: c.foundedByPlayerId }; // new
-    const fortMax = (scarById("fortification") as any)?.durability ?? 10; // new
-    for (const f of camp.board.fortifications) s.territories[f.territoryId].fortification = { max: fortMax, remaining: f.durability }; // new
-    for (const [cid, named] of Object.entries(camp.board.continentNames)) s.continents[cid] = { ...s.continents[cid], name: named.name, namedBy: named.namedBy }; // new
-    for (const [cid, mark] of Object.entries(camp.board.continentBonusMarks)) s.continents[cid] = { ...s.continents[cid], bonusMark: mark }; // new
-    for (const m of camp.board.cardModifications) if (m.resources !== undefined) s.cardModifications[m.cardId] = { resources: m.resources }; // new
-    emit(s, "CampaignLegacyApplied", undefined, { gameNumber: s.gameNumber, scars: camp.board.scars.length, cities: camp.board.cities.length, fortifications: camp.board.fortifications.length }); // new
+    for (const c of camp.board.cities) s.territories[c.territoryId].city = { type: c.type, population: cityPopulation(c.type), name: c.name, foundedByPlayerId: c.foundedByPlayerId };
+    const fortMax = (scarById("fortification") as any)?.durability ?? 10;
+    for (const f of camp.board.fortifications) s.territories[f.territoryId].fortification = { max: fortMax, remaining: f.durability };
+    for (const [cid, named] of Object.entries(camp.board.continentNames)) s.continents[cid] = { ...s.continents[cid], name: named.name, namedBy: named.namedBy };
+    for (const [cid, mark] of Object.entries(camp.board.continentBonusMarks)) s.continents[cid] = { ...s.continents[cid], bonusMark: mark };
+    for (const m of camp.board.cardModifications) if (m.resources !== undefined) s.cardModifications[m.cardId] = { resources: m.resources };
+    emit(s, "CampaignLegacyApplied", undefined, { gameNumber: s.gameNumber, scars: camp.board.scars.length, cities: camp.board.cities.length, fortifications: camp.board.fortifications.length });
   }
   emit(s, "GameStarted", undefined, { gameId: cfg.gameId, seed: cfg.seed, players: cfg.players.map((p) => p.id) });
 
@@ -192,27 +187,27 @@ export function createGame(cfg: NewGameConfig): GameState {
   }
 
   // Sideboard: shuffled territory deck, exactly 4 face-up slots, coin pile
-  const destroyedCards = new Set((camp?.board.cardModifications ?? []).filter((m) => m.destroyed).map((m) => m.cardId)); // new: destroyed cards never re-enter play
-  s.sideboard.destroyed = [...destroyedCards]; // new
-  const deck = shuffled(s, territoryCardDefinitions(!!camp?.alienIsland).map((c) => c.id).filter((id) => !destroyedCards.has(id))); // new: filter before shuffle
+  const destroyedCards = new Set((camp?.board.cardModifications ?? []).filter((m) => m.destroyed).map((m) => m.cardId)); // destroyed cards never re-enter play
+  s.sideboard.destroyed = [...destroyedCards];
+  const deck = shuffled(s, territoryCardDefinitions(!!camp?.alienIsland).map((c) => c.id).filter((id) => !destroyedCards.has(id))); // filter before shuffle
   s.sideboard.slots = [deck.shift()!, deck.shift()!, deck.shift()!, deck.shift()!];
   s.sideboard.territoryDeck = deck;
   s.sideboard.coinPile = [...contentPack.cards.coinCards.map((c) => c.id)];
   emit(s, "SideboardSetup", undefined, { slots: s.sideboard.slots, deckCount: deck.length, coinCount: 10 });
   initializeLegacyCards(s);
 
-  // Scar deal: one hidden starter-scar instance per player, only if enough instances exist (D1). // new
-  // Starter inventory = campaign scar-instance counts when carrying over, else pack `instances`. // new
-  const scarPool = shuffled( // new
+  // Scar deal: one hidden starter-scar instance per player, only if enough instances exist (D1).
+  // Starter inventory = campaign scar-instance counts when carrying over, else pack `instances`.
+  const scarPool = shuffled(
     s,
     contentPack.scars
-      .filter((x) => scarAvailable(s.unlockedModules, x)) // new (11): unlocked module scars join the pool
+      .filter((x) => scarAvailable(s.unlockedModules, x)) // unlocked module scars join the pool
       .flatMap((x) => {
-        const count = camp ? camp.inventories.scarInstances[x.id] ?? 0 : (x as any).instances ?? 0; // new: played instances are consumed forever
+        const count = camp ? camp.inventories.scarInstances[x.id] ?? 0 : (x as any).instances ?? 0; // played instances are consumed forever
         return Array.from({ length: count }, (_, i) => ({ instanceId: `${x.id}#${i + 1}`, scarId: x.id }));
       }),
   );
-  if (scarPool.length >= cfg.players.length) { // new
+  if (scarPool.length >= cfg.players.length) {
     for (const p of cfg.players) {
       const inst = scarPool.shift()!; // identity withheld from event payloads (public-safe)
       s.players[p.id].scarHand = [inst];
@@ -226,7 +221,7 @@ export function createGame(cfg: NewGameConfig): GameState {
 }
 
 export function startingTroops(_playerCount?: number): number {
-  return ruleValue<number>("startingTroops"); // new: flat 8 per player; no player-count scaling
+  return ruleValue<number>("startingTroops"); // flat 8 per player; no player-count scaling
 }
 
 export function joinWarTroops(s?: GameState, playerId?: PlayerId): number {
@@ -239,15 +234,15 @@ export function joinWarTroops(s?: GameState, playerId?: PlayerId): number {
  * with the founding slice). Minor cities never qualify. When placing an HQ
  * (initial setup), the territory may not be adjacent to another faction's HQ.
  */
-export function isLegalStart(s: GameState, tid: TerritoryId, placingHq = false, placingFaction?: FactionId, placingPlayerId?: PlayerId): boolean { // new: placingPlayerId for the founder check
+export function isLegalStart(s: GameState, tid: TerritoryId, placingHq = false, placingFaction?: FactionId, placingPlayerId?: PlayerId): boolean { // placingPlayerId for the founder check
   const t = s.territories[tid];
   if (!t || (!isBaseTerritory(tid) && tid !== s.alienIsland?.territoryId)) return false;
   if (tid === s.alienIsland?.territoryId) return t.troops === 0 && !t.controller && !t.hqFaction;
-  const unoccupiedUnmarked = t.troops === 0 && !t.controller && !t.hqFaction && !t.city && !t.ruin && t.scars.length === 0; // new: cities, ruins, AND scars are marks; only the founder's Major City overrides (even if scarred)
-  const ownFoundedMajorCity = t.troops === 0 && !t.controller && t.city?.type === "major" && t.city.foundedByPlayerId === placingPlayerId; // new: keyed on city type + founder (player), not population/faction
+  const unoccupiedUnmarked = t.troops === 0 && !t.controller && !t.hqFaction && !t.city && !t.ruin && t.scars.length === 0; // cities, ruins, AND scars are marks; only the founder's Major City overrides (even if scarred)
+  const ownFoundedMajorCity = t.troops === 0 && !t.controller && t.city?.type === "major" && t.city.foundedByPlayerId === placingPlayerId; // keyed on city type + founder (player), not population/faction
   if (!unoccupiedUnmarked && !ownFoundedMajorCity) return false; // minor/world-capital cities, and another player's Major City, never qualify
   if (placingHq) {
-    for (const n of neighborsOf(s, tid)) { // new: HQ-adjacency restriction
+    for (const n of neighborsOf(s, tid)) { // HQ-adjacency restriction
       const nt = s.territories[n];
       if (nt.hqFaction && nt.hqFaction !== placingFaction) return false;
     }
@@ -255,14 +250,14 @@ export function isLegalStart(s: GameState, tid: TerritoryId, placingHq = false, 
   return true;
 }
 
-// ---------- Faction powers (Slice 9) ---------- // new
+// ---------- Faction powers ----------
 
-/** The selected starting power of the player's faction, or undefined. */ // new
-/** Per-turn power bookkeeping + automatic start-of-turn powers. Runs whenever a turn begins. */ // new
-function enterStartTurn(s: GameState, pid: PlayerId) { // new
-  s.blockedAttackTargets = []; // new: defensive_stand locks expire when the active turn ends
-  s.intimidation = undefined; // new
-  s.expandedThisTurn = 0; // new
+/** The selected starting power of the player's faction, or undefined. */
+/** Per-turn power bookkeeping + automatic start-of-turn powers. Runs whenever a turn begins. */
+function enterStartTurn(s: GameState, pid: PlayerId) {
+  s.blockedAttackTargets = []; // defensive_stand locks expire when the active turn ends
+  s.intimidation = undefined;
+  s.expandedThisTurn = 0;
   s.expandedIntoCityThisTurn = false;
   s.stealthRecruitTerritory = undefined;
   s.mobileHqUsed = false;
@@ -279,14 +274,14 @@ function enterStartTurn(s: GameState, pid: PlayerId) { // new
       .every((territory) => s.territories[territory.id].controller === pid)).length >= 2,
   };
   if (s.players[pid].factionId === "mutants") s.protectedMutantTerritoryId = undefined;
-  if (hasPower(s, pid, "hq_reinforcement")) { // new: Khan — +1 troop on each controlled territory containing any HQ
-    for (const [tid, t] of Object.entries(s.territories)) { // new
-      if (t.controller !== pid || !t.hqFaction || t.troops <= 0) continue; // new
-      t.troops++; // new
-      emit(s, "FactionPowerApplied", pid, { powerId: "hq_reinforcement", territory: tid, troops: t.troops }); // new
-    } // new
-  } // new
-} // new
+  if (hasPower(s, pid, "hq_reinforcement")) { // Khan — +1 troop on each controlled territory containing any HQ
+    for (const [tid, t] of Object.entries(s.territories)) {
+      if (t.controller !== pid || !t.hqFaction || t.troops <= 0) continue;
+      t.troops++;
+      emit(s, "FactionPowerApplied", pid, { powerId: "hq_reinforcement", territory: tid, troops: t.troops });
+    }
+  }
+}
 
 // ---------- Recruitment ----------
 
@@ -299,19 +294,19 @@ export function recruitBreakdown(s: GameState, pid: PlayerId): RecruitBreakdown 
   const population = weakness === "primitive"
     ? 0
     : owned.reduce((sum, [, t]) => sum + (t.city?.population ?? 0), 0);
-  // Corrected formula: population counts INSIDE the division (rulebook; `recruitCountsPopulationInDivision`). // new
-  const round = hasPower(s, pid, "round_up_recruiting") ? Math.ceil : Math.floor; // new: Imperial rounds UP, before min-recruit and bonuses
-  const fromTerritories = Math.max(round((n + population) / per), min); // new
+  // Corrected formula: population counts INSIDE the division (rulebook; `recruitCountsPopulationInDivision`).
+  const round = hasPower(s, pid, "round_up_recruiting") ? Math.ceil : Math.floor; // Imperial rounds UP, before min-recruit and bonuses
+  const fromTerritories = Math.max(round((n + population) / per), min);
   const continents = manifest.continents
     .filter((c) => !s.badIntelDeniedContinents.includes(c.id)
       && manifest.territories.filter((t) => t.continent === c.id).every((t) => s.territories[t.id].controller === pid))
     .map((c) => {
-      const legacy = s.continents[c.id]; // new: change_continent_bonus is global; name_continent's +1 is personal to the namer
-      const globalModifier = legacy?.bonusMark ?? 0; // new
-      const namedBonus = legacy?.namedBy === pid ? ruleValue<number>("namedContinentBonus") : 0; // new
-      return { id: c.id, base: c.baseBonus, globalModifier, namedBonus, total: c.baseBonus + globalModifier + namedBonus }; // new
+      const legacy = s.continents[c.id]; // change_continent_bonus is global; name_continent's +1 is personal to the namer
+      const globalModifier = legacy?.bonusMark ?? 0;
+      const namedBonus = legacy?.namedBy === pid ? ruleValue<number>("namedContinentBonus") : 0;
+      return { id: c.id, base: c.baseBonus, globalModifier, namedBonus, total: c.baseBonus + globalModifier + namedBonus };
     });
-  const total = fromTerritories + continents.reduce((a, c) => a + c.total, 0); // new: population no longer added at face value (it's inside the division)
+  const total = fromTerritories + continents.reduce((a, c) => a + c.total, 0); // population no longer added at face value (it's inside the division)
   return { territories: n, fromTerritories, population, continents, tradeIns: 0, total };
 }
 
@@ -354,44 +349,44 @@ function checkVictory(s: GameState): void {
     if (p.factionId) s.results[p.factionId] = status;
   }
   emit(s, "GameWon", winner, { reason, results: s.results });
-  if (Object.values(s.results).some((r) => r === "eliminated")) { // new (11): Pack 2's "else end-game" branch — any elimination opens it
-    queueUnlock(s, "pack_2_comeback_mercenaries", "end_game"); // new
-  } // new
-  beginEndGameRewards(s); // new: sign the board + open reward resolution (SPEC §7)
+  if (Object.values(s.results).some((r) => r === "eliminated")) { // Pack 2's "else end-game" branch — any elimination opens it
+    queueUnlock(s, "pack_2_comeback_mercenaries", "end_game");
+  }
+  beginEndGameRewards(s); // sign the board + open reward resolution (SPEC §7)
 }
 
-// ---------- End-game rewards & signatures (10a) ---------- // new
+// ---------- End-game rewards & signatures (10a) ----------
 
 /**
  * SPEC §7 post-game resolution: the winner signs (mandatory, automatic) and resolves one
  * winner reward; then held-on non-winners choose clockwise from the winner. Eliminated and
  * unused factions get no reward. Runs inside the locked game_over phase.
- */ // new
-function beginEndGameRewards(s: GameState) { // new
-  const lastRewardGame = ruleValue<number>("starterRewardsLastGame"); // new (10b): starter reward changes stop after Game 15
-  if (s.gameNumber > lastRewardGame) { // new
-    emit(s, "EndGameRewardsSkipped", undefined, { gameNumber: s.gameNumber, lastRewardGame }); // new
-    processUnlocks(s, "end_game"); // new (11): pending end-game unlocks still reveal when no reward flow opens
-    return; // new: no signing, no rewards — existing legacy state stays active
-  } // new
-  const winner = s.winner!; // new
-  s.signatures[winner] = (s.signatures[winner] ?? 0) + 1; // new: signatures are mandatory, tied to the player
-  emit(s, "BoardSigned", winner, { signatures: s.signatures[winner] }); // new: AfterSignatureAdded hook point (Pack 3, task 11)
+ */
+function beginEndGameRewards(s: GameState) {
+  const lastRewardGame = ruleValue<number>("starterRewardsLastGame"); // starter reward changes stop after Game 15
+  if (s.gameNumber > lastRewardGame) {
+    emit(s, "EndGameRewardsSkipped", undefined, { gameNumber: s.gameNumber, lastRewardGame });
+    processUnlocks(s, "end_game"); // pending end-game unlocks still reveal when no reward flow opens
+    return; // no signing, no rewards — existing legacy state stays active
+  }
+  const winner = s.winner!;
+  s.signatures[winner] = (s.signatures[winner] ?? 0) + 1; // signatures are mandatory, tied to the player
+  emit(s, "BoardSigned", winner, { signatures: s.signatures[winner] }); // AfterSignatureAdded hook point (Pack 3)
   if (s.signatures[winner] === 2) {
     // Official opening condition: a person's second board signature. The reveal is
     // deferred to the end-game reward sequence, after the winner has taken a reward.
     queueUnlock(s, "pack_3_homelands_missions", "end_game");
   }
-  const order = [winner]; // new
-  const wIdx = s.turnOrder.indexOf(winner); // new
-  for (let step = 1; step < s.turnOrder.length; step++) { // new: clockwise from the winner
-    const pid = s.turnOrder[(wIdx + step) % s.turnOrder.length]; // new
-    const fid = s.players[pid].factionId; // new
-    if (fid && s.results?.[fid] === "held_on") order.push(pid); // new
-  } // new
-  s.rewards = { order, nextIdx: 0, committed: false }; // new
-  emit(s, "EndGameRewardsOpened", winner, { order }); // new
-} // new
+  const order = [winner];
+  const wIdx = s.turnOrder.indexOf(winner);
+  for (let step = 1; step < s.turnOrder.length; step++) { // clockwise from the winner
+    const pid = s.turnOrder[(wIdx + step) % s.turnOrder.length];
+    const fid = s.players[pid].factionId;
+    if (fid && s.results?.[fid] === "held_on") order.push(pid);
+  }
+  s.rewards = { order, nextIdx: 0, committed: false };
+  emit(s, "EndGameRewardsOpened", winner, { order });
+}
 
 /** After Game 15 rewards, determine who names the completed world using the official tie roll. */
 function beginWorldCompletion(s: GameState) {
@@ -416,18 +411,18 @@ function beginWorldCompletion(s: GameState) {
   emit(s, "WorldNamingOpened", contenders[0], { gameNumber: s.gameNumber, mostWins });
 }
 
-/** Is any winner reward still resolvable? (Gates the winner's pass — normally one reward is mandatory.) */ // new
-function anyWinnerRewardAvailable(s: GameState): boolean { // new
+/** Is any winner reward still resolvable? (Gates the winner's pass — normally one reward is mandatory.) */
+function anyWinnerRewardAvailable(s: GameState): boolean {
   const terrs = manifest.territories.map((territory) => s.territories[territory.id]); // starter reward stickers target the printed board
-  if (manifest.continents.some((c) => !s.continents[c.id]?.name)) return true; // name_continent // new
-  if (s.inventories.majorCities > 0 && terrs.some((t) => !t.city)) return true; // found_major_city // new
-  if (s.inventories.cancelStickers > 0 && terrs.some((t) => t.scars.length > 0)) return true; // cancel_scar // new
-  const marks = Object.values(s.continents).map((c) => c.bonusMark); // new
-  if ((!marks.includes(1) || !marks.includes(-1)) && manifest.continents.some((c) => s.continents[c.id]?.bonusMark === undefined)) return true; // change_continent_bonus // new
-  if (s.inventories.fortifyMarks > 0 && terrs.some((t) => t.city)) return true; // fortify_city // new
+  if (manifest.continents.some((c) => !s.continents[c.id]?.name)) return true; // name_continent
+  if (s.inventories.majorCities > 0 && terrs.some((t) => !t.city)) return true; // found_major_city
+  if (s.inventories.cancelStickers > 0 && terrs.some((t) => t.scars.length > 0)) return true; // cancel_scar
+  const marks = Object.values(s.continents).map((c) => c.bonusMark);
+  if ((!marks.includes(1) || !marks.includes(-1)) && manifest.continents.some((c) => s.continents[c.id]?.bonusMark === undefined)) return true; // change_continent_bonus
+  if (s.inventories.fortifyMarks > 0 && terrs.some((t) => t.city)) return true; // fortify_city
   if (territoryCardDefinitions(!!s.alienIsland).some((card) => !s.sideboard.destroyed.includes(card.id))) return true; // destroy_territory_card
-  return false; // new
-} // new
+  return false;
+}
 
 // ---------- Sideboard ----------
 
@@ -633,7 +628,7 @@ function advanceTurn(s: GameState) {
     s.combat = undefined;
     s.phase = "start_turn";
     emit(s, "TurnStarted", pid, { turn: s.turnNumber });
-    enterStartTurn(s, pid); // new (9): per-turn power state + start-of-turn powers
+    enterStartTurn(s, pid); // per-turn power state + start-of-turn powers
     return;
   }
 }
@@ -645,23 +640,23 @@ function ensurePhase(s: GameState, ...phases: GameState["phase"][]) {
   if (!phases.includes(s.phase)) throw new RuleViolation(`Illegal in phase ${s.phase}`);
 }
 
-// ---------- Unlock module engine (Slice 11) ---------- // new
+// ---------- Unlock module engine ----------
 
 /**
  * Sealed modules trigger during play, queue, and reveal at their timing —
  * mid-game immediately, end-game after the last reward resolves. Multiple pending
  * unlocks always process in the canonical manifest order (Pack 1→2→3→4→Pocket 1→2).
  * Host-entered content (`contentRequired`) is announced here and supplied by the
- * import wizard (task 12); the campaign layer records the pause.
- */ // new
-function queueUnlock(s: GameState, moduleId: string, timing: "mid_game" | "end_game") { // new: whole function
+ * import wizard; the campaign layer records the pause.
+ */
+function queueUnlock(s: GameState, moduleId: string, timing: "mid_game" | "end_game") {
   if (s.unlockedModules.includes(moduleId) || s.pendingUnlocks.some((u) => u.moduleId === moduleId)) return;
   emit(s, "ModuleTriggered", undefined, { moduleId, timing });
   s.pendingUnlocks.push({ moduleId, timing });
   if (timing === "mid_game") processUnlocks(s, "mid_game");
 }
 
-function processUnlocks(s: GameState, timing: "mid_game" | "end_game", onlyModuleId?: string) { // new: whole function
+function processUnlocks(s: GameState, timing: "mid_game" | "end_game", onlyModuleId?: string) {
   const due = s.pendingUnlocks.filter((u) => (u.timing === timing || timing === "end_game")
     && (!onlyModuleId || u.moduleId === onlyModuleId)); // end-game flush takes everything left
   if (due.length === 0) return;
@@ -918,12 +913,12 @@ function queueEndGameComebackChoices(s: GameState) {
   }
 }
 
-// ---------- Scar effects (Slice 8) ---------- // new
+// ---------- Scar effects ----------
 
-const scarById = (id: string) => contentPack.scars.find((x) => x.id === id); // new
+const scarById = (id: string) => contentPack.scars.find((x) => x.id === id);
 
-/** A scar card is available when it's starter-playable or its source module has been revealed. */ // new
-function scarAvailable(unlockedModules: string[], def: any): boolean { // new: whole function
+/** A scar card is available when it's starter-playable or its source module has been revealed. */
+function scarAvailable(unlockedModules: string[], def: any): boolean {
   if (def?.starterPlayable) return true;
   const mod = contentPack.unlockModules.find((m) => (m as any).scarSource === def?.source);
   return !!mod && unlockedModules.includes(mod.id);
@@ -934,38 +929,38 @@ function scarAvailable(unlockedModules: string[], def: any): boolean { // new: w
  * Missiles set an unmodifiable 6 — flagged dice are never scar-modified. "Highest die"
  * is index 0 of the natural roll (sorted desc). Fortification lives in its own
  * territory field (not scars[]) and applies to each defense die while durability remains.
- */ // new
-function defenseScarModifiers(s: GameState, c: PendingCombat): { scarId: string; dieIndex: number; delta: number }[] { // new
+ */
+function defenseScarModifiers(s: GameState, c: PendingCombat): { scarId: string; dieIndex: number; delta: number }[] {
   if (s.empTerritories.includes(c.to)) return [];
-  const t = s.territories[c.to]; // new
-  const defCount = c.natural!.def.length; // new
-  const mods: { scarId: string; dieIndex: number; delta: number }[] = []; // new
-  const tryAdd = (scarId: string, dieIndex: number, delta: number) => { // new
-    if (!c.unmodifiable.def[dieIndex]) mods.push({ scarId, dieIndex, delta }); // new
-  }; // new
-  const deltaOf = (eff: any) => (eff.op === "sub" ? -1 : 1) * (eff.amount ?? 0); // new
-  for (const scarId of t.scars) { // new
+  const t = s.territories[c.to];
+  const defCount = c.natural!.def.length;
+  const mods: { scarId: string; dieIndex: number; delta: number }[] = [];
+  const tryAdd = (scarId: string, dieIndex: number, delta: number) => {
+    if (!c.unmodifiable.def[dieIndex]) mods.push({ scarId, dieIndex, delta });
+  };
+  const deltaOf = (eff: any) => (eff.op === "sub" ? -1 : 1) * (eff.amount ?? 0);
+  for (const scarId of t.scars) {
     if (scarId === "ammo_shortage" && hasPower(s, c.defender, "well_supplied")) continue;
-    const def = scarById(scarId); // new
-    if (!def || def.verification !== "confirmed" || def.handler !== "modifyCombatDie") continue; // only confirmed effects // new
-    const eff = (def as any).effect ?? {}; // new
-    if (eff.side !== "def") continue; // new
-    if (eff.applyTo === "highest_die") tryAdd(scarId, 0, deltaOf(eff)); // new
-    else if (eff.applyTo === "each_die") for (let i = 0; i < defCount; i++) tryAdd(scarId, i, deltaOf(eff)); // new
-  } // new
-  if (t.fortification && t.fortification.remaining > 0) { // new
-    const eff = (scarById("fortification") as any)?.effect ?? {}; // new
-    for (let i = 0; i < defCount; i++) tryAdd("fortification", i, deltaOf(eff)); // new
-  } // new
-  return mods; // new
-} // new
+    const def = scarById(scarId);
+    if (!def || def.verification !== "confirmed" || def.handler !== "modifyCombatDie") continue; // only confirmed effects
+    const eff = (def as any).effect ?? {};
+    if (eff.side !== "def") continue;
+    if (eff.applyTo === "highest_die") tryAdd(scarId, 0, deltaOf(eff));
+    else if (eff.applyTo === "each_die") for (let i = 0; i < defCount; i++) tryAdd(scarId, i, deltaOf(eff));
+  }
+  if (t.fortification && t.fortification.remaining > 0) {
+    const eff = (scarById("fortification") as any)?.effect ?? {};
+    for (let i = 0; i < defCount; i++) tryAdd("fortification", i, deltaOf(eff));
+  }
+  return mods;
+}
 
-/** Confirmed onEndTurn scar attrition (Biohazard) for the player whose turn is ending. */ // new
-function applyEndOfTurnScars(s: GameState, pid: PlayerId) { // new
-  for (const [tid, t] of Object.entries(s.territories)) { // new
-    if (t.controller !== pid || t.troops <= 0) continue; // new
+/** Confirmed onEndTurn scar attrition (Biohazard) for the player whose turn is ending. */
+function applyEndOfTurnScars(s: GameState, pid: PlayerId) {
+  for (const [tid, t] of Object.entries(s.territories)) {
+    if (t.controller !== pid || t.troops <= 0) continue;
     const mutants = s.players[pid].factionId === "mutants";
-    for (const scarId of t.scars) { // new
+    for (const scarId of t.scars) {
       if (scarId === "fallout") {
         const delta = mutants ? 1 : -1;
         t.troops = Math.max(0, t.troops + delta);
@@ -973,17 +968,17 @@ function applyEndOfTurnScars(s: GameState, pid: PlayerId) { // new
         emit(s, mutants ? "ScarReinforcement" : "ScarAttrition", pid, { scarId, territory: tid, remaining: t.troops });
         continue;
       }
-      const def = scarById(scarId); // new
-      if (!def || def.verification !== "confirmed" || def.handler !== "onEndTurn") continue; // new
-      const eff = (def as any).effect ?? {}; // new
-      if (eff.trigger !== "controller_end_turn") continue; // new
-      if (eff.op === "remove_troops") { // new: Biohazard
+      const def = scarById(scarId);
+      if (!def || def.verification !== "confirmed" || def.handler !== "onEndTurn") continue;
+      const eff = (def as any).effect ?? {};
+      if (eff.trigger !== "controller_end_turn") continue;
+      if (eff.op === "remove_troops") { // Biohazard
         const amount = mutants && scarId === "biohazard" ? -(eff.amount ?? 0) : (eff.amount ?? 0);
-        t.troops = Math.max(0, t.troops - amount); // new
-        const vacated = t.troops === 0; // new
-        if (vacated) t.controller = undefined; // last troop lost -> territory abandoned // new
-        emit(s, "ScarAttrition", pid, { scarId, territory: tid, remaining: t.troops, vacated }); // new
-      } else if (eff.op === "add_troops") { // new (11): Mercenary — +1 if still controlled
+        t.troops = Math.max(0, t.troops - amount);
+        const vacated = t.troops === 0;
+        if (vacated) t.controller = undefined; // last troop lost -> territory abandoned
+        emit(s, "ScarAttrition", pid, { scarId, territory: tid, remaining: t.troops, vacated });
+      } else if (eff.op === "add_troops") { // Mercenary — +1 if still controlled
         if (mutants && scarId === "mercenary") {
           t.troops = Math.max(0, t.troops - (eff.amount ?? 0));
           if (t.troops === 0) t.controller = undefined;
@@ -991,13 +986,13 @@ function applyEndOfTurnScars(s: GameState, pid: PlayerId) { // new
           continue;
         }
         const convincingBonus = scarId === "mercenary" && hasPower(s, pid, "convincing") ? 1 : 0;
-        t.troops += (eff.amount ?? 0) + convincingBonus; // new
-        emit(s, "ScarReinforcement", pid, { scarId, territory: tid, troops: t.troops }); // new
+        t.troops += (eff.amount ?? 0) + convincingBonus;
+        emit(s, "ScarReinforcement", pid, { scarId, territory: tid, troops: t.troops });
         if (convincingBonus) emit(s, "FactionPowerApplied", pid, { powerId: "convincing", territory: tid, bonus: convincingBonus });
-      } // new
-    } // new
-  } // new
-} // new
+      }
+    }
+  }
+}
 
 function ensureEndTurnScars(s: GameState, pid: PlayerId) {
   if (s.endTurnScarsApplied) return;
@@ -1022,8 +1017,8 @@ function legalModifierActors(s: GameState, c: PendingCombat): PlayerId[] {
     && !c.window?.passed.includes(pid));
 }
 
-/** modifyCombatDie faction powers against the defense dice (SPEC §6). Missile-set dice stay untouched. */ // new
-function powerDefenseModifiers(s: GameState, c: PendingCombat): { powerId: string; playerId: PlayerId; side: "att" | "def"; dieIndex: number; delta: number }[] { // new: whole function
+/** modifyCombatDie faction powers against the defense dice (SPEC §6). Missile-set dice stay untouched. */
+function powerDefenseModifiers(s: GameState, c: PendingCombat): { powerId: string; playerId: PlayerId; side: "att" | "def"; dieIndex: number; delta: number }[] {
   if (s.empTerritories.includes(c.to)) return [];
   const t = s.territories[c.to];
   const defCount = c.natural!.def.length;
@@ -1050,27 +1045,27 @@ function powerDefenseModifiers(s: GameState, c: PendingCombat): { powerId: strin
   return mods;
 }
 
-function finalDice(s: GameState, c: PendingCombat): { att: number[]; def: number[]; scarModifiers: { scarId: string; dieIndex: number; delta: number }[]; powerModifiers: { powerId: string; playerId: PlayerId; side: "att" | "def"; dieIndex: number; delta: number }[] } { // new: takes state for territory scars + powers
+function finalDice(s: GameState, c: PendingCombat): { att: number[]; def: number[]; scarModifiers: { scarId: string; dieIndex: number; delta: number }[]; powerModifiers: { powerId: string; playerId: PlayerId; side: "att" | "def"; dieIndex: number; delta: number }[] } { // takes state for territory scars + powers
   const att = [...c.natural!.att];
   const def = [...c.natural!.def];
   for (const m of c.modifiers) {
     if (m.side === "att") att[m.dieIndex] = 6;
     else def[m.dieIndex] = 6;
   }
-  const scarModifiers = defenseScarModifiers(s, c); // new
-  for (const m of scarModifiers) def[m.dieIndex] = Math.max(1, Math.min(6, def[m.dieIndex] + m.delta)); // new: clamp 1..6 (D1)
-  const powerModifiers = powerDefenseModifiers(s, c); // new (9)
+  const scarModifiers = defenseScarModifiers(s, c);
+  for (const m of scarModifiers) def[m.dieIndex] = Math.max(1, Math.min(6, def[m.dieIndex] + m.delta)); // clamp 1..6 (D1)
+  const powerModifiers = powerDefenseModifiers(s, c);
   for (const m of powerModifiers) {
     const dice = m.side === "att" ? att : def;
     dice[m.dieIndex] = Math.max(1, Math.min(6, dice[m.dieIndex] + m.delta));
   }
-  return { att, def, scarModifiers, powerModifiers }; // new
+  return { att, def, scarModifiers, powerModifiers };
 }
 
 function resolveCombat(s: GameState) {
   const c = s.combat!;
-  const { att, def, scarModifiers, powerModifiers } = finalDice(s, c); // new
-  for (const m of powerModifiers) emit(s, "FactionPowerApplied", m.playerId, { powerId: m.powerId, territory: c.to, dieIndex: m.dieIndex, delta: m.delta }); // new (9)
+  const { att, def, scarModifiers, powerModifiers } = finalDice(s, c);
+  for (const m of powerModifiers) emit(s, "FactionPowerApplied", m.playerId, { powerId: m.powerId, territory: c.to, dieIndex: m.dieIndex, delta: m.delta });
   const sortIdx = (arr: number[]) => arr.map((v, i) => ({ v, i })).sort((a, b) => b.v - a.v);
   const A = sortIdx(att);
   const D = sortIdx(def);
@@ -1086,24 +1081,24 @@ function resolveCombat(s: GameState) {
   }
   const from = s.territories[c.from];
   const to = s.territories[c.to];
-  const nat = c.natural!; // new (9)
-  // total_conquest: natural three-of-a-kind attack + final combat kills >=1 defender -> ALL defenders die. // new
-  if (defLoss >= 1 && defLoss < to.troops && hasPower(s, c.attacker, "total_conquest") // new
-      && nat.att.length === 3 && nat.att[0] === nat.att[2]) { // new: sorted desc, so first==last means three of a kind
-    emit(s, "FactionPowerApplied", c.attacker, { powerId: "total_conquest", territory: c.to, defendersRemoved: to.troops - defLoss }); // new
-    defLoss = to.troops; // new
-  } // new
-  // defensive_stand: natural double-6 defense locks the territory for the rest of the active turn. // new
-  if (hasPower(s, c.defender, "defensive_stand") && nat.def.length === 2 && nat.def[0] === 6 && nat.def[1] === 6 // new
-      && !s.blockedAttackTargets.includes(c.to)) { // new
-    s.blockedAttackTargets.push(c.to); // new
-    emit(s, "FactionPowerApplied", c.defender, { powerId: "defensive_stand", territory: c.to }); // new
-  } // new
+  const nat = c.natural!;
+  // total_conquest: natural three-of-a-kind attack + final combat kills >=1 defender -> ALL defenders die.
+  if (defLoss >= 1 && defLoss < to.troops && hasPower(s, c.attacker, "total_conquest")
+      && nat.att.length === 3 && nat.att[0] === nat.att[2]) { // sorted desc, so first==last means three of a kind
+    emit(s, "FactionPowerApplied", c.attacker, { powerId: "total_conquest", territory: c.to, defendersRemoved: to.troops - defLoss });
+    defLoss = to.troops;
+  }
+  // defensive_stand: natural double-6 defense locks the territory for the rest of the active turn.
+  if (hasPower(s, c.defender, "defensive_stand") && nat.def.length === 2 && nat.def[0] === 6 && nat.def[1] === 6
+      && !s.blockedAttackTargets.includes(c.to)) {
+    s.blockedAttackTargets.push(c.to);
+    emit(s, "FactionPowerApplied", c.defender, { powerId: "defensive_stand", territory: c.to });
+  }
   from.troops -= attLoss;
   to.troops -= defLoss;
   emit(s, "CombatResolved", c.attacker, {
     from: c.from, to: c.to,
-    natural: c.natural, final: { att, def }, modifiers: c.modifiers, scarModifiers, powerModifiers, // new
+    natural: c.natural, final: { att, def }, modifiers: c.modifiers, scarModifiers, powerModifiers,
     comparisons, attackerLosses: attLoss, defenderLosses: defLoss,
   });
   if (s.players[c.defender].factionId === "mutants" && s.mutantEvolution === "defensive_cloning"
@@ -1111,15 +1106,15 @@ function resolveCombat(s: GameState) {
     to.troops++;
     emit(s, "MutantEvolutionApplied", c.defender, { evolution: "defensive_cloning", territory: c.to });
   }
-  const fortEff = (scarById("fortification") as any)?.effect ?? {}; // new
-  if (to.fortification && c.attackerDice === (fortEff.markDurabilityWhenAttackersEquals ?? 3)) { // new: mark 1 box per 3-attacker roll
-    to.fortification.remaining--; // new
-    emit(s, "FortificationDurabilityMarked", c.attacker, { territory: c.to, remaining: to.fortification.remaining }); // new
-    if (to.fortification.remaining <= 0) { // new
-      to.fortification = undefined; // new: 10 boxes marked -> no longer fortified
-      emit(s, "FortificationExpired", undefined, { territory: c.to }); // new
-    } // new
-  } // new
+  const fortEff = (scarById("fortification") as any)?.effect ?? {};
+  if (to.fortification && c.attackerDice === (fortEff.markDurabilityWhenAttackersEquals ?? 3)) { // mark 1 box per 3-attacker roll
+    to.fortification.remaining--;
+    emit(s, "FortificationDurabilityMarked", c.attacker, { territory: c.to, remaining: to.fortification.remaining });
+    if (to.fortification.remaining <= 0) {
+      to.fortification = undefined; // 10 boxes marked -> no longer fortified
+      emit(s, "FortificationExpired", undefined, { territory: c.to });
+    }
+  }
   c.window = undefined;
   c.natural = undefined;
   c.modifiers = [];
@@ -1510,6 +1505,25 @@ function advanceAdvancedDraft(s: GameState) {
 }
 
 export function applyAction(prev: GameState, action: Action): GameState {
+  // Runtime clients can bypass TypeScript; validate before arithmetic coerces values.
+  if (!action || typeof action !== "object" || typeof action.type !== "string") {
+    throw new RuleViolation("Invalid action");
+  }
+  switch (action.type) {
+    case "recruit.place":
+    case "attack.chooseAttackers":
+    case "attack.defenderDice":
+    case "attack.moveIn":
+    case "maneuver.move":
+      if (!Number.isSafeInteger(action.count) || action.count < 1) throw new RuleViolation("Invalid troop or dice count");
+      break;
+    case "attack.expand":
+      if (!Number.isSafeInteger(action.troops) || action.troops < 1) throw new RuleViolation("Invalid troop count");
+      break;
+    case "combat.useMissile":
+      if (!Number.isSafeInteger(action.dieIndex) || action.dieIndex < 0) throw new RuleViolation("Invalid die index");
+      break;
+  }
   const s: GameState = structuredClone(prev);
   s.expandedIntoCityThisTurn ??= false;
   s.mobileHqUsed ??= false;
@@ -1974,18 +1988,18 @@ export function applyAction(prev: GameState, action: Action): GameState {
       const faction = factionDefinitionById(action.factionId, s.unlockedModules);
       if (!faction) throw new RuleViolation("Unknown faction");
       if (Object.values(s.players).some((x) => x.factionId === action.factionId)) throw new RuleViolation("Faction taken");
-      const storedPower = s.factionPowers[action.factionId]; // new (9): powers attach to the faction permanently
-      if (storedPower) { // new
-        if (action.powerId && action.powerId !== storedPower) throw new RuleViolation(`${faction.name} already chose ${storedPower} — power choices are permanent`); // new
-      } else if (faction.startingPowers.length > 0) { // new
-        if (!action.powerId) throw new RuleViolation("Choose a starting power (first time this faction is played)"); // new
-        if (!faction.startingPowers.includes(action.powerId)) throw new RuleViolation("That power does not belong to this faction"); // new
-      } // new
-      if (!isLegalStart(s, action.territoryId, true, action.factionId, action.playerId)) throw new RuleViolation("Illegal starting territory (unoccupied, unmarked, and not adjacent to another HQ)"); // new
-      if (!storedPower && faction.startingPowers.length > 0) { // new
-        s.factionPowers[action.factionId] = action.powerId!; // new
-        emit(s, "FactionPowerChosen", p.id, { factionId: action.factionId, powerId: action.powerId }); // new
-      } // new
+      const storedPower = s.factionPowers[action.factionId]; // powers attach to the faction permanently
+      if (storedPower) {
+        if (action.powerId && action.powerId !== storedPower) throw new RuleViolation(`${faction.name} already chose ${storedPower} — power choices are permanent`);
+      } else if (faction.startingPowers.length > 0) {
+        if (!action.powerId) throw new RuleViolation("Choose a starting power (first time this faction is played)");
+        if (!faction.startingPowers.includes(action.powerId)) throw new RuleViolation("That power does not belong to this faction");
+      }
+      if (!isLegalStart(s, action.territoryId, true, action.factionId, action.playerId)) throw new RuleViolation("Illegal starting territory (unoccupied, unmarked, and not adjacent to another HQ)");
+      if (!storedPower && faction.startingPowers.length > 0) {
+        s.factionPowers[action.factionId] = action.powerId!;
+        emit(s, "FactionPowerChosen", p.id, { factionId: action.factionId, powerId: action.powerId });
+      }
       p.factionId = action.factionId;
       p.startingTerritoryId = action.territoryId;
       const troops = p.startingTroops ?? startingTroops();
@@ -2028,7 +2042,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
         setup.stage = "complete";
         emit(s, "SetupStageChanged", undefined, { stage: "complete" });
         emit(s, "TurnStarted", activePlayer(s), { turn: 1 });
-        enterStartTurn(s, activePlayer(s)); // new (9): per-turn power state + start-of-turn powers
+        enterStartTurn(s, activePlayer(s)); // per-turn power state + start-of-turn powers
       }
       return s;
     }
@@ -2082,7 +2096,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       const owned = Object.values(s.territories).filter((t) => t.controller === p.id).length;
       if (owned === 0) {
         // Forced Join the War / elimination branch
-        const anyLegal = manifest.territories.some((t) => isLegalStart(s, t.id, false, p.factionId, p.id)); // new: a player's own founded Major City counts as a rejoin option
+        const anyLegal = manifest.territories.some((t) => isLegalStart(s, t.id, false, p.factionId, p.id)); // a player's own founded Major City counts as a rejoin option
         if (!anyLegal) {
           p.eliminated = true;
           p.knockedOut = false;
@@ -2103,10 +2117,10 @@ export function applyAction(prev: GameState, action: Action): GameState {
         return s;
       }
       const breakdown = recruitBreakdown(s, p.id);
-      if (hasPower(s, p.id, "round_up_recruiting")) { // new (9): audit when the round-up actually changed the result
-        const flo = Math.max(Math.floor((breakdown.territories + breakdown.population) / ruleValue<number>("territoriesPerTroop")), ruleValue<number>("minRecruit")); // new
-        if (breakdown.fromTerritories > flo) emit(s, "FactionPowerApplied", p.id, { powerId: "round_up_recruiting", bonus: breakdown.fromTerritories - flo }); // new
-      } // new
+      if (hasPower(s, p.id, "round_up_recruiting")) { // audit when the round-up actually changed the result
+        const flo = Math.max(Math.floor((breakdown.territories + breakdown.population) / ruleValue<number>("territoriesPerTroop")), ruleValue<number>("minRecruit"));
+        if (breakdown.fromTerritories > flo) emit(s, "FactionPowerApplied", p.id, { powerId: "round_up_recruiting", bonus: breakdown.fromTerritories - flo });
+      }
       s.recruit = { remaining: breakdown.total, breakdown };
       s.phase = "join_or_recruit";
       emit(s, "RecruitCalculated", p.id, { breakdown: breakdown as unknown as Record<string, unknown> });
@@ -2118,7 +2132,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       ensurePhase(s, "join_or_recruit");
       ensureActive(s, action.playerId);
       if (Object.values(s.territories).some((t) => t.controller === p.id)) throw new RuleViolation("You control territory; recruit instead");
-      if (!isLegalStart(s, action.territoryId, false, p.factionId, p.id)) throw new RuleViolation("Illegal Join the War territory"); // new: no HQ placed, so no adjacency constraint
+      if (!isLegalStart(s, action.territoryId, false, p.factionId, p.id)) throw new RuleViolation("Illegal Join the War territory"); // no HQ placed, so no adjacency constraint
       const troops = joinWarTroops(s, p.id);
       const t = s.territories[action.territoryId];
       t.controller = p.id;
@@ -2139,7 +2153,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       let resources = 0;
       for (const id of action.cardIds) {
         if (!p.hand.includes(id)) throw new RuleViolation("Card not in hand");
-        resources += cardResources(s, id); // new: honors upgrade_territory_card stickers
+        resources += cardResources(s, id); // honors upgrade_territory_card stickers
       }
       if (p.factionId === s.alienCollaboratorFactionId) resources++;
       if (resources < 2 || resources > 10) throw new RuleViolation("Trade between 2 and 10 resources");
@@ -2240,7 +2254,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
         emit(s, "FalloutLosses", p.id, { territory: action.to, losses: falloutLosses });
       }
       to.controller = to.troops > 0 ? p.id : undefined;
-      s.expandedThisTurn++; // new (9): expansionist_supply counter
+      s.expandedThisTurn++; // expansionist_supply counter
       if (to.city) s.expandedIntoCityThisTurn = true;
       emit(s, "TerritoryExpanded", p.id, { from: action.from, to: action.to, troops: action.troops, resistanceLosses: resistance });
       return s;
@@ -2256,12 +2270,12 @@ export function applyAction(prev: GameState, action: Action): GameState {
       if (!neighborsOf(s, action.from).includes(action.to)) throw new RuleViolation("Not adjacent");
       if (!to.controller || to.controller === p.id || to.troops <= 0) throw new RuleViolation("No enemy to attack there");
       if (from.troops < 2) throw new RuleViolation("Need at least 2 troops to attack");
-      if (s.blockedAttackTargets.includes(action.to)) throw new RuleViolation("That territory cannot be attacked again this turn (Defensive Stand)"); // new (9)
+      if (s.blockedAttackTargets.includes(action.to)) throw new RuleViolation("That territory cannot be attacked again this turn (Defensive Stand)");
       if (s.protectedMutantTerritoryId === action.to) throw new RuleViolation("Mass Hypnosis protects that territory until the Mutants' next turn");
-      if (hasPower(s, p.id, "lower_die_intimidation")) { // new (9): track Enclave's first target of the turn
-        if (!s.intimidation) s.intimidation = { territory: action.to, broken: false }; // new
-        else if (s.intimidation.territory !== action.to) s.intimidation.broken = true; // new: attacking elsewhere ends the effect for the turn
-      } // new
+      if (hasPower(s, p.id, "lower_die_intimidation")) { // track Enclave's first target of the turn
+        if (!s.intimidation) s.intimidation = { territory: action.to, broken: false };
+        else if (s.intimidation.territory !== action.to) s.intimidation.broken = true; // attacking elsewhere ends the effect for the turn
+      }
       s.combat = {
         from: action.from, to: action.to,
         attacker: p.id, defender: to.controller,
@@ -2369,12 +2383,12 @@ export function applyAction(prev: GameState, action: Action): GameState {
     }
 
     case "maneuver.move": {
-      const early = s.phase !== "maneuver"; // new (9): early_maneuver — any stable point during Saharan's own turn
-      if (early) { // new
-        if (!hasPower(s, action.playerId, "early_maneuver")) ensurePhase(s, "maneuver"); // new: normal factions keep the phase gate
-        ensurePhase(s, "start_turn", "join_or_recruit", "expand_attack", "end_turn"); // new: own-turn phases only
-        if (s.combat) throw new RuleViolation("Resolve current combat first"); // new: stable boundary only
-      } // new
+      const early = s.phase !== "maneuver"; // early_maneuver — any stable point during Saharan's own turn
+      if (early) {
+        if (!hasPower(s, action.playerId, "early_maneuver")) ensurePhase(s, "maneuver"); // normal factions keep the phase gate
+        ensurePhase(s, "start_turn", "join_or_recruit", "expand_attack", "end_turn"); // own-turn phases only
+        if (s.combat) throw new RuleViolation("Resolve current combat first"); // stable boundary only
+      }
       ensureActive(s, action.playerId);
       if (s.maneuverUsed) throw new RuleViolation("One maneuver per turn");
       const from = s.territories[action.from];
@@ -2385,14 +2399,14 @@ export function applyAction(prev: GameState, action: Action): GameState {
       if (s.factionWeaknesses[p.factionId ?? ""] === "short_sighted"
           && !neighborsOf(s, action.from).includes(action.to)) throw new RuleViolation("Short-Sighted factions maneuver only one territory");
       if (from.controller !== p.id || to.controller !== p.id) throw new RuleViolation("Both territories must be yours");
-      const unconnected = !connected(s, p.id, action.from, action.to); // new (9)
-      if (unconnected && !hasPower(s, p.id, "unconnected_maneuver")) throw new RuleViolation("Territories not connected through your territories"); // new
+      const unconnected = !connected(s, p.id, action.from, action.to);
+      if (unconnected && !hasPower(s, p.id, "unconnected_maneuver")) throw new RuleViolation("Territories not connected through your territories");
       if (action.count < 1 || action.count >= from.troops) throw new RuleViolation("Leave at least one troop behind");
       from.troops -= action.count;
       to.troops += action.count;
       s.maneuverUsed = true;
-      if (early) emit(s, "FactionPowerApplied", p.id, { powerId: "early_maneuver", phase: s.phase }); // new
-      if (unconnected) emit(s, "FactionPowerApplied", p.id, { powerId: "unconnected_maneuver", from: action.from, to: action.to }); // new
+      if (early) emit(s, "FactionPowerApplied", p.id, { powerId: "early_maneuver", phase: s.phase });
+      if (unconnected) emit(s, "FactionPowerApplied", p.id, { powerId: "unconnected_maneuver", from: action.from, to: action.to });
       emit(s, "Maneuvered", p.id, { from: action.from, to: action.to, count: action.count });
       return s;
     }
@@ -2415,12 +2429,12 @@ export function applyAction(prev: GameState, action: Action): GameState {
       ensurePhase(s, "end_turn");
       ensureActive(s, action.playerId);
       ensureEndTurnScars(s, p.id);
-      const expansionist = !p.conqueredEnemyThisTurn && expansionistDrawEarned(s, p.id); // new (9)
+      const expansionist = !p.conqueredEnemyThisTurn && expansionistDrawEarned(s, p.id);
       const resourceful = !p.conqueredEnemyThisTurn && s.expandedIntoCityThisTurn && hasPower(s, p.id, "resourceful");
       if (!p.conqueredEnemyThisTurn && !expansionist && !resourceful) {
         throw new RuleViolation("No enemy territory conquered or power-based Resource draw earned this turn");
       }
-      if (expansionist) emit(s, "FactionPowerApplied", p.id, { powerId: "expansionist_supply", expandedTerritories: s.expandedThisTurn }); // new
+      if (expansionist) emit(s, "FactionPowerApplied", p.id, { powerId: "expansionist_supply", expandedTerritories: s.expandedThisTurn });
       if (resourceful) emit(s, "FactionPowerApplied", p.id, { powerId: "resourceful" });
       const reconSlot = "reconSlot" in action.choice ? action.choice.reconSlot : undefined;
       const normalSlot = "slot" in action.choice ? action.choice.slot : undefined;
@@ -2446,15 +2460,15 @@ export function applyAction(prev: GameState, action: Action): GameState {
         s.sideboard.slots[i] = null;
         p.hand.push(cardId);
         emit(s, "ResourceCardDrawn", p.id, { kind: "territory", slot: i }); // identity owner-only; server filters
-        if (action.khanReinforce) { // new (9): territory_card_reinforcement — optional +1 troop on the drawn card's territory
+        if (action.khanReinforce) { // territory_card_reinforcement — optional +1 troop on the drawn card's territory
           if (!hasPower(s, p.id, "territory_card_reinforcement")) throw new RuleViolation("Reinforcing the drawn territory requires Khan's Territory Card Reinforcement power");
           if (s.territories[def.territoryId].controller !== p.id) throw new RuleViolation("Khan can reinforce only a territory it controls");
           s.territories[def.territoryId].troops++;
           emit(s, "FactionPowerApplied", p.id, { powerId: "territory_card_reinforcement", territory: def.territoryId, troops: s.territories[def.territoryId].troops });
-        } // new
+        }
         advanceFaceUpCards(s, i);
       } else {
-        if (action.khanReinforce) throw new RuleViolation("Only a drawn Territory card can be reinforced"); // new (9)
+        if (action.khanReinforce) throw new RuleViolation("Only a drawn Territory card can be reinforced");
         const eligible = s.sideboard.slots.some((id, slot) => id
           && !s.blockedResourceDraws.some((choice) => "slot" in choice && choice.slot === slot)
           && canClaimFaceUpTerritory(s, p.id, (card(id) as any).territoryId));
@@ -2494,7 +2508,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       return s;
     }
 
-    case "scar.play": { // new (8b): a holder plays a starter scar at a stable boundary, on anyone's turn
+    case "scar.play": { // a holder plays a starter scar at a stable boundary, on anyone's turn
       if (s.phase === "game_over") throw new RuleViolation("Game is over");
       // Stable boundary only: never interrupt a post-roll missile window or a conquest move-in.
       if (s.combat && (s.combat.natural || s.combat.awaitingMoveIn)) {
@@ -2503,7 +2517,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       const held = p.scarHand.find((x) => x.instanceId === action.scarInstanceId);
       if (!held) throw new RuleViolation("You do not hold that scar");
       const def = scarById(held.scarId);
-      if (!def || !scarAvailable(s.unlockedModules, def)) throw new RuleViolation("That scar is not playable (its module is still sealed)"); // new (11)
+      if (!def || !scarAvailable(s.unlockedModules, def)) throw new RuleViolation("That scar is not playable (its module is still sealed)");
       const t = s.territories[action.territoryId];
       if (!t) throw new RuleViolation("Unknown territory");
       if (t.scars.includes("fallout") || action.territoryId === s.alienIsland?.territoryId) throw new RuleViolation("Fallout and Alien Island cannot be scarred or marked");
@@ -2516,7 +2530,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       return s;
     }
 
-    case "reward.choose": { // new (10a): post-win reward resolution — winner first, held-on clockwise
+    case "reward.choose": { // post-win reward resolution — winner first, held-on clockwise
       if (s.phase !== "game_over" || !s.rewards || s.rewards.committed) throw new RuleViolation("No end-game reward selection open");
       const r = s.rewards;
       if (r.order[r.nextIdx] !== action.playerId) throw new RuleViolation("Not your reward selection");
@@ -2610,7 +2624,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
           t.ruin = undefined;
           s.inventories.minorCities--;
           emit(s, "MinorCityFounded", p.id, { territory: choice.territoryId, name: t.city.name });
-          if (s.inventories.minorCities === 0) queueUnlock(s, "pack_1_advanced_draft_biohazards", "end_game"); // new (11): the 9th (last) Minor City founded & named
+          if (s.inventories.minorCities === 0) queueUnlock(s, "pack_1_advanced_draft_biohazards", "end_game"); // the 9th (last) Minor City founded & named
           break;
         }
         case "upgrade_territory_card": {
@@ -2640,7 +2654,7 @@ export function applyAction(prev: GameState, action: Action): GameState {
       if (r.nextIdx >= r.order.length) {
         r.committed = true;
         emit(s, "EndGameRewardsCommitted", undefined, { order: r.order });
-        processUnlocks(s, "end_game"); // new (11): end-game reveals fire after the last reward resolves
+        processUnlocks(s, "end_game"); // end-game reveals fire after the last reward resolves
         beginWorldCompletion(s);
       }
       return s;

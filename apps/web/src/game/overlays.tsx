@@ -1,10 +1,19 @@
-// new (UI-8): shared modal/overlay layer for blocking decisions. Three surfaces —
+// shared modal/overlay layer for blocking decisions. Three surfaces —
 // full-screen takeover (setup), centered overlay (combat), bottom dock (card/hand
 // decisions) — each carrying an explicit "whose decision" chip.
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import FactionEmblem from "./FactionEmblem.tsx";
 
-const FOCUSABLE = "button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])";
+const FOCUSABLE = "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex='-1'])";
+
+function isVisibleForFocus(element: HTMLElement): boolean {
+  for (let ancestor: HTMLElement | null = element; ancestor; ancestor = ancestor.parentElement) {
+    if (ancestor.hidden || ancestor.hasAttribute("inert") || ancestor.getAttribute("aria-hidden") === "true") return false;
+    const style = window.getComputedStyle(ancestor);
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return false;
+  }
+  return element.isConnected;
+}
 
 function useModalFocus<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -12,10 +21,26 @@ function useModalFocus<T extends HTMLElement>() {
     const modal = ref.current;
     if (!modal) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusables = () => [...modal.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((element) => !element.hidden);
-    (focusables()[0] ?? modal).focus();
+    const focusables = () => [...modal.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(isVisibleForFocus);
+    // Keep a decision input's deliberate initial focus when a child already set it.
+    const focusDecision = () => {
+      if (!modal.contains(document.activeElement)) (focusables()[0] ?? modal).focus();
+    };
+    let visible = isVisibleForFocus(modal);
+    if (visible) focusDecision();
+    // Presentation may hide a mounted decision to preserve its draft state.
+    // Reacquire focus when its ancestor is revealed, without remounting the
+    // decision or introducing a timer alongside the presentation director.
+    const visibilityObserver = new MutationObserver(() => {
+      const nextVisible = isVisibleForFocus(modal);
+      if (nextVisible && !visible) focusDecision();
+      visible = nextVisible;
+    });
+    for (let ancestor: HTMLElement | null = modal; ancestor; ancestor = ancestor.parentElement) {
+      visibilityObserver.observe(ancestor, { attributes: true, attributeFilter: ["hidden", "inert", "aria-hidden", "style", "class"] });
+    }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
+      if (event.key !== "Tab" || !isVisibleForFocus(modal)) return;
       const candidates = focusables();
       if (candidates.length === 0) {
         event.preventDefault();
@@ -34,8 +59,9 @@ function useModalFocus<T extends HTMLElement>() {
     };
     modal.addEventListener("keydown", onKeyDown);
     return () => {
+      visibilityObserver.disconnect();
       modal.removeEventListener("keydown", onKeyDown);
-      previous?.focus();
+      if (previous && isVisibleForFocus(previous)) previous.focus();
     };
   }, []);
   return ref;
@@ -68,12 +94,26 @@ export function TakeoverOverlay({ label, children, wide = false }: { label: stri
   );
 }
 
-export function CenterOverlay({ label, children }: { label: string; children: ReactNode }) {
+export function CenterOverlay({ label, children, front = false }: { label: string; children: ReactNode; front?: boolean }) {
   const modalRef = useModalFocus<HTMLDivElement>();
   return (
-    <div className="absolute inset-0 z-40 bg-ink/70 flex items-center justify-center p-6">
+    <div className={`absolute inset-0 ${front ? "z-[80]" : "z-40"} bg-ink/70 flex items-center justify-center p-6`}>
       <div ref={modalRef} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}
         className="bg-panel border border-line rounded-sm shadow-2xl w-full max-w-2xl max-h-full overflow-y-auto">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** A blocking decision with an unobscured board. The transparent outer layer
+ * catches board clicks; the compact tray retains keyboard focus during battle. */
+export function BattleTray({ children }: { children: ReactNode }) {
+  const modalRef = useModalFocus<HTMLDivElement>();
+  return (
+    <div data-battle-tray className="absolute inset-0 z-40 flex items-end justify-end p-2 sm:p-3 lg:items-center">
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="Combat" tabIndex={-1}
+        className="bg-[#10151e] border border-signal/45 rounded-sm shadow-2xl w-full max-w-[460px] max-h-[65%] lg:max-h-[92%] overflow-y-auto overscroll-contain">
         {children}
       </div>
     </div>
@@ -129,6 +169,7 @@ export function TroopPicker({
   label,
   disabled,
   confirmLabel = "SET",
+  preview,
 }: {
   value: number;
   onChange: (n: number) => void;
@@ -137,6 +178,7 @@ export function TroopPicker({
   label: string;
   disabled?: boolean;
   confirmLabel?: string;
+  preview?: (count: number) => ReactNode;
 }) {
   const safeMin = Math.max(1, min);
   const safeMax = Math.max(safeMin, max);
@@ -208,6 +250,7 @@ export function TroopPicker({
               onChange={(e) => setDraft(e.target.value)}
               className="w-full accent-(--color-signal)"
             />
+            {preview?.(sliderValue)}
             <div className="flex items-center gap-2 mt-3">
               <input
                 ref={inputRef}

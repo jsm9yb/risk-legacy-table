@@ -32,6 +32,7 @@ export default function FactionCard({
 
   return (
     <article
+      data-table-anchor="faction" data-anchor-id={faction.id} data-anchor-priority={detail ? "2" : "1"}
       className={`physical-faction-card-wrap ${detail ? "physical-faction-card-detail" : ""} ${selected ? "is-selected" : ""} ${takenBy ? "is-taken" : ""}`}
       style={{ "--faction-color": faction.color } as CSSProperties}
     >

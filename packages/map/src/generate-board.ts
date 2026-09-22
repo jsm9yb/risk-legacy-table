@@ -206,7 +206,7 @@ function lineTspan(line: string, x: number, y: number, size: number, maxWidth: n
   return `<tspan x="${fmt(x)}" ${first ? `y="${fmt(y)}"` : `dy="${fmt(size + 1)}"`}${fit}>${esc(line)}</tspan>`;
 }
 
-const LABEL_SCALE = 1.16; // new (UI-4): legibility pass — labels readable at 1280x720 without zoom
+const LABEL_SCALE = 1.16; // legibility pass — labels readable at 1280x720 without zoom
 
 function territoryLabel(t: TerritoryDef): string {
   const a = anchor(t);

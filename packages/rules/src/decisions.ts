@@ -114,11 +114,15 @@ export interface StartTurnDecision {
   autoAdvance: boolean;
 }
 
-/** Start of turn always remains explicit so optional legacy reactions cannot be raced by a timer. */
+/** Skip empty starts, preserving windows for optional legacy powers and scars. */
 export function startTurnDecision(state: GameState, playerId: PlayerId): StartTurnDecision {
   const redStarCost = Number((contentPack.ruleConstants.redStarPurchaseCost as { value: number }).value);
   const canBuyRedStar = (state.players[playerId]?.hand.length ?? 0) >= redStarCost;
-  return { redStarCost, canBuyRedStar, autoAdvance: false };
+  const optionalWindow = Object.values(state.players).some((player) =>
+    (player.scarCardCount > 0 && state.unlockedModules.includes("pocket_2_alien_landing"))
+    || (player.factionId && state.factionMissilePowers[player.factionId] && player.missiles > 0))
+    || hasFactionPower(state, playerId, "mobile") || maneuverDecision(state, playerId).early;
+  return { redStarCost, canBuyRedStar, autoAdvance: !canBuyRedStar && !optionalWindow };
 }
 
 const EARLY_MANEUVER_PHASES: Phase[] = ["start_turn", "join_or_recruit", "expand_attack", "end_turn"];

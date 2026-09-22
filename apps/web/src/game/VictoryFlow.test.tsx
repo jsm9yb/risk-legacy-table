@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// new (UI-12): the end-game ritual — victory beat → signing → reward modal in claim order
+// the end-game ritual — victory beat → signing → reward modal in claim order
 // (board-targeted rewards drop to the board) → envelope reveal → aftermath; and the
 // scar-play card flow from the hand strip to a circular board chip.
 import "../test-shims.ts";

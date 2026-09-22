@@ -4,6 +4,7 @@ import type { Action, DraftCategory, GameState } from "@risk/rules";
 import { TakeoverOverlay } from "./overlays.tsx";
 import DraftCard from "./cards/DraftCard.tsx";
 import ResourceCard from "./cards/ResourceCard.tsx";
+import FactionCard from "./FactionCard.tsx";
 
 const labels: Record<DraftCategory, string> = {
   faction: "Faction",
@@ -29,6 +30,7 @@ export default function AdvancedDraftTakeover({ gs, actor, dispatch, you }: {
   const pick = draft.nextPickIdx % playerCount + 1;
   const clockwise = round % 2 === 1;
   const claim = draft.pendingCoinClaim;
+  const lastCoin = [...gs.log].reverse().find((event) => event.type === "StartingCoinCardTaken");
   const name = (factionId: string) => factions.find((faction) => faction.id === factionId)?.name ?? factionId;
   const values = (category: DraftCategory): (string | number)[] => category === "faction"
     ? draft.available.factions
@@ -41,6 +43,12 @@ export default function AdvancedDraftTakeover({ gs, actor, dispatch, you }: {
           <div><p className="font-mono text-[10px] uppercase tracking-[0.25em] text-signal">Pack 1 · physical snake draft</p><h2 className="font-display font-black tracking-widest text-2xl">{gs.players[actor].name}{you ? " · YOUR PICK" : ""}</h2></div>
           <div className="text-right"><p className="font-display font-bold tracking-widest text-lg">{clockwise ? "CLOCKWISE →" : "← COUNTER-CLOCKWISE"}</p><p className="font-mono text-[10px] text-muted">ROUND {round} OF 5 · PICK {pick} OF {playerCount}</p></div>
         </header>
+        {lastCoin && <p role="status" className="border border-signal bg-signal/10 p-3 mb-3">{gs.players[lastCoin.playerId!]?.name} took a starting Coin. {gs.players[actor].name}{you ? ", it is your turn" : " is choosing now"}.</p>}
+        <details className="mb-4">
+          <summary className="cursor-pointer text-signal">Explore all factions and their stories</summary>
+          <p className="my-3 text-sm">Choose the faction whose strengths fit your plans. Its history carries forward: this war adds your victories, defeats and permanent choices to its story.</p>
+          <div className="faction-card-grid">{factions.map((faction) => <FactionCard key={faction.id} faction={faction} powerId={gs.factionPowers[faction.id]} history={gs.factionHistory[faction.id] ?? []} currentGame={gs.gameNumber} detail />)}</div>
+        </details>
 
         {claim ? (
           <section className="grid lg:grid-cols-[1fr_220px_1fr] gap-5 items-center min-h-[420px]" aria-label="Claim starting Coin cards">

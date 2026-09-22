@@ -199,13 +199,4 @@ export function createNextLocalGame(save: LocalCampaignSave, seed = Math.floor(M
   }, storage);
 }
 
-export function localLegacyDone(state: GameState) {
-  return !!state.winner
-    && (!state.rewards || state.rewards.committed)
-    && (!state.worldCompletion || !!state.worldCompletion.name)
-    && !state.comebackChoice
-    && !state.missilePowerChoice
-    && !state.missionChoice
-    && (state.comebackQueue?.length ?? 0) === 0
-    && (state.contentRequired?.length ?? 0) === 0;
-}
+export { legacyDone as localLegacyDone } from "@risk/rules";

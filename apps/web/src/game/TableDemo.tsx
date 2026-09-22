@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createGame, type GameEvent, type GameState } from "@risk/rules";
 import GameTable from "./GameTable.tsx";
 import type { InteractionModel } from "./interaction/InteractionPolicy.ts";
+import type { TableHistoryControls } from "./history/PublicBoardHistory.ts";
 
 const factions = ["die_mechaniker", "enclave_of_the_bear", "imperial_balkania", "khan_industries", "saharan_republic", "mutants", "aliens"];
 const scarIds = ["ammo_shortage", "biohazard", "bunker", "fallout", "mercenary"];
@@ -69,6 +70,8 @@ export default function TableDemo() {
   const query = useMemo(() => new URLSearchParams(location.search), []);
   const playerCount = Math.max(3, Math.min(5, Number(query.get("players")) || 3));
   const fixtureName = query.get("fixture");
+  const showcase = query.get("showcase") === "1";
+  const controls = useRef<TableHistoryControls>();
   const [state, setState] = useState(() => fixture({ players: playerCount, empty: fixtureName === "empty", allMarks: fixtureName === "marks", clutter: fixtureName === "clutter" }));
   const [selected, setSelected] = useState("alaska");
   const [intentView, setIntentView] = useState<"battle" | "matrix">("battle");
@@ -103,8 +106,35 @@ export default function TableDemo() {
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-ink p-3">
-      <GameTable authoritativeState={state} interaction={interaction} onTerritoryActivate={setSelected} source="replay" />
+      <GameTable authoritativeState={state} interaction={interaction} onTerritoryActivate={setSelected} onPresentationReady={value => {controls.current = value;}} source="replay" />
       <div className="absolute bottom-4 left-1/2 z-50 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded border border-white/15 bg-black/80 p-2 backdrop-blur">
+        {showcase && <>
+          <DemoButton label="PLAY WAR" onClick={() => {const api = controls.current; if (api) void api.playHistory(api.history().slice(-5));}} />
+          <DemoButton label="BEFORE WORLD" onClick={() => {const api = controls.current, frame = api?.history().at(-1); if (api && frame) void api.playHistory([frame], {hold: true, side: "before"});}} />
+          <DemoButton label="AFTER WORLD" onClick={() => {const api = controls.current, frame = api?.history().at(-1); if (api && frame) void api.playHistory([frame], {hold: true, side: "after"});}} />
+          <DemoButton label="RETURN LIVE" onClick={() => controls.current?.skip()} />
+          <DemoButton label="OPENING TOUR" onClick={() => {const api = controls.current; if (api) void api.playHistory(api.opening());}} />
+          <DemoButton label="CHOOSER ORDER" onClick={() => transition([{type: "SetupOrderAcknowledged", data: {order: ["u2", "u3", "u1"]}}], next => { next.setup = {stage: "faction_selection", chooserOrder: ["u2", "u3", "u1"], rolls: {u1: 2, u2: 6, u3: 4}, nextIdx: 0}; })} />
+          <DemoButton label="DICE COMMIT" onClick={() => transition([
+            {type: "AttackDeclared", playerId: "u1", data: {from: "alaska", to: "northwest_territory", defender: "u2"}},
+            {type: "AttackersChosen", playerId: "u1", data: {count: 3}},
+            {type: "DefenderDiceChosen", playerId: "u2", data: {count: 2}},
+          ])} />
+          <DemoButton label="SEA CROSSING" onClick={() => transition([{type: "Maneuvered", playerId: "u1", data: {from: "alaska", to: "kamchatka", count: 2}}])} />
+          <DemoButton label="INCOME" onClick={() => transition([{ type: "RecruitCalculated", playerId: "u1", data: { breakdown: { territories: 9, fromTerritories: 3, population: 2, continents: [{ id: "north_america", total: 5 }], total: 8 } } }])} />
+          <DemoButton label="DRAW" onClick={() => transition([{ type: "ResourceCardDrawn", playerId: "u1", data: { cardId: "coin_1" } }])} />
+          <DemoButton label="TRADE" onClick={() => transition([{ type: "ResourceCardsTraded", playerId: "u1", data: { cards: ["a", "b", "c"], resources: 6, troops: 7 } }])} />
+          <DemoButton label="STAR" onClick={() => transition([{ type: "RedStarPurchased", playerId: "u1", data: { cards: ["a", "b", "c", "d"] } }])} />
+          <DemoButton label="CITY" onClick={() => transition([{ type: "MajorCityFounded", playerId: "u1", data: { territory: "greenland", name: "New Dawn" } }], next => { next.territories.greenland.city = { type: "major", population: 2, name: "New Dawn" }; })} />
+          <DemoButton label="FORTIFY" onClick={() => transition([{ type: "CityFortified", playerId: "u1", data: { territory: "alaska" } }], next => { next.territories.alaska.fortification = { max: 10, remaining: 10 }; })} />
+          <DemoButton label="DAMAGE" onClick={() => transition([{ type: "FortificationDurabilityMarked", playerId: "u1", data: { territory: "alaska", remaining: 2 } }], next => { next.territories.alaska.fortification = { max: 10, remaining: 2 }; })} />
+          <DemoButton label="POWER" onClick={() => transition([{ type: "FactionPowerApplied", playerId: "u1", data: { powerId: "fortified_hq", territory: "alaska" } }])} />
+          <DemoButton label="HANDOFF" onClick={() => transition([{ type: "TurnStarted", playerId: "u2", data: { turn: 2 } }], next => { next.activeIdx = 1; })} />
+          <DemoButton label="DESTROY CARD" onClick={() => transition([{ type: "TerritoryCardDestroyed", playerId: "u1", data: { territory: "greenland", cardId: "territory_greenland" } }])} />
+          <DemoButton label="WORLD NAME" onClick={() => transition([{ type: "WorldNamed", playerId: "u1", data: { name: "The Last Republic" } }])} />
+          <DemoButton label="SETUP CLAIM" onClick={() => transition([{ type: "FactionChosen", playerId: "u1", data: { factionId: "die_mechaniker", territory: "alaska", troops: 8 } }])} />
+          <DemoButton label="ISLAND" onClick={() => transition([{ type: "AlienIslandPlaced", playerId: "u1", data: { territory: "alien_island", connections: ["indonesia", "eastern_australia"] } }], next => { next.alienIsland = { territoryId: "alien_island", name: "New Eden", connections: ["indonesia", "eastern_australia"] }; next.territories.alien_island = { controller: "u1", troops: 3, scars: [] }; })} />
+        </>}
         <label className="sr-only" htmlFor="demo-faction">Faction</label>
         <select id="demo-faction" aria-label="Demo faction" value={state.players.u1.factionId ?? factions[0]} onChange={(event) => setFaction(event.target.value)} className="rounded bg-panel px-2 py-1 font-mono text-xs text-text">
           {factions.map((id) => <option key={id} value={id}>{id}</option>)}

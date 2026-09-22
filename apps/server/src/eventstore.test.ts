@@ -11,7 +11,7 @@ import {
   initialCampaign,
   supplyModuleContent,
   type CampaignState,
-} from "@risk/rules"; // new (10b, 12)
+} from "@risk/rules";
 
 describe("event store (pg-mem smoke)", () => {
   it("migrates, appends actions append-only, reads back in order", async () => {
@@ -48,7 +48,7 @@ describe("event store (pg-mem smoke)", () => {
     expect(all[3].kind).toBe("correction");
   });
 
-  it("persists campaign state and seeds the next session from the stored snapshot (10b)", async () => { // new: whole test
+  it("persists campaign state and seeds the next session from the stored snapshot (10b)", async () => {
     const mem = newDb();
     const { Pool } = mem.adapters.createPg();
     const pool = new Pool();
@@ -63,9 +63,9 @@ describe("event store (pg-mem smoke)", () => {
     let g1 = createGame({ gameId: "s1", seed: 42, players, campaign: initialCampaign("Terra") });
     const factions = ["khan_industries", "die_mechaniker", "saharan_republic"];
     const starts = ["alaska", "brazil", "western_australia"];
-    const powers = ["territory_card_reinforcement", "defensive_stand", "unconnected_maneuver"]; // new (9): first-play power picks
+    const powers = ["territory_card_reinforcement", "defensive_stand", "unconnected_maneuver"]; // first-play power picks
     [...g1.setup!.chooserOrder].forEach((pid, i) => {
-      g1 = applyAction(g1, { type: "setup.choose", playerId: pid, factionId: factions[i], territoryId: starts[i], powerId: powers[i] }); // new
+      g1 = applyAction(g1, { type: "setup.choose", playerId: pid, factionId: factions[i], territoryId: starts[i], powerId: powers[i] });
     });
     const winner = g1.turnOrder[0];
     g1.players[winner].redStarTokens = 2;
@@ -94,7 +94,7 @@ describe("event store (pg-mem smoke)", () => {
     expect(g2.continents["africa"]).toEqual({ name: "Zaharan", namedBy: winner });
   });
 
-  it("stores host-supplied module content and records it in content_overrides (12)", async () => { // new: whole test
+  it("stores host-supplied module content and records it in content_overrides (12)", async () => {
     const mem = newDb();
     const { Pool } = mem.adapters.createPg();
     const pool = new Pool();

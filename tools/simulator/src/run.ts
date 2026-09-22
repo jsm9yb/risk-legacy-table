@@ -3,12 +3,12 @@
  * policy through the real engine API (same actions a client would send).
  * Usage: npm run sim -- [seed] [players] [games]
  */
-import { createGame, applyAction, waitingOn, redStars, isLegalStart, neighborsOf, initialCampaign, applyGameToCampaign, type GameState, type Action } from "@risk/rules"; // new: isLegalStart; campaign chain (10b)
+import { createGame, applyAction, waitingOn, redStars, isLegalStart, neighborsOf, initialCampaign, applyGameToCampaign, type GameState, type Action } from "@risk/rules"; // isLegalStart; campaign chain (10b)
 import { contentPack } from "@risk/content";
 import { manifest } from "@risk/map";
 
 const seed = Number(process.argv[2] ?? 1234);
-const playerCount = Math.min(5, Math.max(3, Number(process.argv[3] ?? 4))); // new: 3-5 players
+const playerCount = Math.min(5, Math.max(3, Number(process.argv[3] ?? 4))); // 3-5 players
 const gameCount = Math.min(15, Math.max(1, Number(process.argv[4] ?? 2)));
 const players = Array.from({ length: playerCount }, (_, i) => ({ id: `p${i + 1}`, name: `Player ${i + 1}` }));
 
@@ -40,8 +40,8 @@ function pickAction(s: GameState): Action | null {
     const faction = contentPack.factions.find((f) => !Object.values(s.players).some((x) => x.factionId === f.id))!;
     const draftedFaction = s.advancedDraft?.picks[pid]?.factionId;
     const selectedFaction = draftedFaction ? contentPack.factions.find((f) => f.id === draftedFaction)! : faction;
-    const start = manifest.territories.find((t) => isLegalStart(s, t.id, true, selectedFaction.id))!; // new: HQ-adjacency-aware
-    const powerId = s.factionPowers[selectedFaction.id] ? undefined : selectedFaction.startingPowers[0]; // new (9): first play picks the faction's first power
+    const start = manifest.territories.find((t) => isLegalStart(s, t.id, true, selectedFaction.id))!; // HQ-adjacency-aware
+    const powerId = s.factionPowers[selectedFaction.id] ? undefined : selectedFaction.startingPowers[0]; // first play picks the faction's first power
     return { type: "setup.choose", playerId: pid, factionId: selectedFaction.id, territoryId: start.id, powerId };
   }
   const c = s.combat;
@@ -57,12 +57,12 @@ function pickAction(s: GameState): Action | null {
       return { type: "start.done", playerId: pid };
     case "join_or_recruit": {
       if (owned(s, pid).length === 0) {
-        const start = manifest.territories.find((t) => isLegalStart(s, t.id, false, p.factionId)); // new
+        const start = manifest.territories.find((t) => isLegalStart(s, t.id, false, p.factionId));
         return start ? { type: "join.enter", playerId: pid, territoryId: start.id } : null;
       }
       if (s.recruit && s.recruit.remaining > 0) {
         const mine = owned(s, pid);
-        // new: prefer a territory adjacent to an enemy HQ, else any frontier, else anything
+        // prefer a territory adjacent to an enemy HQ, else any frontier, else anything
         const nextToHq = mine.find(([tid]) =>
           neighborsOf(s, tid).some((n) => { const x = s.territories[n]; return x.hqFaction && x.controller && x.controller !== pid; })
         );
@@ -75,7 +75,7 @@ function pickAction(s: GameState): Action | null {
       return { type: "recruit.done", playerId: pid };
     }
     case "expand_attack": {
-      // new: rank candidate attacks, preferring enemy-HQ targets (board Red Stars -> win)
+      // rank candidate attacks, preferring enemy-HQ targets (board Red Stars -> win)
       type Cand = { from: string; to: string; hq: boolean; margin: number };
       const cands: Cand[] = [];
       for (const [tid, t] of owned(s, pid)) {
@@ -87,9 +87,9 @@ function pickAction(s: GameState): Action | null {
           }
         }
       }
-      cands.sort((a, b) => Number(b.hq) - Number(a.hq) || b.margin - a.margin); // new: HQs first, then biggest edge
+      cands.sort((a, b) => Number(b.hq) - Number(a.hq) || b.margin - a.margin); // HQs first, then biggest edge
       if (cands[0]) return { type: "attack.declare", playerId: pid, from: cands[0].from, to: cands[0].to };
-      // new: no attack available -> expand into an empty neighbor from the strongest stack to grow toward enemies
+      // no attack available -> expand into an empty neighbor from the strongest stack to grow toward enemies
       const expandable = owned(s, pid)
         .filter(([tid, t]) => t.troops >= 4 && neighborsOf(s, tid).some((n) => !s.territories[n].controller && s.territories[n].troops === 0))
         .sort((a, b) => b[1].troops - a[1].troops)[0];
@@ -118,7 +118,7 @@ function pickAction(s: GameState): Action | null {
   }
 }
 
-const MAX = 6000; // new: bounded for a fast sanity run
+const MAX = 6000; // bounded for a fast sanity run
 
 function resolvePendingContent(state: GameState): GameState {
   while (state.contentRequired.length > 0) {
@@ -135,7 +135,7 @@ function resolvePendingContent(state: GameState): GameState {
   return state;
 }
 
-function playToWinner(state: GameState): { state: GameState; steps: number } { // new: refactored so a chained game 2 can reuse it
+function playToWinner(state: GameState): { state: GameState; steps: number } { // refactored so a chained game 2 can reuse it
   let steps = 0;
   while (state.phase !== "game_over" && steps < MAX) {
     state = resolvePendingContent(state);
@@ -153,8 +153,8 @@ function playToWinner(state: GameState): { state: GameState; steps: number } { /
   return { state, steps };
 }
 
-// End-game rewards (10a): drive the post-win resolution through the real action API. // new
-function resolveRewards(state: GameState): GameState { // new: refactored into a function for the chained game
+// End-game rewards (10a): drive the post-win resolution through the real action API.
+function resolveRewards(state: GameState): GameState { // refactored into a function for the chained game
   let guard = 0;
   while (state.rewards && !state.rewards.committed && guard++ < 10) {
     state = resolvePendingContent(state);
@@ -175,17 +175,17 @@ function resolveRewards(state: GameState): GameState { // new: refactored into a
   return resolvePendingContent(state);
 }
 
-const g1 = playToWinner(s); // new
-const steps = g1.steps; // new
-s = resolveRewards(g1.state); // new
+const g1 = playToWinner(s);
+const steps = g1.steps;
+s = resolveRewards(g1.state);
 
 console.log(`seed=${seed} players=${playerCount} steps=${steps} events=${s.log.length} turns=${s.turnNumber}`);
 if (s.winner) {
   console.log(`WINNER: ${s.players[s.winner].name} (${s.players[s.winner].factionId}) — ${s.winReason}`);
   console.log("results:", s.results);
-  console.log(`rewards: committed=${s.rewards?.committed} signatures=${JSON.stringify(s.signatures)}`); // new
-  console.log(`  continents named: ${Object.entries(s.continents).filter(([, c]) => c.name).map(([id, c]) => `${id}="${c.name}"`).join(", ") || "none"}`); // new
-  console.log(`  minor cities founded: ${Object.entries(s.territories).filter(([, t]) => t.city?.type === "minor").map(([tid, t]) => `${t.city!.name}@${tid}`).join(", ") || "none"} (inventory ${s.inventories.minorCities}/9)`); // new
+  console.log(`rewards: committed=${s.rewards?.committed} signatures=${JSON.stringify(s.signatures)}`);
+  console.log(`  continents named: ${Object.entries(s.continents).filter(([, c]) => c.name).map(([id, c]) => `${id}="${c.name}"`).join(", ") || "none"}`);
+  console.log(`  minor cities founded: ${Object.entries(s.territories).filter(([, t]) => t.city?.type === "minor").map(([tid, t]) => `${t.city!.name}@${tid}`).join(", ") || "none"} (inventory ${s.inventories.minorCities}/9)`);
 } else {
   console.log(`No winner after ${steps} steps (phase=${s.phase})`);
   for (const p of Object.values(s.players)) {
@@ -194,10 +194,10 @@ if (s.winner) {
 }
 const dice = s.log.filter((e) => e.type === "DiceRolled").length;
 console.log(`audit: ${dice} dice events, ${s.log.filter((e) => e.type === "ResourceCardDrawn").length} draws, ${s.log.filter((e) => e.type === "TerritoryConquered").length} conquests`);
-const powerCounts: Record<string, number> = {}; // new (9): reachability — which powers actually fired
-for (const e of s.log) if (e.type === "FactionPowerApplied") powerCounts[(e.data as any).powerId] = (powerCounts[(e.data as any).powerId] ?? 0) + 1; // new
-console.log(`powers applied: ${Object.entries(powerCounts).map(([k, v]) => `${k}×${v}`).join(", ") || "none"}`); // new
-console.log(`modules unlocked: ${s.unlockedModules.join(", ") || "none"}`); // new (11)
+const powerCounts: Record<string, number> = {}; // reachability — which powers actually fired
+for (const e of s.log) if (e.type === "FactionPowerApplied") powerCounts[(e.data as any).powerId] = (powerCounts[(e.data as any).powerId] ?? 0) + 1;
+console.log(`powers applied: ${Object.entries(powerCounts).map(([k, v]) => `${k}×${v}`).join(", ") || "none"}`);
+console.log(`modules unlocked: ${s.unlockedModules.join(", ") || "none"}`);
 
 // Campaign reachability: fold each completed game and seed the requested number of following games.
 let campaign = initialCampaign("Sim World");

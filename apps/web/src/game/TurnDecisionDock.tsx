@@ -1,6 +1,6 @@
 // Bottom-anchored dock for start/end-of-turn Resource-card decisions.
 import { contentPack } from "@risk/content";
-import { endTurnDecision, hasFactionPower, neighborsOf, resourceCardDefinition, type Action, type GameState } from "@risk/rules";
+import { endTurnDecision, hasFactionPower, neighborsOf, redStars, resourceCardDefinition, type Action, type GameState } from "@risk/rules";
 import type { UiState } from "./GameScreen.tsx";
 import { cardResources, factionById } from "./labels.ts";
 import ResourceCard, { CoinFace, STAR_PATH } from "./cards/ResourceCard.tsx";
@@ -36,6 +36,7 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
         <p className="text-xs text-muted mb-2">
           Buy Red Stars before recruiting: select {starCost} Resource cards in your hand below.
         </p>
+        {ui.selectedCards.length === starCost && <p role="status" className="font-mono text-xs text-signal mb-3">Purchase preview · {starCost} cards → ★ {redStars(gs, actor).total} → {redStars(gs, actor).total + 1}</p>}
         {mobileMoves.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3" aria-label="Mobile HQ moves">
             {mobileMoves.map((move) => (
@@ -72,6 +73,7 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
   if (!decision.eligibleForDraw) {
     return (
       <BottomDock label="End of turn">
+        <TurnRecap gs={gs} actor={actor} />
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-display font-bold tracking-widest text-sm">END OF TURN</h3>
           <DecisionChip name={player.name} color={color} factionId={player.factionId} />
@@ -84,6 +86,7 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
   if (!decision.drawAvailable) {
     return (
       <BottomDock label="End of turn">
+        <TurnRecap gs={gs} actor={actor} />
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-display font-bold tracking-widest text-sm">NO RESOURCE CARD AVAILABLE</h3>
           <DecisionChip name={player.name} color={color} factionId={player.factionId} />
@@ -103,6 +106,7 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
     ?? gs.sideboard.coinPile.length;
   return (
     <BottomDock label="End of turn">
+      <TurnRecap gs={gs} actor={actor} />
       <div className="flex items-center justify-between mb-2">
         <h3 className="font-display font-bold tracking-widest text-sm">DRAW A RESOURCE CARD</h3>
         <DecisionChip name={player.name} color={color} factionId={player.factionId} />
@@ -120,18 +124,18 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
           const canKhanReinforce = decision.canKhanReinforce && definition?.kind === "territory"
             && gs.territories[definition.territoryId].controller === actor;
           return (
-            <div key={slot} className="flex flex-col items-center gap-1.5">
+            <div key={slot} data-table-anchor="sideboard" data-anchor-id={`${slot}`} data-anchor-priority="2" className="flex flex-col items-center gap-1.5">
               {cardId
                 ? <ResourceCard size="md" cardId={cardId} resources={cardResources(gs, cardId)} selected={matches} />
                 : <span className="block w-24 aspect-[5/7] rounded-[6%] border border-line bg-ink/30" />}
               {cardId && matches ? (
                 <span className="flex flex-col gap-1">
                   <Btn tone="primary" ariaLabel={`Take slot ${slot + 1}`}
-                    onClick={() => dispatch({ type: "end.draw", playerId: actor, choice: { slot } })}>TAKE</Btn>
+                    onClick={() => dispatch({ type: "end.draw", playerId: actor, choice: { slot }, khanReinforce: canKhanReinforce })}>{canKhanReinforce ? "TAKE +1 TROOP" : "TAKE"}</Btn>
                   {canKhanReinforce && (
-                    <Btn ariaLabel={`Take slot ${slot + 1} and reinforce`}
-                      onClick={() => dispatch({ type: "end.draw", playerId: actor, choice: { slot }, khanReinforce: true })}>
-                      TAKE +1 TROOP
+                    <Btn ariaLabel={`Take slot ${slot + 1} without reinforcement`}
+                      onClick={() => dispatch({ type: "end.draw", playerId: actor, choice: { slot }, khanReinforce: false })}>
+                      WITHOUT EXTRA TROOP
                     </Btn>
                   )}
                 </span>
@@ -142,7 +146,7 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
             </div>
           );
         })}
-        <div className="flex flex-col items-center gap-1.5 ml-2">
+        <div data-table-anchor="coin" data-anchor-priority="2" className="flex flex-col items-center gap-1.5 ml-2">
           <CoinFace pile className={`block w-14 aspect-square rounded-full ${coinCount === 0 ? "opacity-30" : ""}`} />
           <Btn disabled={hasMatch || !decision.coinAvailable}
             onClick={() => dispatch({ type: "end.draw", playerId: actor, choice: { coin: true } })}>TAKE COIN</Btn>
@@ -153,4 +157,16 @@ export default function TurnDecisionDock({ gs, ui, dispatch, actor }: {
       </div>
     </BottomDock>
   );
+}
+
+function TurnRecap({ gs, actor }: { gs: GameState; actor: string }) {
+  const start = gs.log.findLast((event) => event.type === "TurnStarted" && event.playerId === actor)?.seq ?? 0;
+  const events = gs.log.filter((event) => event.seq > start);
+  const conquests = events.filter((event) => event.type === "TerritoryConquered" && event.playerId === actor).length;
+  const expansions = events.filter((event) => event.type === "TerritoryExpanded" && event.playerId === actor).length;
+  const hqs = events.filter((event) => event.type === "TerritoryConquered" && event.playerId === actor && event.data?.hqCaptured).length;
+  if (conquests + expansions === 0) return null;
+  return <p aria-label="Public turn recap" className="font-mono text-[10px] text-signal border-b border-line pb-2 mb-2">
+    THIS TURN · {conquests} conquered · {expansions} expanded{hqs > 0 ? ` · ${hqs} HQ captured` : ""}
+  </p>;
 }

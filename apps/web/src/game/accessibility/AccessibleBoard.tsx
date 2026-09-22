@@ -5,12 +5,14 @@ import type { InteractionModel } from "../interaction/InteractionPolicy.ts";
 import { territoryAccessibleLabel } from "../presentation/TerritorySummary.ts";
 import { alienIslandRouteModels, alienIslandRoutePath } from "../presentation/AlienIslandRoutes.ts";
 
-export default function AccessibleBoard({ state, interaction, onActivate, emphasizedTerritoryId, resourceValues }: {
+export default function AccessibleBoard({ state, interaction, onActivate, emphasizedTerritoryId, resourceValues, onTerritoryFocus, previewLabel }: {
   state: GameState;
   interaction: InteractionModel;
   onActivate: (territoryId: TerritoryId) => void;
   emphasizedTerritoryId?: TerritoryId;
   resourceValues?: Readonly<Partial<Record<TerritoryId, number>>>;
+  onTerritoryFocus?: (territoryId?: TerritoryId) => void;
+  previewLabel?: string;
 }) {
   const territoryIds = useMemo(() => Object.keys(state.territories), [state.territories]);
   const [focused, setFocused] = useState<TerritoryId>(() => interaction.selectedTerritoryId ?? territoryIds[0]);
@@ -82,7 +84,9 @@ export default function AccessibleBoard({ state, interaction, onActivate, emphas
             aria-label={`${territoryAccessibleLabel(state, territoryId, interaction.territories[territoryId])}${resourceValues?.[territoryId] !== undefined ? `, ${resourceValues[territoryId]} coins` : ""}`}
             aria-current={selected ? "true" : undefined}
             aria-pressed={selected}
-            onFocus={() => setFocused(territoryId)}
+            onFocus={() => { setFocused(territoryId); onTerritoryFocus?.(territoryId); }}
+            onBlur={() => onTerritoryFocus?.(undefined)}
+            aria-description={focused === territoryId ? previewLabel : undefined}
             onClick={() => onActivate(territoryId)}
             onKeyDown={(event) => {
               if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); moveFocus(1); }

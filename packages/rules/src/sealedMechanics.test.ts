@@ -452,15 +452,15 @@ describe("sourced Pack 4 mechanics", () => {
   });
 
   it.each([
-    ["wide-border", (state: GameState, playerId: string) => { state.privateMissionProgress.wideBorderAtStart = true; }],
-    ["forced-occupation", (state: GameState, playerId: string) => { state.privateMissionProgress.forcedOccupation = true; }],
+    ["wide-border", (state: GameState) => { state.privateMissionProgress.wideBorderAtStart = true; }],
+    ["forced-occupation", (state: GameState) => { state.privateMissionProgress.forcedOccupation = true; }],
     ["guerilla-warfare", (state: GameState, playerId: string) => {
       state.territories.alaska.scars = ["bunker"];
       state.territories.alaska.controller = playerId;
       state.territories.brazil.scars = ["mercenary"];
       state.territories.brazil.controller = playerId;
     }],
-    ["advanced-training", (state: GameState, playerId: string) => { state.privateMissionProgress.tradedResources = 10; }],
+    ["advanced-training", (state: GameState) => { state.privateMissionProgress.tradedResources = 10; }],
     ["urban-troop-surge", (state: GameState, playerId: string) => {
       state.territories.middle_east = { controller: playerId, troops: 1, scars: [], city: { type: "world_capital", population: 5 } };
       for (const territoryId of ["alaska", "brazil", "western_australia"]) {
@@ -468,7 +468,7 @@ describe("sourced Pack 4 mechanics", () => {
         state.territories[territoryId].city = { type: "major", population: 2 };
       }
     }],
-    ["advanced-tactics", (state: GameState, playerId: string) => { state.privateMissionProgress.highValueTerritoryCards = 2; }],
+    ["advanced-tactics", (state: GameState) => { state.privateMissionProgress.highValueTerritoryCards = 2; }],
   ] as const)("validates and completes the %s faction mission once per game", (slug, satisfy) => {
     let state = seated(["pack_4_lead_faction_private_missions"]);
     const playerId = active(state);

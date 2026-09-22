@@ -1,4 +1,4 @@
-// new (UI-2): slim per-phase action bar in the bottom strip — the spatial grammar is
+// slim per-phase action bar in the bottom strip — the spatial grammar is
 // bottom = you, right = the table. Non-blocking phase controls live here; blocking
 // decisions stay on the UI-8 overlay surfaces (takeover, combat overlay, dock).
 import { joinWarTroops, maneuverDecision, type Action, type GameState } from "@risk/rules";
@@ -27,17 +27,11 @@ export default function ActionBar({ gs, ui, setUi, dispatch, actor }: {
   ) : null;
 
   if (ui.maneuverMode && maneuver.available) {
-    const source = ui.selected ? gs.territories[ui.selected] : undefined;
-    const maxMove = source?.controller === actor ? Math.max(1, source.troops - 1) : 1;
     return (
       <Bar>
         <span className="font-display font-bold tracking-widest text-sm text-ok">EARLY MANEUVER</span>
         <span className="text-xs text-muted">Select a 2+ troop source, then an owned destination.</span>
-        <span className="flex items-center gap-1.5 text-xs whitespace-nowrap">
-          move <TroopPicker label="Early maneuver troops" value={ui.moveCount} min={1} max={maxMove}
-            disabled={!source}
-            onChange={(count) => setUi((current) => ({ ...current, moveCount: count }))} /> troops
-        </span>
+        <span className="text-xs text-muted">Choose troop count after selecting the destination.</span>
         {earlyControl}
       </Bar>
     );
@@ -73,6 +67,8 @@ export default function ActionBar({ gs, ui, setUi, dispatch, actor }: {
         </span>
         <span className="flex items-center gap-1.5 text-xs whitespace-nowrap">
           place <TroopPicker label="Recruit troops" value={ui.placeCount} min={1} max={Math.max(1, gs.recruit.remaining)}
+            disabled={gs.recruit.remaining === 0}
+            preview={(count) => <p className="font-mono text-xs text-signal mt-3">Placement preview · reserve {gs.recruit!.remaining} → {Math.max(0, gs.recruit!.remaining - count)}<span className="block text-muted mt-1">{count} troops will be committed to the next legal territory you choose.</span></p>}
             onChange={(n) => setUi((u) => ({ ...u, placeCount: n }))} /> per click
         </span>
         {b.tradeIns === 0 && ui.selectedCards.length >= 1 && selectedResources >= 2 && selectedResources <= 10 && (
@@ -89,18 +85,11 @@ export default function ActionBar({ gs, ui, setUi, dispatch, actor }: {
   }
 
   if (gs.phase === "expand_attack" && !gs.combat) {
-    const source = ui.selected ? gs.territories[ui.selected] : undefined;
-    const canPickExpandCount = !!source && source.controller === actor && source.troops >= 2;
-    const maxExpand = canPickExpandCount ? Math.max(1, source.troops - 1) : 1;
     return (
       <Bar>
         <span className="font-display font-bold tracking-widest text-sm text-danger whitespace-nowrap">ATTACK / EXPAND</span>
         <span className="text-xs text-muted whitespace-nowrap">Select your territory, then an adjacent target: empty = expand, enemy = attack.</span>
-        <span className="flex items-center gap-1.5 text-xs whitespace-nowrap">
-          expand with <TroopPicker label="Expand troops" value={ui.expandCount} min={1} max={maxExpand}
-            disabled={!canPickExpandCount}
-            onChange={(n) => setUi((u) => ({ ...u, expandCount: n }))} /> troops
-        </span>
+        <span className="text-xs text-muted">Confirm troop count for each expansion.</span>
         <Btn onClick={() => dispatch({ type: "phase.endAttacks", playerId: actor })}>END ATTACKS</Btn>
         {earlyControl}
       </Bar>
@@ -108,9 +97,6 @@ export default function ActionBar({ gs, ui, setUi, dispatch, actor }: {
   }
 
   if (gs.phase === "maneuver") {
-    const source = ui.selected ? gs.territories[ui.selected] : undefined;
-    const canPickMoveCount = !!source && source.controller === actor && source.troops >= 2 && !gs.maneuverUsed;
-    const maxMove = canPickMoveCount ? Math.max(1, source.troops - 1) : 1;
     return (
       <Bar>
         <span className="font-display font-bold tracking-widest text-sm text-ok whitespace-nowrap">MANEUVER</span>
@@ -119,13 +105,7 @@ export default function ActionBar({ gs, ui, setUi, dispatch, actor }: {
             ? "Maneuver used. End the phase."
             : "Optional: move troops once. Source needs 2+ troops; destination must be owned and reachable unless your power says otherwise."}
         </span>
-        {!gs.maneuverUsed && (
-          <span className="flex items-center gap-1.5 text-xs whitespace-nowrap">
-            move <TroopPicker label="Maneuver troops" value={ui.moveCount} min={1} max={maxMove}
-              disabled={!canPickMoveCount}
-              onChange={(n) => setUi((u) => ({ ...u, moveCount: n }))} /> troops
-          </span>
-        )}
+        {!gs.maneuverUsed && <span className="text-xs text-muted">Choose troop count after selecting the destination.</span>}
         <Btn tone="primary" onClick={() => dispatch({ type: "phase.endManeuver", playerId: actor })}>END MANEUVER</Btn>
       </Bar>
     );

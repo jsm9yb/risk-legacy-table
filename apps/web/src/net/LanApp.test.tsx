@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// new (1-web-a): component tests for the LAN flow — register, create campaign, lobby, ready, launch.
+// component tests for the LAN flow — register, create campaign, lobby, ready, launch.
 import "../test-shims.ts";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
@@ -32,7 +32,7 @@ const fakeSocket = {
       { userId: "u3", name: "Rex", role: "player", ready: true, connected: true, seat: 3 },
     ]);
     if (event === "game:create") ack?.({ ok: true, sessionId: "sess-42" });
-    if (event === "game:join") { // new (1-web-b): serve a real filtered engine state
+    if (event === "game:join") { // serve a real filtered engine state
       const state = createGame({ gameId: "sess-42", seed: 7, players: [
         { id: "u1", name: "Ada" }, { id: "u2", name: "Lin" }, { id: "u3", name: "Rex" },
       ] });
@@ -44,13 +44,13 @@ const fakeSocket = {
 vi.mock("socket.io-client", () => ({ io: () => fakeSocket }));
 
 import LanApp from "./LanApp.tsx";
-import { createGame, filterStateFor } from "@risk/rules"; // new (1-web-b)
+import { createGame, filterStateFor } from "@risk/rules";
 
 const jsonRes = (body: unknown, status = 200) =>
   Promise.resolve({ ok: status < 400, status, statusText: "", json: () => Promise.resolve(body) } as Response);
 
-let pendingContent: { moduleId: string; items: string[] }[] = []; // new (12): served by /state, cleared by /content
-let suppliedBodies: any[] = []; // new (12)
+let pendingContent: { moduleId: string; items: string[] }[] = []; // served by /state, cleared by /content
+let suppliedBodies: any[] = [];
 let activeCampaign = false;
 
 beforeEach(() => {
@@ -80,10 +80,10 @@ beforeEach(() => {
       }]);
     }
     if (path === "/api/campaigns/join") return jsonRes({ id: "c2", worldName: "Elsewhere" });
-    if (path === "/api/campaigns/c1/state") { // new (12)
+    if (path === "/api/campaigns/c1/state") {
       return jsonRes({ worldName: "Terra", gameNumber: 0, unlockedModules: [], contentRequired: pendingContent });
     }
-    if (path === "/api/campaigns/c1/content") { // new (12)
+    if (path === "/api/campaigns/c1/content") {
       suppliedBodies.push(JSON.parse(String(init?.body)));
       pendingContent = [];
       return jsonRes({ ok: true, contentRequired: [] });

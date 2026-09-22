@@ -1,4 +1,4 @@
-// new (UI-12): the end-game legacy ritual — victory beat (winner emblem takeover) →
+// the end-game legacy ritual — victory beat (winner emblem takeover) →
 // signing moment (handwriting onto the signature rail; engine already auto-signed) →
 // reward sequence (sticker-sheet modal walking the engine's claim order; board-targeted
 // rewards drop to the board via ui.rewardTarget) → envelope tear-open reveal for module
@@ -13,9 +13,13 @@ import FactionEmblem from "./FactionEmblem.tsx";
 import ResourceCard from "./cards/ResourceCard.tsx";
 import { Btn, CenterOverlay, DecisionChip, TakeoverOverlay } from "./overlays.tsx";
 import { modulePacketDetail } from "./LegacyVault.tsx";
+import type { HistoryFrame, HistoryPlaybackOptions } from "./history/PublicBoardHistory.ts";
+import WarChronicle, { decisivePublicMoment, permanentDeltas } from "./WarChronicle.tsx";
 
-export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
+export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi, historyFrames, onPlayHistory }: {
   gs: GameState;
+  historyFrames?: HistoryFrame[];
+  onPlayHistory?: (frames: readonly HistoryFrame[], options?: HistoryPlaybackOptions) => void;
   dispatch: (a: Action) => void;
   canActFor: (pid: string) => boolean;
   ui: UiState;
@@ -38,6 +42,8 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
   // Permanent changes can happen at any point in the game. The aftermath must
   // recover them all, including mid-game Scars, packets, powers, and topology.
   const revealed = gs.log.filter((e) => e.type === "ModuleRevealed");
+  const decisive = decisivePublicMoment(gs);
+  const deltas = permanentDeltas(gs.log);
 
   if (closed) {
     return (
@@ -63,6 +69,7 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
             {" "}— {factionById(winnerP.factionId)?.name}
           </p>
           <p className="font-mono text-xs text-muted">{gs.winReason}</p>
+          {decisive && <p data-victory-cause className="max-w-md border-l-2 border-signal bg-panel-2/60 px-4 py-3 text-sm text-left">{decisive.detail}</p>}
           <div className="pt-4">
             {gs.rewards ? (
               <Btn tone="primary" onClick={() => setStep("signing")}>SIGN THE BOARD</Btn>
@@ -172,6 +179,7 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
   return (
     <TakeoverOverlay label="Aftermath">
       <h2 className="font-display font-bold tracking-widest text-2xl mb-6">AFTERMATH</h2>
+      <WarChronicle gs={gs} frames={historyFrames} onPlay={onPlayHistory} />
       <div className="grid gap-2 mb-8">
         {Object.entries(gs.results ?? {}).map(([fid, result]) => {
           const player = Object.values(gs.players).find((p) => p.factionId === fid);
@@ -191,11 +199,18 @@ export default function VictoryFlow({ gs, dispatch, canActFor, ui, setUi }: {
         })}
       </div>
       <h3 className="font-display font-bold tracking-widest text-xs text-muted mb-2">HOW THE WORLD CHANGED</h3>
+      {deltas.length > 0 && <div className="overflow-x-auto mb-4">
+        <table aria-label="Permanent changes before and after" className="w-full text-xs border-collapse">
+          <thead><tr className="text-left font-mono text-[10px] text-muted"><th className="p-2">WORLD RECORD</th><th className="p-2">BEFORE</th><th className="p-2">AFTER</th></tr></thead>
+          <tbody>{deltas.map((delta) => <tr key={delta.seq} className="border-t border-line"><th className="p-2 text-left font-normal">{delta.label}</th><td className="p-2 text-muted">{delta.before}</td><td className="p-2 text-signal">{delta.after}</td></tr>)}</tbody>
+        </table>
+      </div>}
       <div className="font-mono text-xs text-muted space-y-1 mb-8">
         {(() => {
-          const recap = gs.log.map((e) => recapLine(gs, e.type, e.playerId, e.data)).filter((x): x is string => !!x);
+          const recap = gs.log.filter((event) => event.type === "ModuleRevealed" || !deltas.some((delta) => delta.seq === event.seq))
+            .map((e) => recapLine(gs, e.type, e.playerId, e.data)).filter((x): x is string => !!x);
           return recap.length === 0
-            ? <p>The board survives unchanged.</p>
+            ? deltas.length === 0 ? <p>The board survives unchanged.</p> : null
             : recap.map((line, i) => <p key={i}>{line}</p>);
         })()}
       </div>
@@ -356,7 +371,8 @@ function RewardModal({ gs, dispatch, canActFor, setUi }: {
             </p>
             <div className="flex flex-wrap gap-2 max-h-72 overflow-y-auto">
               {(pickingCards === "upgrade" ? upgradable : destroyable).map((c) => (
-                <ResourceCard key={c.id} size="md" cardId={c.id} resources={cardResources(gs, c.id)}
+                <span key={c.id} data-table-anchor="card" data-player-id={claimant} data-anchor-id={c.id} data-anchor-priority="3" className="inline-flex shrink-0">
+                <ResourceCard size="md" cardId={c.id} resources={cardResources(gs, c.id)}
                   onClick={live ? () => {
                     dispatch({ type: "reward.choose", playerId: claimant, reward: {
                       kind: pickingCards === "upgrade" ? "upgrade_territory_card" : "destroy_territory_card",
@@ -364,6 +380,7 @@ function RewardModal({ gs, dispatch, canActFor, setUi }: {
                     } });
                     setPickingCards(null);
                   } : undefined} />
+                </span>
               ))}
             </div>
             <div className="pt-3">

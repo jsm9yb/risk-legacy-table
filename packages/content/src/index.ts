@@ -23,7 +23,7 @@ export const ContentPackSchema = z.object({
     id: z.string(), name: z.string(), color: z.string(), sourceModuleId: z.string(),
     startingPowers: z.array(z.string()).length(0),
   })).default([]),
-  powers: z.array(z.object({ id: z.string(), name: z.string(), handler: HandlerId, text: z.string() }).merge(Verified).passthrough()), // new (9): passthrough keeps per-power effect data
+  powers: z.array(z.object({ id: z.string(), name: z.string(), handler: HandlerId, text: z.string() }).merge(Verified).passthrough()), // passthrough keeps per-power effect data
   scars: z.array(z.object({
     id: z.string(), name: z.string(), target: z.enum(["territory", "faction"]),
     handler: HandlerId, durability: z.number().int().positive().optional(),
@@ -102,8 +102,8 @@ export function validateContentPack(pack: ContentPack = contentPack): { errors: 
 
 /** Convenience accessors */
 export const ruleValue = <T>(key: string): T => (contentPack.ruleConstants[key] as any).value as T;
-/** City population by type, read from pack data (rules are data, not code). */ // new
-export const cityPopulation = (type: "minor" | "major" | "world_capital"): number => contentPack.cityPopulations[type]; // new
+/** City population by type, read from pack data (rules are data, not code). */
+export const cityPopulation = (type: "minor" | "major" | "world_capital"): number => contentPack.cityPopulations[type];
 export function troopsForResources(resources: number, table = contentPack.troopPayoutTable): number {
   if (resources < 2) return 0;
   const capped = Math.min(resources, 10);

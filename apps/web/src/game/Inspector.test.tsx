@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// new (UI-3): the territory inspector — attack-source target verdicts and setup placement
+// the territory inspector — attack-source target verdicts and setup placement
 // guidance (illegal starts never dispatch; the inspector explains why).
 import "../test-shims.ts";
 import { useState } from "react";

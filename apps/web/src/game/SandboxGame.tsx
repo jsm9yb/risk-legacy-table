@@ -1,7 +1,7 @@
 // Local hot-seat wrapper: the real engine runs in React state; control passes to
-// whoever the game waits on. UI itself lives in GameScreen (shared with 1-web-b). // new (1-web-b): slimmed to a wrapper
+// whoever the game waits on. UI lives in GameScreen, shared with network play.
 import { useEffect, useRef, useState } from "react";
-import { applyAction, RuleViolation, type GameState, type Action } from "@risk/rules";
+import { applyAction, locksRewind, RuleViolation, type GameState, type Action } from "@risk/rules";
 import type { LocalConfig } from "../App.tsx";
 import GameScreen from "./GameScreen.tsx";
 import type { TransitionSource } from "./presentation/types.ts";
@@ -15,7 +15,6 @@ import {
   type LocalCampaignSave,
 } from "../local/campaignStore.ts";
 
-export type { UiState } from "./GameScreen.tsx"; // new: UiState moved with the screen
 
 export default function SandboxGame({ config, onExit }: { config: LocalConfig; onExit: () => void }) {
   const [initial] = useState(() => {
@@ -65,15 +64,7 @@ export default function SandboxGame({ config, onExit }: { config: LocalConfig; o
       } else if (next.phase !== current.gs.phase) {
         checkpoints.current.push(structuredClone(next));
       }
-      if (a.type === "draft.pick" || a.type === "draft.takeStartingCoin"
-          || a.type === "attack.declare" || a.type === "scar.play" || a.type === "end.draw"
-          || a.type === "module.supplyContent" || a.type === "mission.foundWorldCapital"
-          || a.type === "mission.complete" || a.type === "event.resolve"
-          || a.type === "mission.choose" || a.type === "privateMission.capture" || a.type === "privateMission.activate"
-          || a.type === "faction.claimPrivateMission"
-          || a.type === "alien.placeIsland" || a.type === "comeback.choose" || next.phase === "game_over") {
-        nextLocked = true;
-      }
+      if (locksRewind(current.gs, next, a)) nextLocked = true;
       setRewindLocked(nextLocked);
       let nextSave = persistActiveGame({
         ...current.save,

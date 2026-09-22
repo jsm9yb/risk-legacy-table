@@ -24,6 +24,27 @@ function Harness({ initial }: { initial: GameState }) {
 }
 
 describe("GameScreen", () => {
+  it("lets a waiting network player browse factions without selecting one", () => {
+    const gs = createGame({ gameId: "faction-observer", seed: 7, players: [{ id: "p1", name: "Ada" }, { id: "p2", name: "Lin" }, { id: "p3", name: "Rex" }] });
+    const viewer = gs.turnOrder.find((pid) => pid !== waitingOn(gs))!;
+    render(<GameScreen gs={gs} viewer={viewer} dispatch={vi.fn()} onExit={vi.fn()} error={null} />);
+    const modal = screen.getByRole("dialog", { name: "Faction setup" });
+    expect(within(modal).getByLabelText("Available factions")).toBeTruthy();
+    expect((within(modal).getAllByRole("button", { name: /^Select / })[0] as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("automatically skips an unaffordable start when there are no optional start powers", () => {
+    vi.useFakeTimers();
+    const gs = throughSetup(83);
+    gs.factionPowers = {};
+    gs.factionMissilePowers = {};
+    gs.comebackPowers = {};
+    gs.players[waitingOn(gs)!].hand = [];
+    render(<Harness initial={gs} />);
+    act(() => vi.advanceTimersByTime(900));
+    expect(current.phase).toBe("join_or_recruit");
+  });
+
   it("blocks the table on sealed content and lets the local host resume the exact game", () => {
     const campaign = initialCampaign("Paused World");
     campaign.unlockedModules = ["pack_2_comeback_mercenaries"];
@@ -469,7 +490,7 @@ describe("GameScreen", () => {
     expect(bar).toBeTruthy();
     expect(within(bar).getByText(`${current.recruit!.remaining} TO PLACE`)).toBeTruthy();
     const rail = document.querySelector("aside") as HTMLElement;
-    expect(within(rail).queryByText(/to place/)).toBeNull(); // the rail is ambient only
+    expect(within(rail).getByLabelText("Recruitment breakdown").textContent).toContain(`${current.recruit!.remaining} troops left to place`);
 
     // board clicks place via the stepper count; TO ATTACK advances the phase
     const mine = Object.entries(current.territories).find(([, t]) => t.controller === pid)![0];
@@ -497,6 +518,7 @@ describe("GameScreen", () => {
     fireEvent.click(document.getElementById(mine)!);
     expect(screen.getByRole("alert").textContent).toMatch(/2\+ troops/);
     fireEvent.click(document.getElementById(destination)!);
+
     expect(document.getElementById(destination)?.getAttribute("class")).toContain("selected");
     expect(document.getElementById(mine)?.getAttribute("class")).toContain("highlight-move");
   });
@@ -513,6 +535,12 @@ describe("GameScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "EARLY MANEUVER" }));
     fireEvent.click(document.getElementById(mine)!);
     fireEvent.click(document.getElementById(destination)!);
+
+    const move = screen.getByRole("dialog", { name: "Choose troop count" });
+    expect((within(move).getByLabelText("Troops to move") as HTMLInputElement).value).toBe("0");
+    expect(current.maneuverUsed).toBe(false);
+    fireEvent.change(within(move).getByLabelText("Troops to move"), { target: { value: "1" } });
+    fireEvent.click(within(move).getByRole("button", { name: "CONFIRM" }));
 
     expect(current.phase).toBe("expand_attack");
     expect(current.maneuverUsed).toBe(true);

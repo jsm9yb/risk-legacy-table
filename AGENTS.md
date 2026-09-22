@@ -13,8 +13,6 @@ Run after every change before claiming done:
 
 Before declaring a presentation-runtime release complete, also run the opt-in 30-minute `npm run perf:table:soak` endurance gate.
 
-If any command fails, stop and report the failure instead of working around it.
-
 ## Architecture map
 
 - `packages/map` - rules geometry plus validated presentation slots, marker positions, camera focus, and board source.

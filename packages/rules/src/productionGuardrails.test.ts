@@ -34,11 +34,18 @@ describe("production guardrails", () => {
     })).toThrow(/only once/);
   });
 
-  it("keeps start of turn explicit even without a Red Star purchase", () => {
+  it("skips unaffordable starts while retaining optional power and weakness windows", () => {
     const state = createGame({ gameId: "guard-3", seed: 9, players });
     const playerId = state.turnOrder[state.activeIdx];
     state.phase = "start_turn";
     state.players[playerId].hand = [];
-    expect(startTurnDecision(state, playerId)).toMatchObject({ canBuyRedStar: false, autoAdvance: false });
+    expect(startTurnDecision(state, playerId)).toMatchObject({ canBuyRedStar: false, autoAdvance: true });
+    state.players[playerId].factionId = "enclave_of_the_bear";
+    state.factionPowers.enclave_of_the_bear = "mobile";
+    expect(startTurnDecision(state, playerId).autoAdvance).toBe(false);
+    delete state.factionPowers.enclave_of_the_bear;
+    state.unlockedModules.push("pocket_2_alien_landing");
+    state.players[playerId].scarCardCount = 1;
+    expect(startTurnDecision(state, playerId).autoAdvance).toBe(false);
   });
 });

@@ -34,21 +34,21 @@ export function anchor(t: TerritoryDef): { x: number; y: number } {
 }
 
 /** Raw board-art geometry for a territory (path + bbox in board viewBox coordinates) — reused
- * by the resource-card silhouettes (UI-9) so cards and board share one source of truth. */ // new
-export function territoryPath(id: string): { d: string; bbox: readonly [number, number, number, number]; sourceTransform: readonly [number, number] } | undefined { // new
-  const t = territoryPathData.territories[id]; // new
-  return t ? { d: t.d, bbox: t.bbox, sourceTransform: territoryPathData.sourceTransform } : undefined; // new
-} // new
+ * by the resource-card silhouettes (UI-9) so cards and board share one source of truth. */
+export function territoryPath(id: string): { d: string; bbox: readonly [number, number, number, number]; sourceTransform: readonly [number, number] } | undefined {
+  const t = territoryPathData.territories[id];
+  return t ? { d: t.d, bbox: t.bbox, sourceTransform: territoryPathData.sourceTransform } : undefined;
+}
 
-/** Continent identity colors (board callouts + card silhouette fills share this palette). */ // new
-export const continentColors: Record<string, string> = { // new
-  north_america: "#8cc63f", // new
-  south_america: "#f89a1c", // new
-  europe: "#8293c4", // new
-  africa: "#a66a2a", // new
-  asia: "#5b8038", // new
-  australia: "#755b65", // new
-}; // new
+/** Continent identity colors (board callouts + card silhouette fills share this palette). */
+export const continentColors: Record<string, string> = {
+  north_america: "#8cc63f",
+  south_america: "#f89a1c",
+  europe: "#8293c4",
+  africa: "#a66a2a",
+  asia: "#5b8038",
+  australia: "#755b65",
+};
 
 export const visualConnections: readonly (readonly [string, string])[] = [
   ["alaska", "kamchatka"],

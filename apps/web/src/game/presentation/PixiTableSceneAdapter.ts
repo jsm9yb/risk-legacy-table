@@ -10,7 +10,7 @@ import {
   Texture,
   type FederatedPointerEvent,
 } from "pixi.js";
-import { factionDefinitionById } from "@risk/content";
+import { contentPack, factionDefinitionById } from "@risk/content";
 import { manifest, presentationFor, territoryPath } from "@risk/map";
 import type { FactionId, GameState, TerritoryId } from "@risk/rules";
 import boardSvg from "../../../../../packages/map/assets/board.svg?raw";
@@ -36,6 +36,9 @@ import {
 } from "./TableAssetPolicy.ts";
 import { scarMarkAsset } from "./ScarPresentation.ts";
 import { alienIslandRouteModels } from "./AlienIslandRoutes.ts";
+import { printedMovementRoute, movementRoutePoint } from "./PrintedMovementRoutes.ts";
+import { DomAnchorRegistry, type UIAnchorKind, type UIAnchorPoint } from "./DomAnchorRegistry.ts";
+import { FACTION_CARD_ART, FACTION_EMBLEMS } from "../factionAssets.ts";
 import {
   ARMY_PIECE_HEIGHT,
   ARMY_PIECE_MAX_ASPECT,
@@ -56,6 +59,7 @@ import type {
 } from "./types.ts";
 
 const WORLD_WIDTH = 749.819;
+const FACTION_MARK_ART = import.meta.glob<string>("../../assets/factions/*-mark.svg", {query: "?raw", import: "default", eager: true});
 const WORLD_HEIGHT = 519.068;
 const SOURCE_OFFSET = { x: -167.99651, y: -118.55507 };
 const INTENT_COLORS: Record<string, number> = {
@@ -86,6 +90,7 @@ function scarAssetGraphic(svg: string, diameter: number) {
 }
 
 export interface PixiTableSceneOptions {
+  anchors?: DomAnchorRegistry;
   clock: PresentationClock;
   onTerritoryActivate: (territoryId: TerritoryId) => void;
   onTerritoryHover?: (territoryId: TerritoryId | undefined, point?: { clientX: number; clientY: number }) => void;
@@ -145,6 +150,10 @@ export class PixiTableSceneAdapter implements TableScene {
   private readonly armyLayer = new Container();
   private readonly interactionLayer = new Container();
   private readonly effectsLayer = new Container();
+  private readonly previewLayer = new Container();
+  private anchors?: DomAnchorRegistry;
+  private readonly flightCanvases = new Set<HTMLCanvasElement>();
+  private reserveCanvas?: HTMLCanvasElement;
   private host?: HTMLElement;
   private current?: TableRenderModel;
   private interaction: TableInteractionModel = { intents: {} };
@@ -170,6 +179,12 @@ export class PixiTableSceneAdapter implements TableScene {
   async mount(host: HTMLElement, initial: TableRenderModel) {
     if (this.mounted) throw new Error("Pixi table scene may only mount once");
     this.host = host;
+    this.anchors = this.options.anchors ?? new DomAnchorRegistry(document);
+    this.anchors.capture();
+    const updateReserve = () => this.renderReserve();
+    window.addEventListener("scroll", updateReserve, true);
+    window.addEventListener("resize", updateReserve);
+    this.cleanup.push(() => window.removeEventListener("scroll", updateReserve, true), () => window.removeEventListener("resize", updateReserve));
     const resolution = this.quality === "high" ? Math.min(devicePixelRatio, 2) : this.quality === "balanced" ? Math.min(devicePixelRatio, 1.5) : 1;
     await this.app.init({
       width: Math.max(1, host.clientWidth),
@@ -197,6 +212,7 @@ export class PixiTableSceneAdapter implements TableScene {
       this.marksLayer,
       this.armyLayer,
       this.effectsLayer,
+      this.previewLayer,
       this.boundaryMask,
     );
 
@@ -409,7 +425,7 @@ export class PixiTableSceneAdapter implements TableScene {
     const missing = requiredFactionAtlasIds(model.state, new Set(Object.keys(FACTION_PIECE_ATLASES)))
       .some((factionId) => !this.pieceTextures.has(factionId));
     if (missing) void this.loadFactionAtlases(model.state).then(() => {
-      if (this.current?.revision === model.revision) {
+      if (this.current === model) {
         this.renderMarks(model.state);
         this.renderArmies(model.state);
         this.renderPlacementOcclusion(model.state);
@@ -428,7 +444,7 @@ export class PixiTableSceneAdapter implements TableScene {
   }
 
   private renderArmies(state: GameState) {
-    this.armyLayer.removeChildren().forEach((child) => child.destroy({ children: true }));
+    this.armyLayer.removeChildren().forEach((child) => child.destroy({ children: true, context: true }));
     for (const [territoryId, territory] of Object.entries(state.territories)) {
       if (territory.troops <= 0 && !territory.hqFaction) continue;
       const definition = presentationFor(territoryId);
@@ -449,6 +465,7 @@ export class PixiTableSceneAdapter implements TableScene {
             ?? pieceGraphic(piece.denomination, color, slot[2]);
           graphic.position.set(slot[0], slot[1]);
           graphic.rotation = piece.yaw * 0.06;
+          graphic.label = `army:${territoryId}`;
           graphic.zIndex = slot[1] * 10 + piece.denomination;
           this.armyLayer.addChild(graphic);
         });
@@ -511,7 +528,7 @@ export class PixiTableSceneAdapter implements TableScene {
   }
 
   private renderMarks(state: GameState) {
-    this.marksLayer.removeChildren().forEach((child) => child.destroy({ children: true }));
+    this.marksLayer.removeChildren().forEach((child) => child.destroy({ children: true, context: true }));
     for (const model of continentMarkModels(state)) {
       if (model.name) {
         const name = this.tableText({
@@ -629,8 +646,38 @@ export class PixiTableSceneAdapter implements TableScene {
   }
 
   setInteraction(model: TableInteractionModel) {
+    const previous = this.interaction;
     this.interaction = model;
-    this.renderInteraction();
+    if (previous.intents !== model.intents || previous.selectedTerritoryId !== model.selectedTerritoryId
+      || previous.emphasizedTerritoryId !== model.emphasizedTerritoryId || previous.resourceValues !== model.resourceValues) this.renderInteraction();
+    else this.renderPreview();
+  }
+
+  private renderPreview() {
+    this.previewLayer.removeChildren().forEach((child) => child.destroy({ children: true, context: true }));
+    this.previewLayer.eventMode = "none";
+    const preview = this.interaction.preview;
+    if (!preview || this.interaction.resourceValues) return;
+    const color = preview.kind === "attack" ? 0xf08d7b : 0x9ee4d3;
+    const route = preview.route.length ? preview.route : preview.from ? [preview.from, preview.to] : [preview.to];
+    const line = new Graphics();
+    route.slice(1).forEach((id, index) => printedMovementRoute(boardSvg, route[index], id).forEach((points) => points.forEach((point, i) => { if (i) line.lineTo(...point); else line.moveTo(...point); })));
+    line.stroke({ color, width: 2, alpha: 0.65 });
+    this.previewLayer.addChild(line);
+    const point = presentationFor(preview.to).cameraFocus;
+    const token = this.atlasSprite(preview.factionId, preview.kind === "setup" ? "hq" : "one", 24) ?? pieceGraphic(1, color, 1);
+    token.position.set(point[0], point[1] - 8);
+    token.alpha = 0.5;
+    this.previewLayer.addChild(token);
+    const badge = this.effectLabel(`${preview.targetBefore} → ${preview.targetAfter}${preview.reserveAfter === undefined ? "" : `  ·  ${preview.reserveAfter} reserve`}`, color);
+    badge.position.set(point[0], point[1] + 17);
+    this.previewLayer.addChild(badge);
+    if (preview.from && preview.sourceBefore !== undefined && preview.sourceAfter !== undefined) {
+      const source = this.effectLabel(`${preview.sourceBefore} → ${preview.sourceAfter}`, color);
+      const origin = presentationFor(preview.from).cameraFocus;
+      source.position.set(origin[0], origin[1] + 17);
+      this.previewLayer.addChild(source);
+    }
   }
 
   private resourceValueBadge(territoryId: string, value: number) {
@@ -662,7 +709,12 @@ export class PixiTableSceneAdapter implements TableScene {
   }
 
   private renderInteraction() {
-    this.interactionLayer.removeChildren().forEach((child) => child.destroy({ children: true }));
+    this.renderReserve();
+    this.renderPreview();
+    // Pixi only auto-destroys an owned GraphicsContext for zero-argument
+    // destroy(). Recursive option objects must explicitly opt into context
+    // disposal; atlas textures remain shared and must survive these rebuilds.
+    this.interactionLayer.removeChildren().forEach((child) => child.destroy({ children: true, context: true }));
     const resourceView = !!this.interaction.resourceValues;
     this.ownerLayer.visible = !resourceView;
     this.marksLayer.visible = !resourceView;
@@ -726,9 +778,24 @@ export class PixiTableSceneAdapter implements TableScene {
       graphic.cursor = "help";
       graphic.label = `${territory.city.type} city, population ${territory.city.population}`;
       graphic.on("pointertap", () => this.options.onTerritoryActivate(territoryId));
-      graphic.on("pointerover", (event: FederatedPointerEvent) => this.options.onCityHover?.(territoryId, { clientX: event.clientX, clientY: event.clientY }));
+      let preview: Sprite | undefined;
+      graphic.on("pointerover", (event: FederatedPointerEvent) => {
+        const projected = projectTerritoryLayers(territory).architecture;
+        if (projected && !preview) {
+          preview = this.architectureSprite(projected.assetKey, definition.profile);
+          preview.scale.set(preview.scale.x * 2, preview.scale.y * 2);
+          preview.position.set(definition.architectureSlot[0], definition.architectureSlot[1] - size);
+          preview.eventMode = "none";
+          this.interactionLayer.addChild(preview);
+        }
+        this.options.onCityHover?.(territoryId, { clientX: event.clientX, clientY: event.clientY });
+      });
       graphic.on("pointermove", (event: FederatedPointerEvent) => this.options.onCityHover?.(territoryId, { clientX: event.clientX, clientY: event.clientY }));
-      graphic.on("pointerout", () => this.options.onCityHover?.(undefined));
+      graphic.on("pointerout", () => {
+        preview?.destroy();
+        preview = undefined;
+        this.options.onCityHover?.(undefined);
+      });
       this.interactionLayer.addChild(graphic);
     }
     if (this.current?.state.alienIsland) {
@@ -753,29 +820,52 @@ export class PixiTableSceneAdapter implements TableScene {
 
   async execute(command: SceneCommand, signal: AbortSignal, durationMs: number) {
     if (!this.current || signal.aborted) return;
+    this.anchors?.capture();
     if ((globalThis as any).__riskTableDiagnostics) (globalThis as any).__riskTableDiagnostics.lastCommand = { ...command, durationMs };
     switch (command.type) {
-      case "camera.frame": return this.animateCamera(command.from, command.to, durationMs, signal);
-      case "army.place": return this.animatePlacement(command.territoryId, command.playerId, durationMs, signal);
-      case "army.move": return this.animateMove(command.from, command.to, command.count, durationMs, signal);
+      case "camera.frame": return this.animateCamera(command.from, command.to, durationMs <= 120 ? 0 : durationMs, signal);
+      case "army.place": return this.animatePlacement(command.territoryId, command.playerId, durationMs, signal, command.count);
+      case "army.move": return this.animateMove(command.from, command.to, command.count, durationMs, signal, "army", undefined, command.route);
       case "army.remove": return this.animateRemoval(command.territoryId, command.count, durationMs, signal);
       case "battle.impact": return this.animateImpact(command.from, command.to, durationMs, signal);
-      case "battle.dice": return this.animatePulse(command.to, 0xe8d084, durationMs, signal);
-      case "territory.conquest": return this.animatePulse(command.territoryId, factionColor(this.current.state, command.territoryId), durationMs, signal);
+      case "battle.dice": return this.animateDice(command, durationMs, signal);
+      case "battle.prepare": return this.animatePreparation(command, durationMs, signal);
+      case "territory.conquest": return this.animateConquest(command.territoryId, command.playerId, durationMs, signal);
       case "scar.apply": return this.animateScar(command.territoryId, command.scarId, durationMs, signal);
-      case "city.place": return this.animatePulse(command.territoryId, 0xe8d084, durationMs, signal);
-      case "city.fortify": return this.animatePulse(command.territoryId, 0xd8c074, durationMs, signal);
+      case "city.place": return this.animateCity(command.territoryId, command.cityType, command.name, durationMs, signal);
+      case "city.fortify": return this.animateFortification(command.territoryId, 10, durationMs, signal);
       case "hq.move": return this.animateMove(command.from, command.to, 1, durationMs, signal, "hq", command.factionId);
-      case "redStar.gain": return command.territoryId ? this.animatePulse(command.territoryId, 0xe0a93c, durationMs, signal) : this.options.clock.wait(durationMs, signal);
-      case "missile.commit": return this.animateMove(command.from, command.to, 1, durationMs, signal, "missile");
+      case "redStar.gain": return this.animateAward(command.playerId, command.territoryId, "+1 RED STAR", durationMs, signal);
+      case "missile.commit": return this.animateMissile(command, durationMs, signal);
       case "module.reveal": return this.animateModuleReveal(command.moduleId, durationMs, signal);
       case "nuclear.resolve": return this.animateNuclear(command.territories, durationMs, signal);
-      case "alienIsland.place": return this.animatePulse(command.territoryId, 0x6dced1, durationMs, signal);
-      case "phase.change": return this.options.clock.wait(durationMs, signal);
+      case "alienIsland.place": return this.animateIsland(command, durationMs, signal);
+      case "phase.change": return this.animateNotice(command.phase.replace(/_/g, " ").toUpperCase(), [], durationMs, signal);
       case "game.victory": return this.animateVictory(command.playerId, command.reason, durationMs, signal);
-      case "legacy.ritual": return this.animateLegacyRitual(command.ritual, command.territoryId, durationMs, signal);
+      case "legacy.ritual":
+        if (command.playerId && (command.ritual === "card.upgraded" || command.ritual === "card.destroyed")) return this.animateCards({type: "cards.transfer", playerId: command.playerId, kind: command.ritual === "card.upgraded" ? "upgrade" : "destroy", count: 1, cardIds: command.cardId ? [command.cardId] : undefined, resources: command.resources, territoryId: command.territoryId}, durationMs, signal);
+        return this.animateLegacyRitual(command.ritual, command.territoryId, durationMs, signal, command.text);
+      case "recruitment.show": return this.animateRecruitment(command, durationMs, signal);
+      case "cards.transfer": return this.animateCards(command, durationMs, signal);
+      case "turn.handoff": return this.animateHandoff(command, durationMs, signal);
+      case "setup.claim": return this.animateClaim(command, durationMs, signal);
+      case "setup.order": return this.animateOrder(command, durationMs, signal);
+      case "setup.faction": return this.animateFaction(command, durationMs, signal);
+      case "battle.compare": return this.animateDice(command, durationMs, signal);
+      case "battle.modify": return this.animateDieModifier(command, durationMs, signal);
+      case "reward.eligible": return this.animateNotice("RESOURCE DRAW EARNED", [this.playerName(command.playerId)], durationMs, signal, command.territoryId);
+      case "power.activate": return this.animatePower(command, durationMs, signal);
+      case "score.change": return this.animateScore(command, durationMs, signal);
+      case "hq.capture": return this.animateAward(command.playerId, command.territoryId, `${command.factionId.replace(/_/g, " ")} HQ CAPTURED`, durationMs, signal);
+      case "city.damage": return this.animateFortification(command.territoryId, command.remaining, durationMs, signal, true);
+      case "player.eliminate": return this.animateNotice(`${this.playerName(command.playerId)} ${command.kind === "knocked_out" ? "KNOCKED OUT" : "ELIMINATED"}`, command.by ? [`${this.playerName(command.by)} claimed the final territory`] : [], durationMs, signal);
+      case "campaign.recap": return this.animateNotice(command.title, command.items, durationMs, signal);
+      case "continent.control": return Promise.all([
+        this.animateNotice(`${command.continentId.replace(/_/g, " ")} · ${command.gained ? "CONTROL SECURED" : "CONTROL BROKEN"}`, [this.playerName(command.playerId)], durationMs, signal),
+        ...command.territories.map((id) => this.animatePulse(id, command.gained ? 0x9ee4d3 : 0xe7a383, durationMs, signal)),
+      ]).then(() => undefined);
       case "table.resync": return this.animateCurtain(0x91a4bb, durationMs, signal);
-      case "army.anticipate": return this.animatePulse(command.territoryId, 0xe0a93c, durationMs, signal);
+      case "army.anticipate": return this.animateAnticipation(command.territoryId, durationMs, signal);
     }
   }
 
@@ -794,7 +884,9 @@ export class PixiTableSceneAdapter implements TableScene {
       };
       const tick = () => {
         const progress = Math.min(1, (this.options.clock.now() - start) / durationMs);
-        update(progress);
+        // Reduced-motion beats are <=120 ms. Keep their information visible
+        // without spatial travel; the director still controls their lifetime.
+        update(durationMs <= 120 ? 0.7 : progress);
         if (progress >= 1 || signal.aborted) finish();
       };
       signal.addEventListener("abort", finish, { once: true });
@@ -805,15 +897,14 @@ export class PixiTableSceneAdapter implements TableScene {
 
   private animateCamera(from: string | undefined, to: string | undefined, durationMs: number, signal: AbortSignal) {
     const points = [from, to].filter(Boolean).map((id) => presentationFor(id!).cameraFocus);
-    if (!points.length) return this.options.clock.wait(durationMs, signal);
-    const targetX = points.reduce((sum, point) => sum + point[0], 0) / points.length;
-    const targetY = points.reduce((sum, point) => sum + point[1], 0) / points.length;
+    const targetX = points.length ? points.reduce((sum, point) => sum + point[0], 0) / points.length : WORLD_WIDTH / 2;
+    const targetY = points.length ? points.reduce((sum, point) => sum + point[1], 0) / points.length : WORLD_HEIGHT / 2;
     const startPan = { ...this.pan };
-    const targetZoom = 1.18;
-    const targetPan = cameraPanForFocus([targetX, targetY], { width: WORLD_WIDTH, height: WORLD_HEIGHT }, {
+    const targetZoom = points.length ? 1.18 : 1;
+    const targetPan = points.length ? cameraPanForFocus([targetX, targetY], { width: WORLD_WIDTH, height: WORLD_HEIGHT }, {
       width: this.app.renderer.width / this.app.renderer.resolution,
       height: this.app.renderer.height / this.app.renderer.resolution,
-    }, this.fitScale * targetZoom);
+    }, this.fitScale * targetZoom) : {x: 0, y: 0};
     const startZoom = this.zoom;
     return this.animate(durationMs, signal, (p) => {
       const eased = p * p * (3 - 2 * p);
@@ -824,7 +915,9 @@ export class PixiTableSceneAdapter implements TableScene {
     });
   }
 
-  private animatePlacement(territoryId: string, playerId: string, durationMs: number, signal: AbortSignal) {
+  private animatePlacement(territoryId: string, playerId: string, durationMs: number, signal: AbortSignal, count = 1) {
+    const reserveAnchor = this.uiAnchor("reserve", playerId);
+    if (reserveAnchor) return this.animateScreenFlight(reserveAnchor, this.boardClient(presentationFor(territoryId).cameraFocus), "army", `+${count} TROOPS`, durationMs, signal, composeArmyStack(count, "reserve").pieces.length);
     const territory = this.current!.state.territories[territoryId];
     const definition = presentationFor(territoryId);
     const layout = territoryDisplayLayout(definition, {
@@ -836,22 +929,33 @@ export class PixiTableSceneAdapter implements TableScene {
     });
     const [x, y, slotScale] = layout.pieceSlots[0];
     const factionId = this.current!.state.players[playerId]?.factionId;
-    const token = this.atlasSprite(factionId, "one", 17 * slotScale) ?? pieceGraphic(1, factionColor(this.current!.state, territoryId), slotScale);
-    const baseScale = { x: token.scale.x, y: token.scale.y };
-    token.position.set(x, y - 8);
-    this.effectsLayer.addChild(token);
+    const token = new Container();
+    composeArmyStack(count, `${territoryId}:recruit`).pieces.forEach((piece, index) => {
+      const miniature = this.atlasSprite(factionId, piece.denomination === 3 ? "three" : "one", 17 * slotScale) ?? pieceGraphic(piece.denomination, factionColor(this.current!.state, territoryId), slotScale);
+      miniature.position.set((index % 3) * 5, Math.floor(index / 3) * 3); token.addChild(miniature);
+    });
+    const reserve = this.playerStation(playerId);
+    const badge = this.effectLabel(`+${count} TROOPS`, 0xa9e4d4);
+    badge.position.set(x, y + 15);
+    this.effectsLayer.addChild(token, badge);
     return this.animate(durationMs, signal, (p) => {
       const bounce = 1 - Math.pow(1 - p, 3);
-      token.y = y - 8 * (1 - bounce);
-      token.scale.set(baseScale.x, baseScale.y);
+      token.position.set(reserve[0] + (x - reserve[0]) * bounce, reserve[1] + (y - reserve[1]) * bounce - Math.sin(p * Math.PI) * 10);
       token.alpha = 0.5 + 0.5 * bounce;
-    }, () => token.destroy({ children: true }));
+      badge.alpha = Math.min(1, p * 4);
+    }, () => { token.destroy({ children: true, context: true }); badge.destroy({ children: true, context: true }); });
   }
 
-  private animateMove(from: string, to: string, count: number, durationMs: number, signal: AbortSignal, kind: "army" | "hq" | "missile" = "army", movingFaction?: string) {
+  private animateMove(from: string, to: string, count: number, durationMs: number, signal: AbortSignal, kind: "army" | "hq" | "missile" = "army", movingFaction?: string, route?: readonly string[]) {
     const start = presentationFor(from).cameraFocus;
     const end = presentationFor(to).cameraFocus;
     const group = new Container();
+    const stops = route && route.length > 1 ? route : [from, to];
+    const movement = stops.slice(1).flatMap((stop, index) => printedMovementRoute(boardSvg, stops[index], stop));
+    const path = new Graphics();
+    movement.forEach((points) => points.forEach((point, index) => { if (index) path.lineTo(...point); else path.moveTo(...point); }));
+    path.stroke({ color: 0xbadbd4, width: 1, alpha: 0.5 });
+    this.effectsLayer.addChild(path);
     const controller = this.current!.state.territories[from]?.controller;
     const factionId = movingFaction ?? (controller ? this.current!.state.players[controller]?.factionId : undefined);
     const pieces = composeArmyStack(count, `${from}:${to}:move`).pieces;
@@ -872,14 +976,16 @@ export class PixiTableSceneAdapter implements TableScene {
     this.effectsLayer.addChild(group);
     return this.animate(durationMs, signal, (p) => {
       const eased = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
-      group.x = start[0] + (end[0] - start[0]) * eased;
+      const position = movementRoutePoint(movement, eased);
+      group.x = position[0];
+      const groundY = position[1];
       const lift = Math.sin(Math.PI * p);
-      shadow.position.set(group.x, start[1] + (end[1] - start[1]) * eased + 4);
+      shadow.position.set(group.x, groundY + 4);
       shadow.scale.set(1 - lift * 0.15);
       shadow.alpha = 1 - lift * 0.4;
-      group.y = start[1] + (end[1] - start[1]) * eased - lift * (kind === "missile" ? 16 : 5);
+      group.y = groundY - lift * (kind === "missile" ? 16 : 5);
       group.rotation = kind === "army" ? lift * 0.025 : 0;
-    }, () => { shadow.destroy(); group.destroy({ children: true }); });
+    }, () => { path.destroy(); shadow.destroy(); group.destroy({ children: true, context: true }); });
   }
 
   private animateRemoval(territoryId: string, count: number, durationMs: number, signal: AbortSignal) {
@@ -902,7 +1008,7 @@ export class PixiTableSceneAdapter implements TableScene {
       group.y = point[1] + fall * 5;
       group.alpha = 1 - p * p;
       group.rotation = fall * 0.28;
-    }, () => group.destroy({ children: true }));
+    }, () => group.destroy({ children: true, context: true }));
   }
 
   private animateImpact(from: string, to: string, durationMs: number, signal: AbortSignal) {
@@ -941,6 +1047,8 @@ export class PixiTableSceneAdapter implements TableScene {
     const definition = presentationFor(territoryId);
     const point = scarId === "fallout" ? definition.architectureSlot : scarDisplaySlot(definition);
     const sticker = new Container();
+    const backing = new Graphics().roundRect(-7, -7, 14, 14, 2).fill(0xf0e4c8).stroke({ color: 0xad9874, width: 0.6 });
+    backing.position.set(point[0], point[1] - 34);
     if (scarId === "fallout") {
       sticker.addChild(this.architectureSprite("fallout", definition.profile));
     } else {
@@ -956,13 +1064,17 @@ export class PixiTableSceneAdapter implements TableScene {
       }
     }
     sticker.position.set(point[0], point[1] - 34);
-    this.effectsLayer.addChild(sticker);
+    this.effectsLayer.addChild(backing, sticker);
     return this.animate(durationMs, signal, (p) => {
       const settle = 1 - Math.pow(1 - Math.min(1, p / 0.72), 3);
       sticker.y = point[1] - 34 * (1 - settle);
       sticker.rotation = (1 - settle) * -0.28;
       sticker.scale.set(1 + (1 - settle) * 0.12);
-    }, () => sticker.destroy({ children: true }));
+      backing.x = point[0] + p * 20;
+      backing.y = point[1] - 34 - p * 6;
+      backing.rotation = p * 0.6;
+      backing.alpha = Math.max(0, 1 - p * 2);
+    }, () => { backing.destroy(); sticker.destroy({ children: true, context: true }); });
   }
 
   private animateModuleReveal(moduleId: string, durationMs: number, signal: AbortSignal) {
@@ -989,7 +1101,7 @@ export class PixiTableSceneAdapter implements TableScene {
       envelope.rotation = (1 - reveal) * -0.04;
       seal.scale.set(p > 0.45 ? Math.max(0.1, 1 - (p - 0.45) * 3) : 1);
       flap.y = p > 0.45 ? -(p - 0.45) * 34 : 0;
-    }, () => group.destroy({ children: true }));
+    }, () => group.destroy({ children: true, context: true }));
   }
 
   private animateNuclear(territories: readonly string[], durationMs: number, signal: AbortSignal) {
@@ -1014,7 +1126,7 @@ export class PixiTableSceneAdapter implements TableScene {
         ring.scale.set(0.5 + (1 - Math.pow(1 - local, 3)) * 3.2);
         ring.alpha = Math.pow(1 - local, 2);
       });
-    }, () => group.destroy({ children: true }));
+    }, () => group.destroy({ children: true, context: true }));
   }
 
   private animateVictory(playerId: string, reason: string, durationMs: number, signal: AbortSignal) {
@@ -1036,16 +1148,16 @@ export class PixiTableSceneAdapter implements TableScene {
       group.alpha = Math.min(1, p * 5) * Math.min(1, (1 - p) * 5);
       halo.scale.set(0.9 + enter * 0.1);
       title.scale.set(0.82 + enter * 0.18);
-    }, () => group.destroy({ children: true }));
+    }, () => group.destroy({ children: true, context: true }));
   }
 
-  private animateLegacyRitual(ritual: string, territoryId: string | undefined, durationMs: number, signal: AbortSignal) {
-    if (territoryId) return this.animatePulse(territoryId, 0xe0a93c, durationMs, signal);
+  private animateLegacyRitual(ritual: string, territoryId: string | undefined, durationMs: number, signal: AbortSignal, text?: string) {
+    if (territoryId && ritual === "ruins.placed") return this.animateCity(territoryId, "ruin", text ?? "RUINS", durationMs, signal);
     const group = new Container();
     const veil = new Graphics().rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill({ color: 0x080a0d, alpha: 0.5 });
     const card = new Container();
     const paper = new Graphics().roundRect(-76, -36, 152, 72, 3).fill({ color: 0xe1d2b2 }).stroke({ color: 0xb69b6b, width: 2 });
-    const label = this.tableText({ text: ritual.replace(/\./g, " ").toUpperCase(), style: { fill: 0x332819, fontFamily: "monospace", fontSize: 12, fontWeight: "900", letterSpacing: 2 } });
+    const label = this.tableText({ text: text ?? ritual.replace(/\./g, " ").toUpperCase(), style: { fill: 0x332819, fontFamily: "monospace", fontSize: 9, fontWeight: "900", letterSpacing: 1, wordWrap: true, wordWrapWidth: 140, align: "center" } });
     label.anchor.set(0.5);
     label.position.set(0, -9);
     const stroke = new Graphics().moveTo(-45, 15).bezierCurveTo(-12, -2, 8, 27, 47, 10).stroke({ color: 0x5c3c27, width: 2.2 });
@@ -1057,7 +1169,535 @@ export class PixiTableSceneAdapter implements TableScene {
       group.alpha = Math.min(1, p * 5) * Math.min(1, (1 - p) * 5);
       card.scale.set(0.88 + Math.min(1, p * 3) * 0.12);
       stroke.alpha = Math.min(1, Math.max(0, p - 0.2) * 3);
-    }, () => group.destroy({ children: true }));
+    }, () => group.destroy({ children: true, context: true }));
+  }
+
+  private playerName(playerId: string) {
+    const player = this.current?.state.players[playerId];
+    return (player?.factionId ?? playerId).replace(/_/g, " ").toUpperCase();
+  }
+
+  private boardClient(point: readonly [number, number]): UIAnchorPoint {
+    const screen = this.world.toGlobal({x: point[0], y: point[1]});
+    const rect = this.app.canvas.getBoundingClientRect();
+    return {clientX: rect.left + screen.x, clientY: rect.top + screen.y, width: 32, height: 32};
+  }
+
+  private uiAnchor(kind: UIAnchorKind, playerId?: string, anchorId?: string) {
+    return this.anchors?.resolveSource(kind, playerId, anchorId);
+  }
+
+  private uiDestination(kind: UIAnchorKind, playerId?: string, anchorId?: string) {
+    return this.anchors?.resolveLive(kind, playerId, anchorId);
+  }
+
+  private renderReserve() {
+    this.reserveCanvas?.remove(); this.reserveCanvas = undefined;
+    const state = this.current?.state;
+    if (!state?.recruit || state.phase !== "join_or_recruit" || state.recruit.remaining <= 0) return;
+    const playerId = state.turnOrder[state.activeIdx];
+    const anchor = this.uiDestination("reserve", playerId);
+    if (!anchor) return;
+    const canvas = document.createElement("canvas"); canvas.dataset.tableReservePieces = String(state.recruit.remaining); canvas.setAttribute("aria-hidden", "true");
+    canvas.width = 48; canvas.height = 48;
+    Object.assign(canvas.style, {position: "fixed", left: `${anchor.clientX - 12}px`, top: `${anchor.clientY - 12}px`, width: "24px", height: "24px", pointerEvents: "none", zIndex: "51"});
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const factionId = state.players[playerId]?.factionId;
+    const color = factionId ? factionDefinitionById(factionId, state.unlockedModules)?.color : undefined;
+    context.fillStyle = "#102326"; context.fillRect(0, 0, 48, 48);
+    const pieces = composeArmyStack(state.recruit.remaining, "reserve").pieces.slice(0, 3);
+    pieces.forEach((piece, index) => {
+      const x = 9 + index * 14, y = 23 - index % 2 * 5;
+      context.fillStyle = color ?? "#9cdbc8"; context.strokeStyle = "#e4dfbb"; context.lineWidth = 1.5;
+      context.beginPath(); context.roundRect(x - 5, y, 10, 14, 2); context.fill(); context.stroke();
+      context.beginPath(); context.arc(x, y - 5, piece.denomination === 3 ? 6 : 4, 0, Math.PI * 2); context.fill(); context.stroke();
+    });
+    context.fillStyle = "#102326"; context.fillRect(0, 36, 48, 12); context.fillStyle = "#e2f2df"; context.font = "bold 11px monospace"; context.textAlign = "center"; context.fillText(String(state.recruit.remaining), 24, 46);
+    this.reserveCanvas = canvas; document.body.appendChild(canvas);
+  }
+
+  /** Cross-surface flights share the director's clock and are removed on every exit. */
+  private animateScreenFlight(start: UIAnchorPoint, end: UIAnchorPoint, kind: "card" | "die" | "faction" | "tear" | "star" | "army" | "seal" | "power", label: string, durationMs: number, signal: AbortSignal, count = 1, color = "#f1d48c", face?: string, artwork?: {card: HTMLImageElement; emblem: HTMLImageElement}) {
+    const canvas = document.createElement("canvas");
+    canvas.dataset.tableFlight = kind;
+    canvas.setAttribute("aria-hidden", "true");
+    Object.assign(canvas.style, {position: "fixed", inset: "0", width: "100vw", height: "100vh", pointerEvents: "none", zIndex: "90"});
+    const resolution = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.ceil(window.innerWidth * resolution); canvas.height = Math.ceil(window.innerHeight * resolution);
+    const context = canvas.getContext("2d");
+    if (!context) return Promise.resolve();
+    document.body.appendChild(canvas);
+    this.flightCanvases.add(canvas);
+    return this.animate(durationMs, signal, (p) => {
+      context.setTransform(resolution, 0, 0, resolution, 0, 0);
+      context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      const travel = Math.min(1, p / 0.78), t = travel * travel * (3 - 2 * travel);
+      const x = start.clientX + (end.clientX - start.clientX) * t;
+      const y = start.clientY + (end.clientY - start.clientY) * t - Math.sin(Math.PI * travel) * 45;
+      context.globalAlpha = Math.min(1, p * 8) * Math.min(1, (1 - p) * 8);
+      context.strokeStyle = color; context.lineWidth = 2;
+      context.beginPath(); context.moveTo(start.clientX, start.clientY); context.quadraticCurveTo((start.clientX + x) / 2, Math.min(start.clientY, y) - 30, x, y); context.stroke();
+      for (let index = 0; index < Math.min(5, Math.max(1, count)); index++) {
+        context.save(); context.translate(x + index * 7, y + index * 3); context.rotate((1 - t) * -0.12);
+        context.fillStyle = kind === "star" ? "#af4337" : kind === "army" ? color : "#e9dab8";
+        context.beginPath();
+        if (kind === "star") {
+          for (let vertex = 0; vertex < 10; vertex++) { const a = -Math.PI / 2 + vertex * Math.PI / 5, r = vertex % 2 ? 9 : 22; if (vertex) context.lineTo(Math.cos(a) * r, Math.sin(a) * r); else context.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
+          context.closePath();
+        } else if (kind === "tear") {
+          for (const direction of [-1, 1]) {
+            context.save(); context.translate(direction * p * 20, p * p * 14); context.rotate(direction * p * 0.35);
+            context.beginPath(); context.moveTo(0, -25); context.lineTo(direction * 17, -25); context.lineTo(direction * 17, 25); context.lineTo(0, 25); context.lineTo(direction * 4, 13); context.lineTo(0, 2); context.lineTo(direction * 4, -10); context.closePath(); context.fill(); context.stroke(); context.restore();
+          }
+          context.beginPath();
+        } else if (kind === "die") context.roundRect(-13, -13, 26, 26, 4);
+        else if (kind === "faction") context.roundRect(-25, -33, 50, 66, 4);
+        else if (kind === "card") context.roundRect(-17, -25, 34, 50, 4);
+        else if (kind === "army") { context.roundRect(-8, -4, 16, 18, 3); context.moveTo(8, -11); context.arc(0, -11, 8, 0, Math.PI * 2); }
+        else context.arc(0, 0, 21, 0, Math.PI * 2);
+        if (kind === "faction") { context.save(); context.globalAlpha *= 1 - Math.max(0, Math.min(1, (p - 0.5) / 0.25)); context.fill(); context.stroke(); context.restore(); }
+        else { context.fill(); context.stroke(); }
+        if (kind === "die" && face) { context.fillStyle = "#22313c"; context.font = "bold 19px monospace"; context.textAlign = "center"; context.fillText(face, 0, 7); }
+        if (kind === "faction" && artwork) {
+          const stamp = Math.max(0, Math.min(1, (p - 0.5) / 0.25));
+          if (artwork.card.complete && artwork.card.naturalWidth > 0) { context.save(); context.globalAlpha *= 1 - stamp; context.drawImage(artwork.card, -25, -33, 50, 66); context.restore(); }
+          if (artwork.emblem.complete && artwork.emblem.naturalWidth > 0) { context.save(); context.globalAlpha *= stamp; const size = 50 + (1 - stamp) * 16; context.drawImage(artwork.emblem, -size / 2, -size / 2, size, size); context.restore(); }
+        }
+        if (kind === "card") {
+          context.fillStyle = "#34454a"; context.font = "bold 7px monospace"; context.textAlign = "center";
+          const words = (face ?? "RISK LEGACY").toUpperCase().split(/\s+/);
+          words.slice(0, 4).forEach((word, row) => context.fillText(word, 0, -8 + row * 9, 30));
+        }
+        context.restore();
+      }
+      context.font = "bold 13px monospace"; context.textAlign = "center";
+      const width = Math.min(window.innerWidth - 24, context.measureText(label).width + 20);
+      const labelX = Math.max(width / 2 + 8, Math.min(window.innerWidth - width / 2 - 8, x));
+      const labelY = Math.max(24, Math.min(window.innerHeight - 24, y + 47));
+      if (label) {
+        context.fillStyle = "#101b23"; context.fillRect(labelX - width / 2, labelY - 15, width, 24);
+        context.fillStyle = color; context.fillText(label, labelX, labelY + 2, width - 12);
+      }
+      const scoreChange = kind === "star" ? label.match(/(\d+) → (\d+)$/) : undefined;
+      if (scoreChange) {
+        context.globalAlpha = 1;
+        context.fillStyle = "#101b23"; context.fillRect(end.clientX - end.width / 2, end.clientY - end.height / 2, end.width, end.height);
+        context.fillStyle = color; context.font = "bold 15px monospace";
+        context.fillText(p < 0.78 ? scoreChange[1] : scoreChange[2], end.clientX, end.clientY + 5);
+      }
+      if (p > 0.72) { context.beginPath(); context.roundRect(end.clientX - end.width / 2 - 4, end.clientY - end.height / 2 - 4, end.width + 8, end.height + 8, 6); context.stroke(); }
+    }, () => { canvas.remove(); this.flightCanvases.delete(canvas); });
+  }
+
+  private animateFaction(command: Extract<SceneCommand, {type: "setup.faction"}>, durationMs: number, signal: AbortSignal) {
+    const start = this.uiAnchor("faction", undefined, command.factionId);
+    const end = this.uiDestination("player", command.playerId);
+    const color = factionDefinitionById(command.factionId, this.current!.state.unlockedModules)?.color ?? "#f1d48c";
+    if (start && end) {
+      const card = new Image(), emblem = new Image();
+      card.src = FACTION_CARD_ART[command.factionId]; emblem.src = FACTION_EMBLEMS[command.factionId];
+      return this.animateScreenFlight(start, end, "faction", command.factionId.replace(/_/g, " ").toUpperCase(), durationMs, signal, 1, color, undefined, {card, emblem});
+    }
+    return this.animateNotice(this.playerName(command.playerId), ["FACTION COMMITTED"], durationMs, signal);
+  }
+
+  private animatePreparation(command: Extract<SceneCommand, {type: "battle.prepare"}>, durationMs: number, signal: AbortSignal) {
+    const defenders = this.armyLayer.children.filter((child) => child.label === `army:${command.to}`).map((token) => ({token, x: token.x, y: token.y, rotation: token.rotation}));
+    const focus = presentationFor(command.to).cameraFocus;
+    const tray = this.diceTrayPoint(command.from, command.to);
+    const group = new Container();
+    const dice: {token: Container; start: readonly [number, number]; end: readonly [number, number]}[] = [];
+    const flights: Promise<void>[] = [];
+    for (const side of ["att", "def"] as const) {
+      const count = side === "att" ? command.attackCount : command.defenseCount;
+      for (let index = 0; index < Math.min(3, count ?? 0); index++) {
+        const chosenDie = this.uiAnchor("die", undefined, `${side}:${index}`);
+        const destination: [number, number] = [tray[0] + (side === "att" ? -35 : 35), tray[1] - 8 + index * 21];
+        if (chosenDie) { flights.push(this.animateScreenFlight(chosenDie, this.boardClient(destination), "die", index === 0 ? `${count} ${side === "att" ? "ATTACK" : "DEFENSE"} DICE` : "", durationMs, signal, 1, side === "att" ? "#eea38a" : "#a9d9eb")); continue; }
+        const token = new Graphics().roundRect(-9, -9, 18, 18, 3).fill(side === "att" ? 0xa8473e : 0xd9e1df).stroke({color: 0xf1d48c, width: 1});
+        dice.push({token, start: presentationFor(side === "att" ? command.from : command.to).cameraFocus, end: [tray[0] + (side === "att" ? -35 : 35), tray[1] - 8 + index * 21]});
+        group.addChild(token);
+      }
+    }
+    const line = new Graphics().moveTo(...presentationFor(command.from).cameraFocus).lineTo(...focus).stroke({color: 0xdd8e73, width: 1.5, alpha: 0.65}); group.addChild(line); this.effectsLayer.addChild(group);
+    const formation = this.animate(durationMs, signal, (p) => {
+      const settle = Math.min(1, p * 1.8);
+      defenders.forEach(({token, x, y, rotation}, index) => { token.x = x + (focus[0] + (index - (defenders.length - 1) / 2) * 5 - x) * settle * 0.45; token.y = y + (focus[1] - y) * settle * 0.25; token.rotation = rotation * (1 - settle); });
+      dice.forEach(({token, start, end}, index) => { const slide = Math.max(0, Math.min(1, p * 1.7 - index * 0.04)); token.position.set(start[0] + (end[0] - start[0]) * slide, start[1] + (end[1] - start[1]) * slide); token.rotation = (1 - slide) * -0.22; });
+    }, () => { defenders.forEach(({token, x, y, rotation}) => { if (!token.destroyed) { token.position.set(x, y); token.rotation = rotation; } }); group.destroy({children: true, context: true}); });
+    return Promise.all([formation, ...flights]).then(() => undefined);
+  }
+
+  private animateOrder(command: Extract<SceneCommand, {type: "setup.order"}>, durationMs: number, signal: AbortSignal) {
+    const group = new Container();
+    const original = Object.keys(this.current!.state.players);
+    const rows = command.order.map((playerId, index) => {
+      const roll = command.rolls?.find((entry) => entry.playerId === playerId)?.value;
+      const factionId = this.current!.state.players[playerId]?.factionId;
+      const factionColor = factionId ? colorNumber(factionDefinitionById(factionId, this.current!.state.unlockedModules)?.color) : 0xf1d48c;
+      const label = this.effectLabel(this.playerName(playerId), factionColor, 260);
+      group.addChild(label);
+      const diceBody = new Container(); diceBody.position.set(-155, 0);
+      diceBody.addChild(new Graphics().roundRect(-11, -11, 22, 22, 4).fill(0xeae1c8).stroke({color: factionColor, width: 1.4}));
+      const die = this.tableText({text: roll === undefined ? "" : String(roll), style: {fill: 0xf1d48c, fontFamily: "monospace", fontSize: 12, fontWeight: "900"}});
+      die.style.fill = 0x23313b; die.anchor.set(0.5); diceBody.addChild(die); label.addChild(diceBody);
+      const emblem = new Container(); emblem.position.set(155, 0);
+      const mark = factionId ? FACTION_MARK_ART[`../../assets/factions/${factionId}-mark.svg`] : undefined;
+      if (mark) { const art = new Graphics().svg(mark); art.scale.set(22 / 128); art.position.set(-11, -11); emblem.addChild(art); }
+      else {
+        emblem.addChild(new Graphics().poly([0, -11, 10, -5, 8, 7, 0, 12, -8, 7, -10, -5]).fill(factionColor).stroke({color: 0xf4e4be, width: 1}));
+        const initials = this.tableText({text: String(index + 1), style: {fill: 0x15222a, fontSize: 10, fontFamily: "monospace", fontWeight: "900"}}); initials.anchor.set(0.5); emblem.addChild(initials);
+      }
+      label.addChild(emblem);
+      return {label, die, diceBody, playerId, from: Math.max(0, original.indexOf(playerId)), to: index};
+    });
+    group.position.set(WORLD_WIDTH / 2, 100); this.effectsLayer.addChild(group);
+    return this.animate(durationMs, signal, (p) => {
+      const reorder = Math.max(0, Math.min(1, (p - 0.55) / 0.3));
+      const rounds = command.rounds?.length ? command.rounds : command.rolls ? [command.rolls] : [];
+      const round = rounds[Math.min(rounds.length - 1, Math.floor(p / 0.55 * rounds.length))];
+      rows.forEach(({label, die, diceBody, playerId, from, to}) => {
+        const value = round?.find((entry) => entry.playerId === playerId)?.value;
+        if (value !== undefined && die.text !== String(value)) die.text = String(value);
+        diceBody.rotation = p < 0.5 ? Math.sin(p * 40) * 0.25 : 0;
+        label.y = (from + (to - from) * reorder) * 30; label.x = Math.sin(Math.PI * reorder) * (to < from ? -20 : 20); label.alpha = Math.min(1, p * 6) * Math.min(1, (1 - p) * 6);
+      });
+    }, () => group.destroy({children: true, context: true}));
+  }
+
+  private animatePower(command: Extract<SceneCommand, {type: "power.activate"}>, durationMs: number, signal: AbortSignal) {
+    const palette = /bunker|defen|fortif/.test(command.powerId) ? "#91cee6" : /mutant|bio|toxic/.test(command.powerId) ? "#c2e071" : /move|mobil|maneuver/.test(command.powerId) ? "#90ded4" : "#ed9d78";
+    const source = this.uiAnchor("faction", command.playerId) ?? this.uiAnchor("player", command.playerId) ?? (command.from ? this.boardClient(presentationFor(command.from).cameraFocus) : undefined);
+    const targetId = command.territoryId ?? command.to;
+    const target = (command.dieIndex === undefined ? undefined : this.uiDestination("die", undefined, `${command.side ?? "att"}:${command.dieIndex}`)) ?? (targetId ? this.boardClient(presentationFor(targetId).cameraFocus) : this.uiDestination("player", command.playerId));
+    if (source && target) return this.animateScreenFlight(source, target, "power", `${command.powerId.replace(/_/g, " ")}${command.delta === undefined ? "" : ` ${command.delta > 0 ? "+" : ""}${command.delta}`}`, durationMs, signal, 1, palette);
+    return this.animateNotice(this.playerName(command.playerId), [command.powerId.replace(/_/g, " ")], durationMs, signal, targetId);
+  }
+
+  private animateScore(command: Extract<SceneCommand, {type: "score.change"}>, durationMs: number, signal: AbortSignal) {
+    const flights = command.changes.map((change) => {
+      const end = this.uiDestination("score", change.playerId);
+      const start = command.territoryId ? this.boardClient(presentationFor(command.territoryId).cameraFocus) : this.uiAnchor("player", change.playerId);
+      return start && end ? this.animateScreenFlight(start, end, "star", `${this.playerName(change.playerId)} ${change.before} → ${change.after}`, durationMs, signal) : this.animateNotice(this.playerName(change.playerId), [`SCORE ${change.before} → ${change.after}`], durationMs, signal);
+    });
+    const changedLead = command.leadersAfter.length > 0 && [...command.leadersAfter].sort().join("|") !== [...command.leadersBefore].sort().join("|");
+    if (changedLead) flights.push(this.animateNotice(command.leadersAfter.length > 1 ? "LEAD SHARED" : "TAKES THE LEAD", command.leadersAfter.map((id) => this.playerName(id)), durationMs, signal));
+    return Promise.all(flights).then(() => undefined);
+  }
+
+  private playerStation(playerId: string): [number, number] {
+    const players = Object.keys(this.current?.state.players ?? {});
+    return [120 + Math.max(0, players.indexOf(playerId)) * ((WORLD_WIDTH - 240) / Math.max(1, players.length - 1)), WORLD_HEIGHT - 18];
+  }
+
+  private diceTrayPoint(fromId: string, toId: string): [number, number] {
+    const from = presentationFor(fromId).cameraFocus, to = presentationFor(toId).cameraFocus;
+    return [Math.max(82, Math.min(WORLD_WIDTH - 82, (from[0] + to[0]) / 2)), Math.max(54, Math.min(WORLD_HEIGHT - 54, (from[1] + to[1]) / 2 - 38))];
+  }
+
+  private animateAnticipation(territoryId: string, durationMs: number, signal: AbortSignal) {
+    const state = this.current!.state, territory = state.territories[territoryId];
+    const pieces = this.armyLayer.children.filter((child) => child.label === `army:${territoryId}`)
+      .map((token) => ({ token, x: token.x, y: token.y, rotation: token.rotation }));
+    const point = presentationFor(territoryId).cameraFocus;
+    const garrison = this.effectLabel(`${territory?.troops ?? 0} READY · KEEP A GARRISON`, 0xf1d48c, 130);
+    garrison.position.set(point[0], point[1] + 22); this.effectsLayer.addChild(garrison);
+    return this.animate(durationMs, signal, (p) => {
+      const lift = Math.sin(p * Math.PI);
+      pieces.forEach(({ token, x, y, rotation }, index) => { if (pieces.length > 1 && index === 0) return; token.position.set(x + lift * 2, y - lift * 3); token.rotation = rotation + lift * 0.12; });
+    }, () => { pieces.forEach(({ token, x, y, rotation }) => { if (!token.destroyed) { token.position.set(x, y); token.rotation = rotation; } }); garrison.destroy({ children: true, context: true }); });
+  }
+
+  private async animateRecruitment(command: Extract<SceneCommand, {type: "recruitment.show"}>, durationMs: number, signal: AbortSignal) {
+    const sources = Object.entries(this.current!.state.territories).filter(([, territory]) => territory.controller === command.playerId);
+    const contributions = [
+      {label: `${sources.length} TERRITORIES + ${command.population} POPULATION → ${command.fromTerritories} TROOPS`, amount: command.fromTerritories, ids: sources.map(([id]) => id)},
+      ...command.continents.map((continent) => ({label: `${continent.id.replace(/_/g, " ").toUpperCase()} +${continent.total}`, amount: continent.total, ids: manifest.territories.filter((territory) => territory.continent === continent.id).map((territory) => territory.id)})),
+    ];
+    let accumulated = 0;
+    for (const contribution of contributions) {
+      if (signal.aborted) break;
+      const group = new Container();
+      contribution.ids.forEach((id) => group.addChild(pathGraphic(id, 0x96d4b8, 0.23, {color: 0xa9e4cf, width: 1.2, alpha: 0.9})));
+      const point = contribution.ids.length ? presentationFor(contribution.ids[0]).cameraFocus : [WORLD_WIDTH / 2, WORLD_HEIGHT / 2] as const;
+      accumulated += contribution.amount;
+      const label = this.effectLabel(`${contribution.label} · RESERVE ${accumulated}`, 0xa9e4cf, 300);
+      label.position.set(WORLD_WIDTH / 2, 32); group.addChild(label); this.effectsLayer.addChild(group);
+      const stageDuration = durationMs / contributions.length;
+      const highlight = this.animate(stageDuration, signal, (p) => { group.alpha = Math.min(1, p * 5) * Math.min(1, (1 - p) * 5); }, () => group.destroy({children: true, context: true}));
+      const reserve = this.uiDestination("reserve", command.playerId);
+      await Promise.all([highlight, ...(reserve ? [this.animateScreenFlight(this.boardClient(point), reserve, "army", `+${contribution.amount} · RESERVE ${accumulated}`, stageDuration, signal)] : [])]);
+    }
+  }
+
+  private animateHandoff(command: Extract<SceneCommand, {type: "turn.handoff"}>, durationMs: number, signal: AbortSignal) {
+    const playerAnchor = this.uiDestination("player", command.playerId);
+    if (playerAnchor) return this.animateScreenFlight(playerAnchor, playerAnchor, "seal", `${this.playerName(command.playerId)} · ${command.stage === "start" ? "YOUR TURN" : "TURN COMPLETE"}`, durationMs, signal);
+    const station = this.playerStation(command.playerId);
+    const marker = this.effectLabel(`${this.playerName(command.playerId)} · ${command.stage === "start" ? "YOUR TURN" : "TURN COMPLETE"}`, 0xf2d48f, 180);
+    this.effectsLayer.addChild(marker);
+    return this.animate(durationMs, signal, (p) => { const travel = Math.min(1, p * 2); marker.position.set(WORLD_WIDTH / 2 + (station[0] - WORLD_WIDTH / 2) * travel, WORLD_HEIGHT - 46 + (station[1] - WORLD_HEIGHT + 46) * travel); marker.alpha = Math.min(1, p * 5) * Math.min(1, (1 - p) * 5); }, () => marker.destroy({ children: true, context: true }));
+  }
+
+  private animateClaim(command: Extract<SceneCommand, { type: "setup.claim" }>, durationMs: number, signal: AbortSignal) {
+    const definition = presentationFor(command.territoryId);
+    const hq = this.hqMark(command.factionId, definition.hqSlot, definition.profile);
+    const baseScale = hq.scale.x;
+    this.effectsLayer.addChild(hq);
+    const stamp = this.animate(durationMs, signal, (p) => {
+      const settle = Math.min(1, p / 0.6);
+      hq.y = definition.hqSlot[1] - (1 - settle) * 35;
+      hq.scale.set(baseScale * (1 + (1 - settle) * 0.25));
+      hq.alpha = Math.min(1, p * 4);
+    }, () => hq.destroy({ children: true, context: true }));
+    return Promise.all([stamp, this.animatePlacement(command.territoryId, command.playerId, durationMs, signal, command.count), this.animateConquest(command.territoryId, command.playerId, durationMs, signal)]).then(() => undefined);
+  }
+
+  private effectLabel(text: string, color = 0xf1dfb4, maxWidth = 220) {
+    const group = new Container();
+    group.eventMode = "none";
+    const label = this.tableText({ text, style: { fill: color, fontFamily: "monospace", fontSize: 7, fontWeight: "800", align: "center", wordWrap: true, wordWrapWidth: maxWidth } });
+    label.anchor.set(0.5);
+    const plate = new Graphics().roundRect(-label.width / 2 - 6, -label.height / 2 - 4, label.width + 12, label.height + 8, 3).fill({ color: 0x111b23, alpha: 0.96 }).stroke({ color, width: 0.65, alpha: 0.7 });
+    group.addChild(plate, label);
+    return group;
+  }
+
+  private animateNotice(title: string, lines: string[], durationMs: number, signal: AbortSignal, territoryId?: string) {
+    const group = new Container();
+    group.eventMode = "none";
+    const titleLabel = this.effectLabel(title.toUpperCase(), 0xf1d48c, 310);
+    group.addChild(titleLabel);
+    lines.slice(0, 6).forEach((line, index) => {
+      const label = this.effectLabel(line, 0xdae2df, 310);
+      label.y = 24 + index * 22;
+      group.addChild(label);
+    });
+    const point = territoryId ? presentationFor(territoryId).cameraFocus : [WORLD_WIDTH / 2, 32];
+    group.position.set(point[0], point[1]);
+    this.effectsLayer.addChild(group);
+    return this.animate(durationMs, signal, (p) => {
+      group.alpha = Math.min(1, p * 6) * Math.min(1, (1 - p) * 6);
+      group.y = point[1] - (1 - Math.min(1, p * 4)) * 6;
+    }, () => group.destroy({ children: true, context: true }));
+  }
+
+  private animateConquest(territoryId: string, playerId: string, durationMs: number, signal: AbortSignal) {
+    const factionId = this.current!.state.players[playerId]?.factionId;
+    const color = colorNumber(factionId ? factionDefinitionById(factionId, this.current!.state.unlockedModules)?.color : undefined);
+    const ink = pathGraphic(territoryId, color, 0.45, { color, width: 2, alpha: 0.9 });
+    const mask = new Graphics();
+    const point = presentationFor(territoryId).cameraFocus;
+    ink.mask = mask;
+    this.effectsLayer.addChild(ink, mask);
+    return this.animate(durationMs, signal, (p) => {
+      mask.clear().ellipse(point[0], point[1], 1 + p * 170, 1 + p * 120).fill(0xffffff);
+      ink.alpha = Math.min(1, p * 5);
+    }, () => { ink.destroy(); mask.destroy(); });
+  }
+
+  private animateCity(territoryId: string, cityType: string, name: string, durationMs: number, signal: AbortSignal) {
+    const definition = presentationFor(territoryId);
+    const key = (cityType === "ruin" ? "ruin" : `city.${cityType}.base`) as ArchitectureAtlasKey;
+    if (!this.architectureTextures.has(key)) return this.animateNotice(name || cityType, [], durationMs, signal, territoryId);
+    const city = this.architectureSprite(key, definition.profile);
+    const point = definition.architectureSlot;
+    const label = this.effectLabel(name || cityType.toUpperCase(), 0xa8dded, 120);
+    label.position.set(point[0], point[1] + 24);
+    this.effectsLayer.addChild(city, label);
+    return this.animate(durationMs, signal, (p) => {
+      const settle = 1 - Math.pow(1 - Math.min(1, p / 0.6), 3);
+      city.position.set(point[0], point[1] - (1 - settle) * 28);
+      city.rotation = (1 - settle) * -0.1;
+      label.alpha = Math.max(0, Math.min(1, (p - 0.55) * 4));
+    }, () => { city.destroy(); label.destroy({ children: true, context: true }); });
+  }
+
+  private animateFortification(territoryId: string, remaining: number, durationMs: number, signal: AbortSignal, damage = false) {
+    const group = new Container();
+    group.position.set(...presentationFor(territoryId).architectureSlot);
+    const walls = Array.from({ length: 8 }, (_, index) => {
+      const wall = new Graphics().roundRect(-4, -2, 8, 4, 1).fill(remaining > 0 ? 0xc5b28b : 0x62584a).stroke({ color: 0xf3dcac, width: 0.5 });
+      const angle = index * Math.PI / 4;
+      wall.position.set(Math.cos(angle) * 20, Math.sin(angle) * 13);
+      wall.rotation = angle + Math.PI / 2;
+      group.addChild(wall);
+      return wall;
+    });
+    const label = this.effectLabel(remaining > 0 ? `DEFENSE ${remaining}` : "DEFENSE EXHAUSTED", 0xe5cea0);
+    label.y = 29;
+    group.addChild(label);
+    this.effectsLayer.addChild(group);
+    return this.animate(durationMs, signal, (p) => {
+      walls.forEach((wall, index) => {
+        const local = Math.max(0, Math.min(1, p * 2 - index * 0.09));
+        if (damage) {
+          const prior = this.current!.state.territories[territoryId]?.fortification?.remaining ?? remaining + 1;
+          const lost = index >= Math.floor(8 * remaining / Math.max(1, prior));
+          wall.alpha = lost ? 1 - local : 1;
+          wall.rotation = index * Math.PI / 4 + Math.PI / 2 + (lost ? local * 0.7 : 0);
+          wall.y = Math.sin(index * Math.PI / 4) * 13 + (lost ? local * local * 10 : 0);
+        } else { wall.alpha = local; wall.scale.set(1.8 - local * 0.8); }
+      });
+      label.alpha = Math.min(1, p * 3);
+    }, () => group.destroy({ children: true, context: true }));
+  }
+
+  private animateDice(command: Extract<SceneCommand, { type: "battle.dice" | "battle.compare" }>, durationMs: number, signal: AbortSignal) {
+    const group = new Container();
+    group.position.set(...this.diceTrayPoint(command.from, command.to));
+    group.addChild(new Graphics().roundRect(-72, -40, 144, 84, 7).fill({ color: 0x101821, alpha: 0.97 }).stroke({ color: 0xcab48a, width: 1 }));
+    const dice: Container[] = [];
+    [command.attack, command.defense].forEach((values, side) => {
+      const sideLabel = this.effectLabel(side === 0 ? "ATTACK" : "DEFEND", side === 0 ? 0xf4a28d : 0x96cce9);
+      sideLabel.position.set(side === 0 ? -35 : 35, -29);
+      group.addChild(sideLabel);
+      values.slice(0, 3).forEach((value, index) => {
+        const die = new Container();
+        die.addChild(new Graphics().roundRect(-9, -9, 18, 18, 3).fill(side === 0 ? 0xa8473e : 0xd9e1df).stroke({ color: 0xf8e8c7, width: 0.8 }));
+        const number = this.tableText({ text: String(value), style: { fill: side === 0 ? 0xfff4db : 0x132c3e, fontFamily: "monospace", fontSize: 12, fontWeight: "900" } });
+        number.anchor.set(0.5);
+        die.addChild(number);
+        die.position.set(side === 0 ? -35 : 35, -8 + index * 21);
+        dice.push(die);
+        group.addChild(die);
+        if (command.type === "battle.compare" && side === 0 && command.comparisons[index]) {
+          const comparison = command.comparisons[index];
+          const label = this.tableText({ text: comparison.att === comparison.def ? `= ${comparison.winner === "att" ? "ATT" : "DEF"}` : comparison.winner === "att" ? "→" : "←", style: { fill: comparison.winner === "att" ? 0xffaa92 : 0x99d4ef, fontFamily: "monospace", fontSize: 8, fontWeight: "900" } });
+          label.anchor.set(0.5); label.y = -8 + index * 21; group.addChild(label);
+        }
+      });
+    });
+    this.effectsLayer.addChild(group);
+    return this.animate(durationMs, signal, (p) => {
+      group.alpha = Math.min(1, p * 8) * Math.min(1, (1 - p) * 8);
+      dice.forEach((die, index) => { const tumble = command.type === "battle.dice" ? Math.max(0, 1 - p / 0.65) : 0; die.rotation = Math.sin(p * 22 + index) * tumble * 0.65; die.scale.set(1 + tumble * 0.2); });
+    }, () => group.destroy({ children: true, context: true }));
+  }
+
+  private animateDieModifier(command: Extract<SceneCommand, {type: "battle.modify"}>, durationMs: number, signal: AbortSignal) {
+    const actualDie = this.uiDestination("die", undefined, `${command.side}:${command.dieIndex}`);
+    if (actualDie) return this.animateScreenFlight(this.boardClient(presentationFor(command.side === "att" ? command.from : command.to).cameraFocus), actualDie, "power", `${command.source.replace(/_/g, " ")} · ${command.naturalValue} → ${command.finalValue}`, durationMs, signal);
+    const tray = this.diceTrayPoint(command.from, command.to);
+    const point = [tray[0] + (command.side === "att" ? -35 : 35), tray[1] - 8 + command.dieIndex * 21];
+    const source = presentationFor(command.side === "att" ? command.from : command.to).cameraFocus;
+    const group = new Container();
+    const line = new Graphics().moveTo(...source).lineTo(point[0], point[1]).stroke({ color: 0xf1d48c, width: 1.3, alpha: 0.8 });
+    const die = new Graphics().roundRect(-11, -11, 22, 22, 3).fill(0x293d47).stroke({ color: 0xffd87b, width: 2 });
+    die.position.set(point[0], point[1]);
+    const value = this.tableText({ text: String(command.naturalValue), style: { fill: 0xffedc2, fontFamily: "monospace", fontSize: 13, fontWeight: "900" } });
+    value.anchor.set(0.5); value.position.set(point[0], point[1]);
+    const label = this.effectLabel(`${command.source.replace(/_/g, " ")} · ${command.naturalValue} → ${command.finalValue}`, 0xf1d48c, 170);
+    label.position.set(point[0], point[1] + 26);
+    group.addChild(line, die, value, label); this.effectsLayer.addChild(group);
+    return this.animate(durationMs, signal, (p) => { if (p >= 0.45 && value.text !== String(command.finalValue)) value.text = String(command.finalValue); group.alpha = Math.min(1, p * 5) * Math.min(1, (1 - p) * 5); die.scale.set(1 + Math.sin(p * Math.PI) * 0.12); }, () => group.destroy({ children: true, context: true }));
+  }
+
+  private animateAward(playerId: string, territoryId: string | undefined, text: string, durationMs: number, signal: AbortSignal) {
+    const score = this.uiDestination("score", playerId);
+    const origin = territoryId ? this.boardClient(presentationFor(territoryId).cameraFocus) : this.uiAnchor("player", playerId);
+    if (score && origin) return this.animateScreenFlight(origin, score, "star", text, durationMs, signal);
+    const group = new Container();
+    const points: number[] = [];
+    for (let index = 0; index < 10; index++) { const angle = -Math.PI / 2 + index * Math.PI / 5, radius = index % 2 ? 8 : 18; points.push(Math.cos(angle) * radius, Math.sin(angle) * radius); }
+    const star = new Graphics().poly(points).fill(0xb54535).stroke({ color: 0xffd87b, width: 2 });
+    const label = this.effectLabel(`${this.playerName(playerId)} · ${text}`, 0xffd87b);
+    label.y = 32; group.addChild(star, label);
+    const start = territoryId ? presentationFor(territoryId).cameraFocus : [WORLD_WIDTH / 2, WORLD_HEIGHT / 2];
+    this.effectsLayer.addChild(group);
+    const station = this.playerStation(playerId); label.y = -32;
+    return this.animate(durationMs, signal, (p) => { const arrive = Math.min(1, p * 2); group.position.set(start[0] + (station[0] - start[0]) * arrive, start[1] + (station[1] - start[1]) * arrive); star.rotation = (1 - arrive) * -0.35; group.alpha = Math.min(1, p * 5) * Math.min(1, (1 - p) * 5); }, () => group.destroy({ children: true, context: true }));
+  }
+
+  private animateMissile(command: Extract<SceneCommand, { type: "missile.commit" }>, durationMs: number, signal: AbortSignal) {
+    const attribution = `${command.playerId ? this.playerName(command.playerId) : "MISSILE"} INTERVENED`;
+    const dieAnchor = this.uiDestination("die", undefined, `${command.side}:${command.dieIndex ?? 0}`);
+    const stationAnchor = command.playerId ? this.uiAnchor("player", command.playerId) : undefined;
+    if (dieAnchor && stationAnchor) return this.animateScreenFlight(stationAnchor, dieAnchor, "power", `${attribution} · ${command.naturalValue ?? "?"} → 6`, durationMs, signal, 1, "#ffbc75");
+    const group = new Container();
+    const tray = this.diceTrayPoint(command.from, command.to);
+    const end = [tray[0] + (command.side === "att" ? -35 : 35), tray[1] - 8 + (command.dieIndex ?? 0) * 21];
+    const start = command.playerId ? this.playerStation(command.playerId) : [WORLD_WIDTH / 2, WORLD_HEIGHT - 20];
+    const rocket = new Graphics().poly([0, -8, 3, 2, 0, 0, -3, 2]).fill(0xffe5ae);
+    rocket.rotation = Math.atan2(end[1] - start[1], end[0] - start[0]) + Math.PI / 2;
+    const trail = new Graphics();
+    const die = this.effectLabel(`${command.side === "att" ? "ATT" : "DEF"} DIE ${(command.dieIndex ?? 0) + 1} · ${command.naturalValue ?? "?"} → 6`, 0xffcc7c);
+    die.position.set(end[0], end[1] - 22);
+    group.addChild(trail, rocket, die); this.effectsLayer.addChild(group);
+    const flight = this.animate(durationMs, signal, (p) => {
+      const travel = Math.min(1, p / 0.55), x = start[0] + (end[0] - start[0]) * travel, y = start[1] + (end[1] - start[1]) * travel;
+      rocket.position.set(x, y);
+      trail.clear().moveTo(start[0], start[1]).quadraticCurveTo((start[0] + x) / 2, y + 18, x, y).stroke({ color: 0xffcd79, width: 1.5, alpha: (1 - p) * 0.8 });
+      rocket.alpha = p < 0.6 ? 1 : 0; die.alpha = Math.max(0, Math.min(1, (p - 0.45) * 6));
+    }, () => group.destroy({ children: true, context: true }));
+    return Promise.all([flight, this.animateNotice(attribution, [], durationMs, signal)]).then(() => undefined);
+  }
+
+  private animateCards(command: Extract<SceneCommand, { type: "cards.transfer" }>, durationMs: number, signal: AbortSignal) {
+    if (command.kind === "refill") {
+      const flights: Promise<void>[] = [];
+      for (let slot = command.slot ?? 3; slot > 0; slot--) {
+        const from = this.uiAnchor("sideboard", undefined, String(slot - 1)), to = this.uiDestination("sideboard", undefined, String(slot));
+        if (from && to) flights.push(this.animateScreenFlight(from, to, "card", "SIDEBOARD", durationMs, signal));
+      }
+      const draw = this.uiAnchor("draw"), first = this.uiDestination("sideboard", undefined, "0");
+      if (draw && first) flights.push(this.animateScreenFlight(draw, first, "card", "REFILL", durationMs, signal));
+      if (flights.length) return Promise.all(flights).then(() => undefined);
+    } else {
+      const source = command.kind === "draw" ? this.uiAnchor(command.source === "coin" ? "coin" : "sideboard", undefined, command.slot === undefined ? undefined : String(command.slot)) ?? this.uiAnchor("draw") : this.uiAnchor("card", command.playerId, command.cardIds?.[0]) ?? this.uiAnchor("hand", command.playerId);
+      const destination = command.kind === "draw" ? this.uiDestination("hand", command.playerId) : command.kind === "upgrade" ? source : this.uiDestination("discard") ?? (command.kind === "destroy" ? source : undefined);
+      if (source && destination) {
+        const ids = command.cardIds?.length ? command.cardIds.slice(0, 5) : [undefined];
+        return Promise.all(ids.map((id, index) => {
+          const origin = command.kind !== "draw" && id ? this.uiAnchor("card", command.playerId, id) ?? source : source;
+          const definition = id ? contentPack.cards.territoryCards.find((card) => card.id === id) : undefined;
+          const face = definition ? manifest.territories.find((territory) => territory.id === definition.territoryId)?.name : id && contentPack.cards.coinCards.some((card) => card.id === id) ? "COIN" : undefined;
+          return this.animateScreenFlight(origin, destination, command.kind === "destroy" ? "tear" : "card", index === 0 ? `${command.kind.toUpperCase()}${command.troops === undefined ? "" : ` · +${command.troops} TROOPS`}${command.resources === undefined ? "" : ` · VALUE ${command.resources}`}` : "", durationMs, signal, id ? 1 : command.count, "#f1d48c", command.kind === "upgrade" ? `VALUE ${command.resources ?? "+1"}` : face);
+        })).then(() => undefined);
+      }
+    }
+    const group = new Container();
+    const tornHalves: Graphics[] = [];
+    const cards = Array.from({ length: Math.min(5, Math.max(1, command.count)) }, (_, index) => {
+      const card = new Graphics().roundRect(-15, -23, 30, 46, 3).fill(0xd7c8a7).stroke({ color: 0x7a6140, width: 1.4 }).roundRect(-10, -18, 20, 36, 2).stroke({ color: 0x7a6140, width: 1 });
+      card.position.set(index * 16, 0); card.rotation = (index - 1) * 0.08; group.addChild(card); return card;
+    });
+    group.position.set(WORLD_WIDTH / 2 - cards.length * 8, WORLD_HEIGHT / 2);
+    if (command.kind === "destroy") {
+      for (const direction of [-1, 1]) {
+        const half = new Graphics().poly([0, -23, direction * 15, -23, direction * 15, 23, 0, 23, direction * 3, 13, 0, 4, direction * 3, -5, 0, -13]).fill(0xd7c8a7).stroke({ color: 0x7a6140, width: 0.8 });
+        group.addChild(half); tornHalves.push(half);
+      }
+    }
+    const detail = command.troops === undefined ? command.resources === undefined ? `${command.count} card${command.count === 1 ? "" : "s"}` : `${command.resources} resources` : `+${command.troops} reinforcements`;
+    const label = this.effectLabel(`${command.kind.toUpperCase()} · ${detail}`, 0xf2d48f);
+    label.position.set(0, 45); group.addChild(label); this.effectsLayer.addChild(group);
+    const stamp = command.kind === "upgrade" ? this.effectLabel(`VALUE ${command.resources ?? "+1"}`, 0xc76a47) : undefined;
+    if (stamp) group.addChild(stamp);
+    const station = this.playerStation(command.playerId);
+    return this.animate(durationMs, signal, (p) => {
+      const travel = command.kind === "draw" ? p : 1 - p;
+      group.position.set(WORLD_WIDTH / 2 + (station[0] - WORLD_WIDTH / 2) * travel, WORLD_HEIGHT / 2 + (station[1] - 42 - WORLD_HEIGHT / 2) * travel);
+      cards.forEach((card, index) => { const local = Math.max(0, Math.min(1, p * 1.4 - index * 0.06)); card.y = command.kind === "draw" ? (1 - local) * -50 : local * 24; card.x = index * 16 * (1 - local * 0.7); card.rotation = command.kind === "destroy" ? local * (index % 2 ? 0.7 : -0.7) : (index - 1) * 0.08 * (1 - local); card.alpha = command.kind === "destroy" ? 1 - local : 1; });
+      group.alpha = Math.min(1, p * 5) * Math.min(1, (1 - p) * 5);
+      if (command.kind === "destroy") {
+        cards.forEach((card) => { card.visible = false; });
+        tornHalves.forEach((half, index) => { const direction = index ? 1 : -1; half.x = direction * p * 26; half.y = p * p * 30; half.rotation = direction * p * 0.35; });
+      }
+      if (stamp) { const settled = Math.min(1, p * 2); stamp.scale.set(1.6 - settled * 0.6); stamp.rotation = -0.1; stamp.alpha = settled; }
+    }, () => group.destroy({ children: true, context: true }));
+  }
+
+  private animateIsland(command: Extract<SceneCommand, { type: "alienIsland.place" }>, durationMs: number, signal: AbortSignal) {
+    const group = new Container();
+    const point = presentationFor(command.territoryId).cameraFocus;
+    const island = new Graphics().poly([-25, 8, -20, -12, -8, -20, 3, -14, 13, -20, 25, -5, 18, 13, 4, 19, -11, 15]).fill(0x467d7a).stroke({ color: 0xb9f0df, width: 2 });
+    island.position.set(...point); group.addChild(island);
+    const routes = new Graphics();
+    for (const route of alienIslandRouteModels(command.connections)) routes.moveTo(...route.start).quadraticCurveTo(...route.control, ...route.end);
+    routes.stroke({ color: 0x8de5dc, width: 2, alpha: 0.8 }); group.addChild(routes); this.effectsLayer.addChild(group);
+    return this.animate(durationMs, signal, (p) => { island.scale.set(0.5 + Math.min(1, p * 2) * 0.5); island.alpha = Math.min(1, p * 3); island.y = point[1] + (1 - Math.min(1, p * 2)) * 18; routes.alpha = Math.max(0, (p - 0.4) / 0.6); }, () => group.destroy({ children: true, context: true }));
   }
 
   private animateCurtain(color: number, durationMs: number, signal: AbortSignal) {
@@ -1142,7 +1782,7 @@ export class PixiTableSceneAdapter implements TableScene {
       quality: this.quality,
       texturesBytes: this.boardTexture ? 3072 * 2126 * 4 : 0,
       activeSprites: this.armyLayer.children.length + this.marksLayer.children.length,
-      activeParticles: this.effectsLayer.children.length,
+      activeParticles: this.effectsLayer.children.length + this.flightCanvases.size,
       contextLosses: this.contextLosses,
       textResolution: this.textResolution,
       minimumTerritoryLabelAlpha: Math.min(...[...this.territoryLabels.values()].map((label) => label.alpha)),
@@ -1154,13 +1794,21 @@ export class PixiTableSceneAdapter implements TableScene {
         && this.world.getChildIndex(this.armyLayer) > this.world.getChildIndex(this.interactionLayer),
       resourceValueBadges: this.interactionLayer.children.filter((child) => child.label.startsWith("resource-value:")).length,
       emphasizedTerritoryId: this.interaction.emphasizedTerritoryId,
+      displayedRevision: this.current?.revision,
+      displayedWorldName: this.current?.state.worldName,
+      displayedTerritories: Object.fromEntries(Object.entries(this.current?.state.territories ?? {}).map(([id, territory]) => [id, {troops: territory.troops, controller: territory.controller}])),
     };
   }
 
   dispose() {
+    this.reserveCanvas?.remove(); this.reserveCanvas = undefined;
+    this.flightCanvases?.forEach((canvas) => canvas.remove());
+    this.flightCanvases?.clear();
+    // Invalidate pending atlas callbacks before destroying their target layers.
+    this.current = undefined;
     delete (globalThis as any).__riskTableDiagnostics;
     this.cleanup.splice(0).forEach((cleanup) => cleanup());
-    this.app.destroy({ removeView: true }, { children: true, texture: false, textureSource: false });
+    this.app.destroy({ removeView: true }, { children: true, context: true, texture: false, textureSource: false });
     this.mounted = false;
   }
 }

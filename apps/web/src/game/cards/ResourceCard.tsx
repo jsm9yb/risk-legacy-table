@@ -1,4 +1,4 @@
-// new (UI-9): physical-game-styled Resource card. One deck, two faces: territory cards
+// physical-game-styled Resource card. One deck, two faces: territory cards
 // (yellow name banner, textured gray art panel with the board's own territory silhouette
 // filled per continent, yellow lower panel with a 3×2 grid of six coin slots) and coin
 // cards (one big coin face). Face-down cards show the black logo back. Textures are

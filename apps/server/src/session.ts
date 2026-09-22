@@ -55,13 +55,4 @@ export function prepareSessionState({
   };
 }
 
-export function legacyDone(state: GameState): boolean {
-  return !!state.winner
-    && (!state.rewards || state.rewards.committed)
-    && (!state.worldCompletion || !!state.worldCompletion.name)
-    && !state.comebackChoice
-    && !state.missilePowerChoice
-    && !state.missionChoice
-    && (state.comebackQueue?.length ?? 0) === 0
-    && (state.contentRequired?.length ?? 0) === 0;
-}
+export { legacyDone } from "@risk/rules";

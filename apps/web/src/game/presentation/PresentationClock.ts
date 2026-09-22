@@ -10,7 +10,7 @@ export class RafPresentationClock implements PresentationClock {
     return new Promise<void>((resolve) => {
       const start = this.now();
       let frame = 0;
-      const finish = () => { if (frame) cancelAnimationFrame(frame); resolve(); };
+      const finish = () => { if (frame) cancelAnimationFrame(frame); signal.removeEventListener("abort", finish); resolve(); };
       const tick = (now: number) => now - start >= durationMs || signal.aborted ? finish() : (frame = requestAnimationFrame(tick), undefined);
       signal.addEventListener("abort", finish, { once: true });
       frame = requestAnimationFrame(tick);
@@ -25,12 +25,14 @@ export class ManualPresentationClock implements PresentationClock {
   wait(durationMs: number, signal: AbortSignal) {
     if (durationMs <= 0 || signal.aborted) return Promise.resolve();
     return new Promise<void>((resolve) => {
-      const pending = { at: this.time + durationMs, signal, resolve };
-      this.waits.push(pending);
-      signal.addEventListener("abort", () => {
+      const finish = () => {
+        signal.removeEventListener("abort", finish);
         this.waits = this.waits.filter((wait) => wait !== pending);
         resolve();
-      }, { once: true });
+      };
+      const pending = { at: this.time + durationMs, signal, resolve: finish };
+      this.waits.push(pending);
+      signal.addEventListener("abort", finish, { once: true });
     });
   }
   advance(ms: number) {

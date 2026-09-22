@@ -1,4 +1,4 @@
-// new: task 10b — cross-game campaign persistence (SPEC §7, §10)
+// cross-game campaign persistence (SPEC §7, §10)
 import { describe, it, expect } from "vitest";
 import { createGame, applyAction, isLegalStart, waitingOn } from "./engine.ts";
 import { initialCampaign, applyGameToCampaign, type CampaignState } from "./campaign.ts";
@@ -12,8 +12,8 @@ const P = [
 ];
 
 /** Seat all three players on fixed legal starts (avoids ural/peru/ukraine, used as legacy targets). */
-// Power picks are inert for these flows (no automatic dice/recruit effects). // new (9)
-const SEAT_POWERS: Record<string, string> = { // new
+// Power picks are inert for these flows (no automatic dice/recruit effects).
+const SEAT_POWERS: Record<string, string> = {
   khan_industries: "territory_card_reinforcement",
   die_mechaniker: "defensive_stand",
   saharan_republic: "unconnected_maneuver",
@@ -23,7 +23,7 @@ function seatAll(s: GameState): GameState {
   const starts = ["alaska", "brazil", "western_australia"];
   for (const pid of [...s.setup!.chooserOrder]) {
     const idx = P.findIndex((p) => p.id === pid);
-    s = applyAction(s, { type: "setup.choose", playerId: pid, factionId: factions[idx], territoryId: starts[idx], powerId: s.factionPowers[factions[idx]] ? undefined : SEAT_POWERS[factions[idx]] }); // new: pick on first play only
+    s = applyAction(s, { type: "setup.choose", playerId: pid, factionId: factions[idx], territoryId: starts[idx], powerId: s.factionPowers[factions[idx]] ? undefined : SEAT_POWERS[factions[idx]] }); // pick on first play only
   }
   return s;
 }

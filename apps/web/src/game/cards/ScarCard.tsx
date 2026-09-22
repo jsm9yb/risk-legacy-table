@@ -1,4 +1,4 @@
-// new (UI-12): scar card — the full scar art as a physical-styled card, used by the
+// scar card — the full scar art as a physical-styled card, used by the
 // scar-play flow in the hand strip (the board shows the matching circular chip, UI-10).
 import { scarName } from "../labels.ts";
 import { SCAR_ART } from "../factionAssets.ts";

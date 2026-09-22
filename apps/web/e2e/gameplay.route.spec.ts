@@ -1,0 +1,65 @@
+import { expect, test } from "@playwright/test";
+import { applyAction } from "@risk/rules";
+import { atExpandAttack } from "../src/game/test-fixtures.ts";
+import { LOCAL_CAMPAIGN_KEY, startLocalCampaign } from "../src/local/campaignStore.ts";
+
+test.use({ video: "off" });
+
+test("committed dice fly from their real decision tray and clean up after settlement", async ({page}, testInfo) => {
+  test.setTimeout(120_000);
+  const {gs, pid, mine, target} = atExpandAttack(716);
+  const stored = new Map<string, string>();
+  const storage = {getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => {stored.set(key, value);}, removeItem: (key: string) => {stored.delete(key);}};
+  const save = startLocalCampaign({seed: 716, worldName: "Anchored choreography", customization: {}, players: Object.values(gs.players).map(({id, name}) => ({id, name}))}, storage);
+  save.activeGame = applyAction(gs, {type: "attack.declare", playerId: pid, from: mine, to: target});
+  save.rewind = undefined;
+  await page.clock.install();
+  await page.clock.resume();
+  await page.addInitScript(({key, value}) => {localStorage.setItem(key, value); localStorage.setItem("risk.table.motion", "full");}, {key: LOCAL_CAMPAIGN_KEY, value: JSON.stringify(save)});
+  await page.goto("/");
+  await page.getByRole("button", {name: "RESUME", exact: true}).click();
+  await expect(page.locator(".game-table")).toHaveAttribute("data-presentation-status", "idle");
+  const tray = page.getByRole("dialog", {name: "Combat", exact: true});
+  await tray.getByRole("button", {name: "Use maximum attackers"}).click();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 60_000));
+  await tray.getByRole("button", {name: "Attack with 3 dice", exact: true}).dispatchEvent("click");
+  await expect(page.locator("canvas[data-table-flight='die']").first()).toBeAttached();
+  await page.clock.runFor(160);
+  await page.screenshot({path: testInfo.outputPath("committed-dice-flight.png")});
+  for (let i = 0; i < 8; i++) await page.clock.fastForward(1_000);
+  await expect(page.locator(".game-table")).toHaveAttribute("data-presentation-status", "idle");
+  await expect(page.locator("canvas[data-table-flight]")).toHaveCount(0);
+});
+
+test("a resumed real battle leaves the board visible and controls usable at desktop and phone sizes", async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  const { gs, pid, mine, target } = atExpandAttack(715);
+  const stored = new Map<string, string>();
+  const storage = { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => { stored.set(key, value); }, removeItem: (key: string) => { stored.delete(key); } };
+  const save = startLocalCampaign({ seed: 715, worldName: "Animation review", customization: {}, players: Object.values(gs.players).map(({ id, name }) => ({ id, name })) }, storage);
+  save.activeGame = applyAction(gs, { type: "attack.declare", playerId: pid, from: mine, to: target });
+  save.rewind = undefined;
+  await page.addInitScript(({ key, value }) => { localStorage.setItem(key, value); localStorage.setItem("risk.table.motion", "instant"); }, { key: LOCAL_CAMPAIGN_KEY, value: JSON.stringify(save) });
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/");
+  await page.getByRole("button", { name: "RESUME", exact: true }).click();
+  await expect(page.locator(".game-table")).toHaveAttribute("data-presentation-status", "idle");
+  const tray = page.getByRole("dialog", { name: "Combat", exact: true });
+  await expect(tray).toBeVisible();
+  await tray.getByRole("button", { name: "Use maximum attackers" }).click();
+  await expect(page.getByTestId("pixi-table-host").locator("canvas")).toBeVisible();
+  const box = await tray.boundingBox();
+  expect(box!.width).toBeLessThanOrEqual(461);
+  await page.screenshot({ path: testInfo.outputPath("combat-desktop.png") });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(tray).toBeVisible();
+  expect((await tray.boundingBox())!.width).toBeLessThan(390);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath("combat-phone.png") });
+  await tray.getByRole("button", { name: "Attack with 3 dice", exact: true }).click();
+  await expect(page.locator(".game-table")).toHaveAttribute("data-presentation-status", "idle");
+  const persisted = await page.evaluate(key => JSON.parse(localStorage.getItem(key)!).activeGame.combat, LOCAL_CAMPAIGN_KEY);
+  expect(persisted.attackerDice).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});

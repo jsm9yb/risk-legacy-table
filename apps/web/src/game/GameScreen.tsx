@@ -1,8 +1,8 @@
-// new (1-web-b): shared game screen — extracted from SandboxGame so the local hot-seat
+// shared game screen — extracted from SandboxGame so the local hot-seat
 // wrapper and the networked (Socket.IO) wrapper drive the identical UI.
-// new (UI-8): blocking decisions live on a shared overlay layer — full-screen faction/power
+// blocking decisions live on a shared overlay layer — full-screen faction/power
 // takeover (setup), centered combat overlay, bottom decision dock — instead of the rail.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   waitingOn, isLegalStart, joinWarTroops, maneuverDecision, startTurnDecision, endTurnDecision, hasFactionPower,
   neighborsOf, territoryIds,
@@ -10,6 +10,9 @@ import {
 } from "@risk/rules";
 import { manifest, territoryById } from "@risk/map";
 import { contentPack, factionDefinitionById } from "@risk/content";
+import { DomAnchorRegistry } from "./presentation/DomAnchorRegistry.ts";
+import type { HistoryFrame, HistoryPlaybackOptions, TableHistoryControls } from "./history/PublicBoardHistory.ts";
+import type { PresentationSnapshot } from "./presentation/types.ts";
 import GameTable from "./GameTable.tsx";
 import SidePanel from "./SidePanel.tsx";
 import Ledger from "./Ledger.tsx";
@@ -19,10 +22,10 @@ import SetupOrderTakeover from "./SetupOrderTakeover.tsx";
 import SetupDecisionBanner from "./SetupDecisionBanner.tsx";
 import CombatOverlay from "./CombatOverlay.tsx";
 import TurnDecisionDock from "./TurnDecisionDock.tsx";
-import HandStrip from "./HandStrip.tsx"; // new (UI-9)
-import ActionBar from "./ActionBar.tsx"; // new (UI-2)
-import VictoryFlow from "./VictoryFlow.tsx"; // new (UI-12)
-import Inspector from "./Inspector.tsx"; // new (UI-3)
+import HandStrip from "./HandStrip.tsx";
+import ActionBar from "./ActionBar.tsx";
+import VictoryFlow from "./VictoryFlow.tsx";
+import Inspector from "./Inspector.tsx";
 import { DecisionChip } from "./overlays.tsx";
 import { continentName, factionById, powerName, scarById, scarName, territoryName } from "./labels.ts";
 import { Btn, CenterOverlay } from "./overlays.tsx";
@@ -30,11 +33,12 @@ import ScarCard from "./cards/ScarCard.tsx";
 import { isManeuverSource, maneuverDestinations } from "./maneuverUi.ts";
 import FactionEmblem from "./FactionEmblem.tsx";
 import { deriveInteractionModel } from "./interaction/deriveInteractionModel.ts";
+import { actionPreview } from "./interaction/preview.ts";
 import type { TerritoryIntent } from "./interaction/InteractionPolicy.ts";
 import type { TransitionSource } from "./presentation/types.ts";
 import { modulePacketDetail } from "./LegacyVault.tsx";
 
-type Highlight = "selected" | "highlight-attack" | "highlight-move" | "highlight-start" | "highlight-recruit" | "pulse-continent" | "dimmed";
+type Highlight = "selected" | "highlight-attack" | "highlight-move" | "highlight-start" | "highlight-recruit" | "dimmed";
 
 const PHASES: { id: GameState["phase"]; label: string }[] = [
   { id: "setup", label: "SETUP" },
@@ -62,15 +66,14 @@ type ImportantMoment = {
 export interface UiState {
   selected?: string;
   pickedFaction?: string;
-  pickedPower?: string; // new (9): first-play starting-power pick
+  pickedPower?: string; // first-play starting-power pick
   powerTear?: { chosenPowerId: string; destroyedPowerId: string };
   placeCount: number;
   moveCount: number;
   expandCount: number;
   selectedCards: string[];
   maneuverMode?: boolean;
-  pulseContinent?: string;
-  /** new (UI-12): a chosen end-game reward whose target selection dropped to the board. */
+  /** a chosen end-game reward whose target selection dropped to the board. */
   rewardTarget?: {
     kind: "name_continent" | "found_major_city" | "cancel_scar" | "change_continent_bonus" | "fortify_city" | "found_minor_city";
     playerId: string;
@@ -85,11 +88,11 @@ export interface UiState {
   missionDialog?: boolean;
   privateMissionDialog?: boolean;
   alienIslandDialog?: boolean;
-  /** new (UI-3): last-clicked territory — drives the rail inspector. */
+  /** last-clicked territory — drives the rail inspector. */
   inspected?: string;
 }
 
-// new (UI-5): responsive breakpoint — desktop keeps board + rail; below it the layout is
+// responsive breakpoint — desktop keeps board + rail; below it the layout is
 // board-first with the rail's content in a bottom "table" drawer.
 function useDesktop() {
   const [is, setIs] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
@@ -123,14 +126,40 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
   presentationSource?: TransitionSource;
 }) {
   const [ui, setUi] = useState<UiState>({ placeCount: 1, moveCount: 1, expandCount: 1, selectedCards: [] });
+  const [tutorial, setTutorial] = useState(false);
+  const [transfer, setTransfer] = useState<{ type: "maneuver.move" | "attack.expand"; from: string; to: string; count: number; playerId: string }>();
   const [hoveredResourceTerritory, setHoveredResourceTerritory] = useState<TerritoryId>();
   const [localError, setLocalError] = useState<string | null>(null);
-  const [autoDefend, setAutoDefend] = useState<Record<string, boolean>>({}); // new (UI-8): per-player toggle, off by default
-  const desktop = useDesktop(); // new (UI-5)
-  const [drawerOpen, setDrawerOpen] = useState(false); // new (UI-5): mobile table drawer
+  const [autoDefend, setAutoDefend] = useState<Record<string, boolean>>({}); // per-player toggle, off by default
+  const desktop = useDesktop();
+  const [drawerOpen, setDrawerOpen] = useState(false); // mobile table drawer
   const [moments, setMoments] = useState<ImportantMoment[]>([]);
   const [autoAdvanceNotice, setAutoAdvanceNotice] = useState<string | null>(null);
-  const pulseTimer = useRef<number | undefined>(undefined);
+  const [presentationBlocked, setPresentationBlocked] = useState(false);
+  const [presentationAnimating, setPresentationAnimating] = useState(false);
+  const [visualDisplay, setVisualDisplay] = useState<{state: GameState; viewer?: string}>();
+  // Only display surfaces consume this snapshot. Every decision below uses gs.
+  const displayGs = visualDisplay?.state.gameId === gs.gameId && visualDisplay.viewer === viewer ? visualDisplay.state : gs;
+  const [canSkipPresentation, setCanSkipPresentation] = useState(false);
+  const presentationControls = useRef<TableHistoryControls>();
+  const [historyReady, setHistoryReady] = useState(false);
+  const [replay, setReplay] = useState<PresentationSnapshot["replay"]>();
+  const replayFrames = useRef<readonly HistoryFrame[]>([]);
+  const historyExit = useRef<HTMLButtonElement>(null);
+  const historyActive = !!replay;
+  useEffect(() => {
+    if (!historyActive) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    historyExit.current?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, [historyActive]);
+  const anchors = useMemo(() => new DomAnchorRegistry(document), [gs.gameId, viewer]);
+  useLayoutEffect(() => { anchors.capture(); return () => anchors.capture(); }, [anchors, gs]);
+  useEffect(() => { anchors.attach(); return () => anchors.dispose(); }, [anchors]);
+  const playHistory = (frames: readonly HistoryFrame[], options?: HistoryPlaybackOptions) => {
+    replayFrames.current = frames;
+    void presentationControls.current?.playHistory(frames, options);
+  };
   const lastMomentEvent = useRef(gs.eventSeq);
 
   const actor = waitingOn(gs); // whoever the game waits on
@@ -155,6 +184,8 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
   const playerFaction = (pid?: string) => factionById(pid ? gs.players[pid]?.factionId : undefined)?.color;
 
   const doDispatch = (a: Action) => {
+    if (presentationBlocked) return;
+    anchors.capture();
     dispatch(a);
     setUi((u) => ({ ...u, selectedCards: [] })); // card selections never survive an action
   };
@@ -164,6 +195,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
   useEffect(() => {
     if (prevActor.current !== actor) {
       prevActor.current = actor;
+      setTransfer(undefined);
       setUi((u) => ({
         ...u,
         pickedFaction: undefined,
@@ -179,7 +211,6 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
     }
   }, [actor]);
 
-  useEffect(() => () => window.clearTimeout(pulseTimer.current), []);
 
   useEffect(() => {
     const fresh = gs.log.filter((event) => event.seq > lastMomentEvent.current);
@@ -194,27 +225,19 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
     return () => window.clearTimeout(id);
   }, [moments]);
 
-  const pulseContinent = (continentId: string) => {
-    window.clearTimeout(pulseTimer.current);
-    setUi((u) => ({ ...u, pulseContinent: continentId }));
-    pulseTimer.current = window.setTimeout(() => {
-      setUi((u) => u.pulseContinent === continentId ? { ...u, pulseContinent: undefined } : u);
-    }, 1700);
-  };
 
-  // new (UI-8): auto-defend with max dice — dispatches the defender dice choice when enabled.
+  // auto-defend with max dice — dispatches the defender dice choice when enabled.
   useEffect(() => {
     const c = gs.combat;
-    if (!c || c.natural || c.awaitingMoveIn || c.attackerDice === undefined || c.defenderDice !== undefined) return;
+    if (presentationBlocked || !c || c.natural || c.awaitingMoveIn || c.attackerDice === undefined || c.defenderDice !== undefined) return;
     if (!autoDefend[c.defender] || !canActFor(c.defender)) return;
     doDispatch({ type: "attack.defenderDice", playerId: c.defender, count: Math.min(2, gs.territories[c.to].troops) });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gs, autoDefend]);
+  }, [gs, autoDefend, presentationBlocked]);
 
   // Obvious no-choice phases resolve after a short explanatory beat. Deliberate
   // choices (finishing deployment and ending attacks) remain prominent CTAs.
   useEffect(() => {
-    if (!actor || !canAct || gs.combat || gs.comebackChoice || gs.missilePowerChoice || gs.missionChoice
+    if (presentationBlocked || !actor || !canAct || tutorial || moments.some((moment) => moment.persistent) || gs.combat || gs.comebackChoice || gs.missilePowerChoice || gs.missionChoice
       || gs.phase === "game_over" || gs.phase === "setup") return;
     let action: Action | undefined;
     let notice: string | undefined;
@@ -241,7 +264,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
       dispatch(action!);
     }, 850);
     return () => window.clearTimeout(id);
-  }, [actor, canAct, dispatch, gs]);
+  }, [actor, canAct, dispatch, gs, tutorial, moments, presentationBlocked]);
 
   // Setup readiness: faction picked + power resolved (stored permanent choice or first-play pick).
   const setupReady = gs.phase === "setup"
@@ -251,12 +274,12 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
       || factionDefinitionById(setupFactionId, gs.unlockedModules)?.startingPowers.length === 0)
     && !ui.powerTear;
 
-  // new (UI-9): the bottom strip renders YOUR hand — the viewer when networked, the actor hot-seat.
+  // the bottom strip renders YOUR hand — the viewer when networked, the actor hot-seat.
   const stripPlayer = viewer ? (gs.players[viewer] ? viewer : undefined) : actor;
   const stripSelectable = !!actor && canAct && actor === stripPlayer &&
     (gs.phase === "start_turn" || (gs.phase === "join_or_recruit" && !!gs.recruit));
 
-  // new (UI-12): board-eligibility predicate for a reward target kind
+  // board-eligibility predicate for a reward target kind
   const rewardEligible = (kind: NonNullable<UiState["rewardTarget"]>["kind"], tid: string): boolean => {
     const t = gs.territories[tid];
     switch (kind) {
@@ -277,7 +300,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
       if (ui.worldCapitalTarget.territoryId) h[ui.worldCapitalTarget.territoryId] = "selected";
       return h;
     }
-    // new (UI-12): active targeting modes glow their legal targets and override phase highlights
+    // active targeting modes glow their legal targets and override phase highlights
     if (ui.scarTarget && canActFor(ui.scarTarget.playerId)) {
       for (const t of manifest.territories) {
         const territory = gs.territories[t.id];
@@ -342,14 +365,8 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
         }
       }
     }
-    if (ui.pulseContinent) {
-      for (const t of manifest.territories) {
-        if (t.continent === ui.pulseContinent && !h[t.id]) h[t.id] = "pulse-continent";
-      }
-    }
     return h;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gs, ui.selected, ui.pickedFaction, ui.rewardTarget, ui.scarTarget, ui.worldCapitalTarget, ui.pulseContinent, actor, canAct]);
+  }, [gs, ui.selected, ui.pickedFaction, ui.rewardTarget, ui.scarTarget, ui.worldCapitalTarget, actor, canAct]);
 
   const tableInteraction = useMemo(() => {
     const base = deriveInteractionModel({
@@ -371,7 +388,6 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
       "highlight-move": "maneuver",
       "highlight-start": "start",
       "highlight-recruit": "recruit",
-      "pulse-continent": "inspect",
       dimmed: "illegal",
     };
     for (const [territoryId, highlight] of Object.entries(highlights)) {
@@ -381,22 +397,28 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
     return { ...base, territories: intents, selectedTerritoryId: ui.selected ?? base.selectedTerritoryId };
   }, [actor, gs, highlights, setupFactionId, ui.expandCount, ui.moveCount, ui.pickedPower, ui.placeCount, ui.rewardTarget, ui.scarTarget, ui.selected, ui.worldCapitalTarget, viewer]);
 
+  const transferPreview = transfer ? actionPreview(gs, tableInteraction, {
+    actorId: transfer.playerId, placeCount: ui.placeCount, expandCount: transfer.count,
+    moveCount: transfer.count, destination: transfer.to,
+  }) : undefined;
+
   const onTerritoryClick = (tid: string) => {
-    setUi((u) => ({ ...u, inspected: tid })); // new (UI-3): every board click updates the inspector
+    if (presentationBlocked) return;
+    setUi((u) => ({ ...u, inspected: tid })); // every board click updates the inspector
     if (ui.worldCapitalTarget) {
       if (!manifest.territories.some((territory) => territory.id === tid)) return;
       if (gs.territories[tid].city) return;
       setUi((current) => ({ ...current, worldCapitalTarget: { ...current.worldCapitalTarget!, territoryId: tid } }));
       return;
     }
-    // new (UI-12): scar play targeting — the holder acts on anyone's turn at a stable boundary
+    // scar play targeting — the holder acts on anyone's turn at a stable boundary
     if (ui.scarTarget) {
       const st = ui.scarTarget;
       if (!canActFor(st.playerId) || gs.territories[tid].hqFaction || gs.territories[tid].scars.length > 0) return;
       setUi((u) => ({ ...u, scarTarget: { ...st, territoryId: tid } }));
       return;
     }
-    // new (UI-12): end-game reward targeting dropped to the board
+    // end-game reward targeting dropped to the board
     if (gs.phase === "game_over" && ui.rewardTarget) {
       if (!manifest.territories.some((territory) => territory.id === tid)) return;
       const rt = ui.rewardTarget;
@@ -436,10 +458,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
         return;
       }
       if (ui.selected && highlights[tid] === "highlight-move") {
-        const sourceTroops = gs.territories[ui.selected].troops;
-        const count = clampCount(ui.moveCount, 1, sourceTroops - 1);
-        doDispatch({ type: "maneuver.move", playerId: actor, from: ui.selected, to: tid, count });
-        setUi((current) => ({ ...current, selected: undefined, maneuverMode: undefined }));
+        setTransfer({ type: "maneuver.move", playerId: actor, from: ui.selected, to: tid, count: 0 });
         return;
       }
       if (t.controller === actor) {
@@ -462,7 +481,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
         const stored = gs.factionPowers[setupFactionId];
         const needsPower = (factionDefinitionById(setupFactionId, gs.unlockedModules)?.startingPowers.length ?? 0) > 0;
         if (needsPower && !stored && !ui.pickedPower) { setLocalError("Pick a starting power first"); return; }
-        // new (UI-3): illegal starts never dispatch — the inspector explains why instead
+        // illegal starts never dispatch — the inspector explains why instead
         if (!isLegalStart(gs, tid, true, setupFactionId, actor)) {
           setLocalError("Not a legal start — see the territory panel");
           return;
@@ -485,9 +504,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
         if (t.controller === actor) return setUi((u) => ({ ...u, selected: tid }));
         if (ui.selected && neighborsOf(gs, ui.selected).includes(tid)) {
           if (!t.controller && t.troops === 0) {
-            const sourceTroops = gs.territories[ui.selected].troops;
-            const troops = clampCount(ui.expandCount, 1, sourceTroops - 1);
-            return doDispatch({ type: "attack.expand", playerId: actor, from: ui.selected, to: tid, troops });
+            return setTransfer({ type: "attack.expand", playerId: actor, from: ui.selected, to: tid, count: 0 });
           }
           if (t.controller && t.controller !== actor) {
             return doDispatch({ type: "attack.declare", playerId: actor, from: ui.selected, to: tid });
@@ -505,8 +522,9 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
   return (
     <div className="relative h-full w-full min-w-0 grid grid-rows-[auto_1fr] overflow-hidden">
       {/* Command strip — signature element: ops-board phase track.
-          new (UI-5): wraps to its own scrollable row below lg so nothing clips at 390px. */}
+          wraps to its own scrollable row below lg so nothing clips at 390px. */}
       <header className="relative z-[70] w-full max-w-full min-w-0 overflow-hidden border-b border-line bg-panel px-3 lg:px-6 py-2 lg:py-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <button type="button" onClick={() => setTutorial(true)} className="text-xs text-signal">HOW TO PLAY</button>
         <button onClick={onExit} className="font-mono text-xs text-muted hover:text-text">← HUB</button>
         {rewind && (
           <div className="hidden sm:flex items-center gap-1.5" title={rewind.reason}>
@@ -548,7 +566,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
         </nav>
       </header>
 
-      <div className={`grid w-full max-w-full min-h-0 min-w-0 overflow-hidden ${desktop ? "grid-cols-[minmax(0,1fr)_clamp(400px,30vw,480px)]" : "grid-cols-1"}`}>{/* new (UI-5) */}
+      <div className={`grid w-full max-w-full min-h-0 min-w-0 overflow-hidden ${desktop ? "grid-cols-[minmax(0,1fr)_clamp(400px,30vw,480px)]" : "grid-cols-1"}`}>
         <div className="grid w-full max-w-full grid-rows-[1fr_auto_auto] min-h-0 min-w-0 overflow-hidden">
           <div className="relative min-h-0 min-w-0 p-4 overflow-auto">
             {gs.phase === "setup" && actor && canAct && setupReady && setupFactionId && (
@@ -572,6 +590,14 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
             )}
             <div className="relative w-full max-h-full aspect-[749.819/519.068]">
               <GameTable authoritativeState={gs} viewerId={viewer} interaction={tableInteraction}
+                onPresentationStateChange={(snapshot) => { setPresentationBlocked(snapshot.inputBlocked); setCanSkipPresentation(snapshot.canSkip); setReplay(snapshot.replay); setPresentationAnimating(snapshot.status === "presenting" || snapshot.status === "catching_up"); }}
+                onVisualStateChange={(state) => setVisualDisplay(state ? {state, viewer} : undefined)}
+                onPresentationReady={(controls) => { presentationControls.current = controls; setHistoryReady(!!controls); }}
+                anchors={anchors}
+                previewConfiguration={canAct ? { actorId: actor, setupFactionId, placeCount: ui.placeCount,
+                  expandCount: transfer?.type === "attack.expand" ? transfer.count : ui.expandCount,
+                  moveCount: transfer?.type === "maneuver.move" ? transfer.count : ui.moveCount,
+                  destination: transfer?.to } : undefined}
                 emphasizedTerritoryId={hoveredResourceTerritory}
                 onTerritoryActivate={onTerritoryClick} source={presentationSource ?? (viewer ? "network" : "local")} />
               <PhaseNotice gs={gs} actor={actor} actorPlayer={actorPlayer} canAct={canAct} />
@@ -582,7 +608,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
                 </div>
               )}
             </div>
-            {/* new (UI-8): HQ placement hint once the takeover hands off to the board */}
+            {/* HQ placement hint once the takeover hands off to the board */}
             {ui.pickedFaction ? false && (
               <div className="absolute top-6 left-1/2 -translate-x-1/2 z-30 bg-panel border border-signal rounded-sm px-4 py-2 flex items-center gap-3">
                 <DecisionChip name={actorPlayer!.name} color={factionById(ui.pickedFaction!)?.color}
@@ -595,14 +621,14 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
                   className="font-mono text-xs text-muted hover:text-text">CHANGE</button>
               </div>
             ) : null}
-            {/* new (UI-12): scar-play targeting banner */}
+            {/* scar-play targeting banner */}
             {ui.scarTarget && (
               <ScarTargetBanner gs={gs} ui={ui} setUi={setUi} dispatch={doDispatch} />
             )}
             {!ui.scarTarget && !gs.combat && (gs.phase === "start_turn" || gs.phase === "end_turn") && (
               <MissileInterruptBar gs={gs} dispatch={doDispatch} canActFor={canActFor} />
             )}
-            {/* new (UI-12): reward targeting banner — glow → click → (name) → sticker on */}
+            {/* reward targeting banner — glow → click → (name) → sticker on */}
             {gs.phase === "game_over" && ui.rewardTarget && (
               <RewardTargetBanner gs={gs} ui={ui} setUi={setUi} dispatch={doDispatch} />
             )}
@@ -650,31 +676,31 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
               <WorldCapitalTargetBanner ui={ui} setUi={setUi} dispatch={doDispatch} />
             )}
           </div>
-          {/* new (UI-8/UI-9): blocking card decisions dock above the hand strip */}
+          {/* blocking card decisions dock above the hand strip */}
           {(gs.phase === "start_turn" || gs.phase === "end_turn") && actor && canAct ? (
             <TurnDecisionDock gs={gs} ui={ui} dispatch={doDispatch} actor={actor} />
           ) : <span />}
-          <HandStrip gs={gs} player={stripPlayer} ui={ui} setUi={setUi} selectable={stripSelectable}
-            scarPlayable={gs.phase !== "game_over" && !!stripPlayer && canActFor(stripPlayer)
-              && !(gs.combat && (gs.combat.natural || gs.combat.awaitingMoveIn))} // new (UI-12): stable boundary only
-            actions={actor && canAct ? ( // new (UI-2): non-blocking phase controls beside the hand/HUD
+          <fieldset disabled={presentationAnimating} aria-busy={presentationAnimating} className="min-w-0 border-0 p-0 m-0">
+          <HandStrip gs={displayGs} player={viewer ? stripPlayer : waitingOn(displayGs)} ui={ui} setUi={(update) => { if (!presentationAnimating) setUi(update); }} selectable={stripSelectable && !presentationAnimating}
+            actions={actor && canAct ? ( // non-blocking phase controls beside the hand/HUD
               <ActionBar gs={gs} ui={ui} setUi={setUi} dispatch={doDispatch} actor={actor} />
             ) : undefined} />
+          </fieldset>
         </div>
         {desktop && (
           <aside className="border-l border-line bg-panel min-h-0 grid grid-rows-[1fr_auto]">
             <div className="overflow-y-auto">
-              {ui.inspected && ( // new (UI-3): selected-territory inspector tops the rail
+              {ui.inspected && ( // selected-territory inspector tops the rail
                 <Inspector gs={gs} tid={ui.inspected} actor={actor} canAct={canAct} ui={ui} />
               )}
-              <SidePanel gs={gs} actor={actor} playerFaction={playerFaction} onTerritoryCardHover={setHoveredResourceTerritory} />
+              <SidePanel gs={displayGs} actor={waitingOn(displayGs)} playerFaction={playerFaction} onTerritoryCardHover={setHoveredResourceTerritory} />
             </div>
-            <Ledger gs={gs} />{/* new (UI-2): collapsible BATTLE LOG tab */}
+            <Ledger gs={gs} />{/* collapsible BATTLE LOG tab */}
           </aside>
         )}
       </div>
 
-      {/* new (UI-5): below the desktop breakpoint the table lives in a bottom drawer */}
+      {/* below the desktop breakpoint the table lives in a bottom drawer */}
       {!desktop && (
         <>
           <button onClick={() => setDrawerOpen((o) => !o)}
@@ -688,7 +714,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
               </div>
               <div className="overflow-y-auto">
                 {ui.inspected && <Inspector gs={gs} tid={ui.inspected} actor={actor} canAct={canAct} ui={ui} />}
-                <SidePanel gs={gs} actor={actor} playerFaction={playerFaction} onTerritoryCardHover={setHoveredResourceTerritory} />
+                <SidePanel gs={displayGs} actor={waitingOn(displayGs)} playerFaction={playerFaction} onTerritoryCardHover={setHoveredResourceTerritory} />
                 <Ledger gs={gs} />
               </div>
             </div>
@@ -696,7 +722,19 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
         </>
       )}
 
-      {/* new (UI-8): shared overlay layer — blocking decisions */}
+      {replay && <section role="region" aria-label="Historical board playback" className="fixed top-3 left-1/2 -translate-x-1/2 z-[90] w-[min(94vw,640px)] rounded border border-signal bg-panel/95 p-3 shadow-2xl">
+        <div className="flex items-center justify-between gap-3"><strong className="font-display text-signal">{replay.title}</strong>
+          <button ref={historyExit} className="border border-signal px-3 py-1 text-xs" onClick={() => presentationControls.current?.skip()}>RETURN TO LIVE BOARD</button></div>
+        <p className="text-xs mt-1">{replay.detail}</p>
+        <p className="font-mono text-[10px] text-muted mt-1">{replay.side.toUpperCase()} · {replay.index + 1}/{replay.total} · {replay.provenance === "captured" ? "Recorded public board" : replay.provenance === "permanent" ? "Permanent marks only · current armies" : "Current world"}</p>
+        <div className="flex gap-2 mt-2">
+          <button className="border border-line px-2 text-xs" onClick={() => { const frame = replayFrames.current[replay.index]; if (frame) playHistory([frame], {hold: true, side: "before"}); }}>HOLD BEFORE</button>
+          <button className="border border-line px-2 text-xs" onClick={() => { const frame = replayFrames.current[replay.index]; if (frame) playHistory([frame], {hold: true, side: "after"}); }}>HOLD AFTER</button>
+        </div>
+      </section>}
+      {/* shared overlay layer — blocking decisions */}
+      {/* Retain decision state while the director shows the preceding board event. */}
+      <div hidden={presentationBlocked} data-presentation-decisions>
       {gs.contentRequired?.length > 0 && (
         <ModuleContentPause key={`${gs.contentRequired[0].moduleId}.${gs.contentRequired[0].items[0]}`}
           gs={gs} dispatch={doDispatch} canManage={contentManager} actorId={viewer ?? gs.turnOrder[0]} />
@@ -728,25 +766,68 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
       )}
       {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.phase === "setup" && actor
         && gs.setup?.stage === "order_reveal" && (
-        <SetupOrderTakeover gs={gs} actor={actor} dispatch={doDispatch} you={canAct} />
+        <SetupOrderTakeover gs={gs} actor={actor} dispatch={doDispatch} you={canAct}
+          onReplayOrder={historyReady ? () => playHistory(presentationControls.current!.order()) : undefined}
+          onTour={historyReady && presentationControls.current?.opening().length ? () => playHistory(presentationControls.current!.opening()) : undefined} />
       )}
       {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.phase === "setup" && actor
         && gs.setup?.stage !== "order_reveal" && gs.advancedDraft && !gs.advancedDraft.completed && (
-        <AdvancedDraftTakeover gs={gs} actor={actor} dispatch={doDispatch} you={canAct} />
+        <AdvancedDraftTakeover key={actor} gs={gs} actor={actor} dispatch={doDispatch} you={canAct} />
       )}
-      {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.phase === "setup" && actor && canAct
+      {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.phase === "setup" && actor
         && gs.setup?.stage !== "order_reveal" && (!gs.advancedDraft || gs.advancedDraft.completed) && !setupReady && (
-        <SetupTakeover gs={gs} ui={ui} setUi={setUi} actor={actor} you={!!viewer} />
+        <SetupTakeover gs={gs} ui={canAct ? ui : { ...ui, pickedFaction: undefined, pickedPower: undefined }} setUi={setUi} actor={actor} you={canAct} readOnly={!canAct} />
       )}
-      {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.combat && (
-        <CombatOverlay gs={gs} dispatch={doDispatch} canActFor={canActFor} autoDefend={autoDefend}
+      </div>
+      {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && gs.combat && !ui.scarDialog && !ui.scarTarget && !tutorial && (
+        <CombatOverlay gs={gs} presentationBusy={presentationBlocked} dispatch={doDispatch} canActFor={canActFor} autoDefend={autoDefend}
+          canSkipPresentation={canSkipPresentation} onSkipPresentation={() => presentationControls.current?.skip()}
+          onScar={(playerId, instanceId, scarId) => setUi((u) => ({ ...u, scarDialog: { playerId, instanceId, scarId } }))}
           onAutoDefend={(pid, on) => setAutoDefend((m) => ({ ...m, [pid]: on }))} />
       )}
       {gs.contentRequired?.length === 0 && !gs.legacyCards.pendingEvent && ui.scarDialog && (
         <ScarPlayModal gs={gs} ui={ui} setUi={setUi} canActFor={canActFor} dispatch={doDispatch} />
       )}
-      {gs.contentRequired?.length === 0 && gs.phase === "game_over" && gs.winner && ( // new (UI-12): victory → signing → rewards → aftermath
-        !gs.comebackChoice && <VictoryFlow gs={gs} dispatch={doDispatch} canActFor={canActFor} ui={ui} setUi={setUi} />
+      {gs.contentRequired?.length === 0 && gs.phase === "game_over" && gs.winner && ( // victory → signing → rewards → aftermath
+        !gs.comebackChoice && <div hidden={presentationBlocked}><VictoryFlow gs={gs} dispatch={doDispatch} canActFor={canActFor} ui={ui} setUi={setUi} historyFrames={historyReady ? presentationControls.current?.history() : undefined} onPlayHistory={historyReady ? playHistory : undefined} /></div>
+      )}
+      {transfer && (
+        <CenterOverlay label="Choose troop count">
+          <div className="p-5 space-y-4">
+            <h2>{transfer.type === "attack.expand" ? "Expand" : "Maneuver"}: {territoryName(transfer.from)} → {territoryName(transfer.to)}</h2>
+            <p>Choose how many troops to move. Leave at least one behind.</p>
+            {transferPreview && <p role="status" className="rounded border border-dashed border-signal/50 bg-signal/5 p-3 font-mono text-xs text-signal">{transferPreview.label}</p>}
+            <input autoFocus aria-label="Troops to move" type="number" min={0} max={Math.max(0, gs.territories[transfer.from].troops - 1)} value={transfer.count} onChange={(event) => setTransfer({ ...transfer, count: clampCount(Number(event.target.value), 0, Math.max(0, gs.territories[transfer.from].troops - 1)) })} className="bg-panel border border-signal p-2 w-24" />
+            <div className="flex gap-2">
+              <Btn onClick={() => setTransfer(undefined)}>CANCEL</Btn>
+              <Btn tone="primary" disabled={presentationBlocked || transfer.count < 1 || !canActFor(transfer.playerId)} onClick={() => {
+                doDispatch(transfer.type === "attack.expand"
+                  ? { type: "attack.expand", playerId: transfer.playerId, from: transfer.from, to: transfer.to, troops: transfer.count }
+                  : { type: "maneuver.move", playerId: transfer.playerId, from: transfer.from, to: transfer.to, count: transfer.count });
+                setTransfer(undefined);
+                setUi((u) => ({ ...u, selected: undefined, maneuverMode: undefined }));
+              }}>CONFIRM</Btn>
+            </div>
+          </div>
+        </CenterOverlay>
+      )}
+      {tutorial && (
+        <CenterOverlay label="How to play" front>
+          <div className="p-6 space-y-3">
+            <h2 className="text-2xl text-signal">Your first campaign</h2>
+            <p>Choose a faction, review its powers, then place your starting HQ on a highlighted territory. Power choices and changes to the board carry into future games.</p>
+            <ol className="list-decimal pl-5 space-y-2">
+              <li>Start: buy a Red Star with four Resource cards if you can, or continue.</li>
+              <li>Recruit: place your troops on territories you control. Select cards to see their combined resource value and troop trade-in.</li>
+              <li>Attack: select your territory, then an adjacent enemy. Choose attackers and defense dice; the higher die wins each comparison, with ties going to defense. Leave one troop behind.</li>
+              <li>Maneuver: optionally move troops once through connected territories you control, unless a power changes this.</li>
+              <li>End: after conquering enemy territory, take a matching face-up Territory card if available; otherwise take a Coin.</li>
+            </ol>
+            <p>Cities add population to your territory count before dividing by three for recruitment. Click a territory to inspect its city, scars and defenses. Click your ability in the right panel for its rules.</p>
+            <p>Collect four Red Stars to win. Held HQs count toward your total. Scars can be played before combat dice roll using the combat panel.</p>
+            <Btn tone="primary" onClick={() => setTutorial(false)}>BACK TO GAME</Btn>
+          </div>
+        </CenterOverlay>
       )}
       {autoAdvanceNotice && (
         <div role="status" className="fixed left-1/2 bottom-8 -translate-x-1/2 z-[75] bg-panel border border-signal rounded-sm px-5 py-3 shadow-2xl font-display font-bold tracking-wide text-signal">
@@ -767,7 +848,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
             </div>
             <p className="mt-3 text-lg text-text leading-snug">{moments[0].detail}</p>
             <div className="mt-4 font-mono text-[10px] uppercase tracking-widest text-muted">
-              {moments[0].persistent ? "Acknowledge this permanent change to continue" : "Click anywhere to continue"}
+              {moments[0].persistent ? "Acknowledge to continue" : "Click anywhere to continue"}
             </div>
           </div>
         </button>
@@ -776,7 +857,7 @@ export default function GameScreen({ gs, dispatch, onExit, error, viewer, rewind
   );
 }
 
-// new (UI-12): board-target banner for a chosen reward — instruction, optional name entry, confirm.
+// board-target banner for a chosen reward — instruction, optional name entry, confirm.
 function ModuleContentPause({ gs, dispatch, canManage, actorId }: {
   gs: GameState;
   dispatch: (action: Action) => void;
@@ -1210,6 +1291,8 @@ function MissionCompletionModal({ gs, dispatch, setUi, canManage, actorId }: {
 function momentForEvent(gs: GameState, event: GameEvent): ImportantMoment[] {
   const playerName = event.playerId ? gs.players[event.playerId]?.name ?? "A player" : "A player";
   const by = typeof event.data?.by === "string" ? gs.players[event.data.by]?.name : undefined;
+  if (event.type === "TurnStarted") return [{ key: event.seq, title: `${playerName}'s turn`, detail: "Review your abilities, recruit troops, then plan your attacks.", playerId: event.playerId, tone: "signal", persistent: true }];
+  if (event.type === "ResourceCardDrawn") return [{ key: event.seq, title: "RESOURCE SELECTED", detail: `${playerName} took ${event.data?.kind === "coin" ? "a Coin" : `the Territory card from slot ${Number(event.data?.slot) + 1}`}.`, playerId: event.playerId, tone: "signal" }];
   if (event.type === "RedStarGained") {
     const territory = typeof event.data?.territory === "string" ? territoryName(event.data.territory) : "an enemy HQ";
     return [{ key: event.seq, title: "RED STAR EARNED", detail: `${playerName} captured the HQ in ${territory}. That HQ now counts as a Red Star.`, playerId: event.playerId, tone: "signal" }];

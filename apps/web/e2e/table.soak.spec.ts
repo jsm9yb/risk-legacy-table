@@ -12,17 +12,20 @@ async function skipPresentationIfAvailable(page: Page) {
 }
 
 test("soak skip check tolerates a presentation completing between observation and activation", async ({ page }) => {
+  await page.clock.install();
+  await page.clock.resume();
   await page.goto("/?table-demo=1&players=5&fixture=marks");
   await expect(page.locator(".game-table")).toHaveAttribute("data-presentation-status", "idle");
-  await page.getByRole("button", { name: "BATTLE", exact: true }).click();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 60_000));
+  await page.getByRole("button", { name: "BATTLE", exact: true }).dispatchEvent("click");
   const skip = page.getByRole("button", { name: "SKIP", exact: true });
   await expect(skip).toBeVisible();
   expect(await skipPresentationIfAvailable(page)).toBe(true);
   await expect(page.locator(".game-table")).toHaveAttribute("data-presentation-status", "idle");
 
-  await page.getByRole("button", { name: "BATTLE", exact: true }).click();
+  await page.getByRole("button", { name: "BATTLE", exact: true }).dispatchEvent("click");
   await expect(skip).toBeVisible();
-  await page.waitForTimeout(2_500);
+  await page.clock.runFor(2_500);
   expect(await skipPresentationIfAvailable(page)).toBe(false);
   await expect(page.locator(".game-table")).toHaveAttribute("data-presentation-status", "idle");
 });

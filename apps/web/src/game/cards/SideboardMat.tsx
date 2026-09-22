@@ -1,17 +1,17 @@
-// new (UI-9): rail sideboard mat modeled on the rulebook illustration — top row
+// rail sideboard mat modeled on the rulebook illustration — top row
 // DRAW (face-down stack) · COIN (face-up pile) · MISSION · EVENT (sealed outlines until
 // modules unlock) · DISCARD; bottom row numbered slots 1→4 face-up; red star pool beside.
 import { useEffect } from "react";
 import { resourceCardDefinition, type GameState, type LegacyCard, type TerritoryId } from "@risk/rules";
-import { redStars } from "@risk/rules";
+import { redStars, waitingOn, endTurnDecision } from "@risk/rules";
 import { cardResources } from "../labels.ts";
 import ResourceCard, { CoinFace, STAR_PATH } from "./ResourceCard.tsx";
 import { CARD_TEXTURE_URL } from "./texture.ts";
 
-function MatCell({ label, children }: { label: string; children: React.ReactNode }) {
+function MatCell({ label, children, anchor }: { label: string; children: React.ReactNode; anchor?: string }) {
   return (
     <div className="flex flex-col items-center gap-1 min-w-0">
-      <div className="h-16 flex items-center justify-center">{children}</div>
+      <div data-table-anchor={anchor} className="h-16 flex items-center justify-center">{children}</div>
       <span className="font-mono text-[8px] text-muted uppercase tracking-wider text-center leading-tight">{label}</span>
     </div>
   );
@@ -41,6 +41,8 @@ export default function SideboardMat({ gs, onTerritoryCardHover }: {
 }) {
   useEffect(() => () => onTerritoryCardHover?.(undefined), [onTerritoryCardHover]);
   const sb = gs.sideboard;
+  const actor = waitingOn(gs);
+  const decision = actor && gs.phase === "end_turn" ? endTurnDecision(gs, actor) : undefined;
   const deckCount = (sb as any).territoryDeckCount ?? sb.territoryDeck.length;
   const coinCount = (sb as any).coinCount ?? sb.coinPile.length;
   const discardTop = sb.discard[sb.discard.length - 1];
@@ -49,12 +51,13 @@ export default function SideboardMat({ gs, onTerritoryCardHover }: {
 
   return (
     <div>
+      {decision?.drawAvailable && actor && <p role="status" className="text-sm text-signal mb-2">{gs.players[actor].name} is choosing a Resource card. {decision.matchingSlots.length ? "Highlighted cards match their territory." : "A Coin is available."}</p>}
       <div className="rounded-sm border border-line bg-panel-2 p-2" style={{ backgroundImage: `url(${CARD_TEXTURE_URL})` }}>
         <div className="grid grid-cols-5 gap-1 mb-2">
-          <MatCell label={`draw ${deckCount}`}>
+          <MatCell label={`draw ${deckCount}`} anchor="draw">
             {deckCount > 0 ? <ResourceCard size="xs" faceDown /> : <EmptySlot />}
           </MatCell>
-          <MatCell label={`coin ${coinCount}`}>
+          <MatCell label={`coin ${coinCount}`} anchor="coin">
             {coinCount > 0
               ? <CoinFace pile className="block w-8 aspect-square rounded-full" />
               : <EmptySlot />}
@@ -69,14 +72,15 @@ export default function SideboardMat({ gs, onTerritoryCardHover }: {
               ? <LegacyFace card={gs.legacyCards.pendingEvent} kind="event" />
               : <EmptySlot sealed={eventDeckCount === 0} />}
           </MatCell>
-          <MatCell label={`discard ${sb.discard.length}`}>
+          <MatCell label={`discard ${sb.discard.length}`} anchor="discard">
             {discardTop ? <ResourceCard size="xs" cardId={discardTop} resources={cardResources(gs, discardTop)} /> : <EmptySlot />}
           </MatCell>
         </div>
         <div className="grid grid-cols-4 gap-1.5">
           {sb.slots.map((id, i) => (
-            <div key={i} className="flex flex-col items-center gap-1">
+            <div key={i} data-table-anchor="sideboard" data-anchor-id={`${i}`} className="flex flex-col items-center gap-1">
               {id ? <ResourceCard size="sm" cardId={id} resources={cardResources(gs, id)}
+                selected={decision?.drawAvailable && decision.matchingSlots.includes(i)}
                 onHoverChange={(hovered) => {
                   const definition = resourceCardDefinition(id);
                   onTerritoryCardHover?.(hovered && definition?.kind === "territory" ? definition.territoryId : undefined);

@@ -1,4 +1,4 @@
-// new: task 10b — canonical cross-game CampaignState (SPEC §7, §10).
+// canonical cross-game CampaignState (SPEC §7, §10).
 // Carry: board scars, cities, fortifications, continent names/bonus marks, destroyed/upgraded
 // cards, signatures, faction-power choices/results, scar + reward inventories, unlock flags,
 // world name. Do NOT carry: troops, control, hands, unplayed missiles, Red-Star tokens,
@@ -45,12 +45,12 @@ export interface CampaignState {
   worldName: string;
   gameNumber: number; // completed games so far; starter reward changes stop after Game 15
   unlockedModules: string[];
-  contentRequired: { moduleId: string; items: string[] }[]; // new (11): unlocks paused on host-entered card text (cleared by the import wizard, task 12)
-  hostContent: Record<string, unknown>; // new (12): host-entered card text, keyed `${moduleId}.${item}`
+  contentRequired: { moduleId: string; items: string[] }[]; // unlocks paused on host-entered card text (cleared by the import wizard)
+  hostContent: Record<string, unknown>; // host-entered card text, keyed `${moduleId}.${item}`
   optionalVariantId?: string;
   completedWorld?: { namedByPlayerId: PlayerId; completedAtGame: number };
   signatures: Record<PlayerId, number>;
-  factionPowerChoices: Record<string, string>; // factionId -> selected starting power (task 9)
+  factionPowerChoices: Record<string, string>; // factionId -> selected starting power
   /** Present on campaigns created by the interactive pre-Game-1 ritual. Absence is a prepared legacy campaign. */
   preparation?: CampaignPreparationState;
   factionComebackPowers: Record<string, LegacyCard>;
@@ -280,8 +280,8 @@ export function initialCampaign(worldName: string, customization: InitialCampaig
     worldName,
     gameNumber: 0,
     unlockedModules: [],
-    contentRequired: [], // new (11)
-    hostContent: {}, // new (12)
+    contentRequired: [],
+    hostContent: {},
     signatures: {},
     factionPowerChoices: initial.factionPowerChoices,
     factionComebackPowers: {},
@@ -341,8 +341,8 @@ export function applyGameToCampaign(campaign: CampaignState, finished: GameState
     }
   }
 
-  // Power choices attach to factions permanently (first-play selections made this game). // new (9)
-  next.factionPowerChoices = { ...next.factionPowerChoices, ...finished.factionPowers }; // new
+  // Power choices attach to factions permanently (first-play selections made this game).
+  next.factionPowerChoices = { ...next.factionPowerChoices, ...finished.factionPowers };
   next.factionComebackPowers = { ...(next.factionComebackPowers ?? {}), ...(finished.comebackPowers ?? {}) };
   next.factionMissilePowers = { ...(next.factionMissilePowers ?? {}), ...(finished.factionMissilePowers ?? {}) };
   next.factionWeaknesses = { ...(next.factionWeaknesses ?? {}), ...(finished.factionWeaknesses ?? {}) };
@@ -352,22 +352,22 @@ export function applyGameToCampaign(campaign: CampaignState, finished: GameState
   next.alienCollaboratorFactionId = finished.alienCollaboratorFactionId;
   next.factionPrivateMissions = { ...(next.factionPrivateMissions ?? {}), ...(finished.capturedPrivateMissions ?? {}) };
 
-  // Modules revealed this game: unlock flag, module scar instances, content-required pauses. // new (11)
-  next.contentRequired ??= []; // new: older persisted campaigns
-  for (const moduleId of finished.unlockedModules) { // new
-    if (next.unlockedModules.includes(moduleId)) continue; // new
-    next.unlockedModules.push(moduleId); // new
-    const mod = contentPack.unlockModules.find((m) => m.id === moduleId) as any; // new
+  // Modules revealed this game: unlock flag, module scar instances, content-required pauses.
+  next.contentRequired ??= []; // older persisted campaigns
+  for (const moduleId of finished.unlockedModules) {
+    if (next.unlockedModules.includes(moduleId)) continue;
+    next.unlockedModules.push(moduleId);
+    const mod = contentPack.unlockModules.find((m) => m.id === moduleId) as any;
     if (mod?.scarSource && (typeof mod.cardsAdded?.scars === "number" || Array.isArray(mod.cardsAdded?.scars))) { // module scar cards enter the persistent inventory
-      for (const sc of contentPack.scars) { // new
+      for (const sc of contentPack.scars) {
         if ((sc as any).source !== mod.scarSource) continue;
         const count = typeof mod.cardsAdded.scars === "number" ? mod.cardsAdded.scars : (sc as any).instances ?? 0;
         next.inventories.scarInstances[sc.id] = (next.inventories.scarInstances[sc.id] ?? 0) + count;
-      } // new
-    } // new
-    const items = (mod?.contentRequired ?? []) as string[]; // new
-    if (items.length && !next.contentRequired.some((c) => c.moduleId === moduleId)) next.contentRequired.push({ moduleId, items: [...items] }); // new
-  } // new
+      }
+    }
+    const items = (mod?.contentRequired ?? []) as string[];
+    if (items.length && !next.contentRequired.some((c) => c.moduleId === moduleId)) next.contentRequired.push({ moduleId, items: [...items] });
+  }
   next.hostContent = { ...(next.hostContent ?? {}), ...(finished.hostContent ?? {}) };
   next.contentRequired = structuredClone(finished.contentRequired ?? []);
   next.worldCapitalTerritoryId = finished.worldCapitalTerritoryId;
@@ -421,10 +421,10 @@ export function applyGameToCampaign(campaign: CampaignState, finished: GameState
 }
 
 /**
- * Import wizard (task 12): the host supplies card text for a paused `contentRequired` item.
+ * Import wizard: the host supplies card text for a paused `contentRequired` item.
  * Pure — returns a new CampaignState with the content stored under `${moduleId}.${item}`
  * and the item cleared from the pause list (the module's entry drops when empty).
- */ // new (12): whole function
+ */
 export function supplyModuleContent(campaign: CampaignState, moduleId: string, item: string, content: unknown): CampaignState {
   const entry = campaign.contentRequired?.find((c) => c.moduleId === moduleId);
   if (!entry || !entry.items.includes(item)) {

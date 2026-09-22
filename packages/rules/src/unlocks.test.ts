@@ -1,10 +1,10 @@
-// new: task 11 — sealed-module unlock engine (SPEC §9)
+// sealed-module unlock engine (SPEC §9)
 import { describe, it, expect } from "vitest";
 import { createGame, applyAction, joinWarTroops, waitingOn } from "./engine.ts";
 import { endTurnDecision, factionHomeland } from "./decisions.ts";
 import { filterStateFor } from "./filter.ts";
 import { neighborsOf } from "./topology.ts";
-import { initialCampaign, applyGameToCampaign, supplyModuleContent, type CampaignState } from "./campaign.ts";
+import { initialCampaign, applyGameToCampaign, supplyModuleContent } from "./campaign.ts";
 import type { GameState } from "./types.ts";
 import { factionDefinitionById } from "@risk/content";
 
@@ -324,7 +324,7 @@ describe("unlock engine (11)", () => {
     expect(s.unlockedModules).toEqual(["pack_2_comeback_mercenaries"]);
   });
 
-  it("supplying host content clears the pause and lifts the Pack 1 draft gate (import wizard, 12)", () => { // new: whole test
+  it("supplying host content clears the pause and lifts the Pack 1 draft gate (import wizard, 12)", () => {
     const camp = initialCampaign("Terra");
     camp.gameNumber = 6;
     camp.unlockedModules = ["pack_1_advanced_draft_biohazards"];

@@ -1,4 +1,4 @@
-// new (1-web-a): thin REST client for @risk/server. Token lives in React state only
+// thin REST client for @risk/server. Token lives in React state only
 // (no browser storage — SPEC §11 fixed contract).
 export interface AuthUser { id: string; username: string; displayName: string }
 export interface AuthResult { token: string; user: AuthUser }
@@ -12,8 +12,8 @@ export interface CampaignSummary {
   hasActiveGame?: boolean;
   preparationStatus?: "not_started" | "faction_powers" | "resource_stickers" | "review" | "complete";
 }
-export interface ContentRequirement { moduleId: string; items: string[] } // new (12)
-export interface CampaignLegacy { worldName: string; gameNumber: number; unlockedModules: string[]; contentRequired: ContentRequirement[] } // new (12)
+export interface ContentRequirement { moduleId: string; items: string[] }
+export interface CampaignLegacy { worldName: string; gameNumber: number; unlockedModules: string[]; contentRequired: ContentRequirement[] }
 
 async function req<T>(serverUrl: string, path: string, opts: { method?: string; token?: string; body?: unknown } = {}): Promise<T> {
   const res = await fetch(`${serverUrl}${path}`, {
@@ -40,8 +40,8 @@ export const api = {
     req<{ id: string; worldName: string; inviteCode: string }>(serverUrl, "/api/campaigns", { token, body: { worldName } }),
   joinCampaign: (serverUrl: string, token: string, inviteCode: string, asSpectator = false) =>
     req<{ id: string; worldName: string }>(serverUrl, "/api/campaigns/join", { token, body: { inviteCode, asSpectator } }),
-  campaignLegacy: (serverUrl: string, token: string, campaignId: string) => // new (12)
+  campaignLegacy: (serverUrl: string, token: string, campaignId: string) =>
     req<CampaignLegacy>(serverUrl, `/api/campaigns/${campaignId}/state`, { token }),
-  supplyContent: (serverUrl: string, token: string, campaignId: string, moduleId: string, item: string, content: unknown) => // new (12)
+  supplyContent: (serverUrl: string, token: string, campaignId: string, moduleId: string, item: string, content: unknown) =>
     req<{ ok: true; contentRequired: ContentRequirement[] }>(serverUrl, `/api/campaigns/${campaignId}/content`, { token, body: { moduleId, item, content } }),
 };

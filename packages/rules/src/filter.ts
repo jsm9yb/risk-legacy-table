@@ -1,4 +1,4 @@
-// new (1-web-b): hidden-information filtering, moved from apps/server so the web
+// hidden-information filtering, moved from apps/server so the web
 // client tests and the server share one policy. Pure: clones, never mutates input.
 import type { GameState, PlayerId } from "./types.ts";
 import { redStars, waitingOn } from "./engine.ts";

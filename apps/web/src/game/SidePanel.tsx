@@ -1,5 +1,5 @@
 import { redStars, type GameState, type TerritoryId } from "@risk/rules";
-import { factionById, powerName, scarName, titleCase } from "./labels.ts";
+import { factionById, powerById, powerName, scarName, titleCase } from "./labels.ts";
 import SideboardMat from "./cards/SideboardMat.tsx";
 import FactionEmblem from "./FactionEmblem.tsx";
 
@@ -46,8 +46,8 @@ export default function SidePanel({ gs, actor, playerFaction, onTerritoryCardHov
             const active = pid === actor;
             const faction = factionById(pl.factionId);
             return (
-              <div key={pid} className={`rounded-sm border border-line/70 bg-panel-2/60 px-3 py-2 ${active ? "ring-1 ring-signal/50" : ""} ${pl.eliminated ? "opacity-45" : ""}`}>
-                <div className="flex items-center gap-2.5 min-w-0">
+              <div key={pid} data-table-anchor="player" data-player-id={pid} className={`rounded-sm border border-line/70 bg-panel-2/60 px-3 py-2 ${active ? "ring-1 ring-signal/50" : ""} ${pl.eliminated ? "opacity-45" : ""}`}>
+                <div data-table-anchor="faction" data-player-id={pid} className="flex items-center gap-2.5 min-w-0">
                   {pl.factionId
                     ? <FactionEmblem factionId={pl.factionId} size="sm" />
                     : <span className="w-3 h-3 rounded-full" style={{ background: playerFaction(pid) ?? "#5a6578" }} />}
@@ -65,13 +65,24 @@ export default function SidePanel({ gs, actor, playerFaction, onTerritoryCardHov
                         ))}
                       </div>
                     )}
+                    {pl.factionId && gs.factionPowers[pl.factionId] && (
+                      <details className="mt-2 text-xs">
+                        <summary className="cursor-pointer text-signal">Ability: {powerName(gs.factionPowers[pl.factionId])}</summary>
+                        <p className="mt-2">{powerById(gs.factionPowers[pl.factionId])?.text}</p>
+                        <p className="text-muted mt-1">Automatic effects apply when their conditions are met. Optional actions appear in the relevant phase.</p>
+                      </details>
+                    )}
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mt-2 font-mono">
-                  <Metric label="Stars" value={`${rs.total}`} detail={`${rs.tokens} token + ${rs.board} board`} />
-                  <Metric label="Cards" value={`${(pl as any).handCount ?? pl.hand.length}`} />
+                  <Metric label="Stars" value={`${rs.total}`} detail={`${rs.tokens} token + ${rs.board} board`} anchor="score" playerId={pid} />
+                  <Metric label="Cards" value={`${(pl as any).handCount ?? pl.hand.length}`} anchor="hand" playerId={pid} />
                   <Metric label="Missiles" value={`${pl.missiles}`} />
                 </div>
+                {active && gs.recruit && gs.phase === "join_or_recruit" && <div className="mt-2 border-t border-line/50 pt-1 text-xs text-signal">
+                  <span aria-label={`${pl.name} reserve`}>Reserve · {gs.recruit.remaining} uncommitted troops</span>
+                  <div data-table-anchor="reserve" data-player-id={pid} aria-hidden="true" className="h-6" />
+                </div>}
               </div>
             );
           })}
@@ -114,6 +125,13 @@ function RailStatus({ gs, actor }: { gs: GameState; actor?: string }) {
           </div>
         )}
         <p className="mt-2 text-sm leading-snug text-text">{instructionFor(gs, actor)}</p>
+        {gs.phase === "join_or_recruit" && gs.recruit && (
+          <div className="mt-3 text-sm" aria-label="Recruitment breakdown">
+            <p className="text-signal">{gs.recruit.remaining} troops left to place · {gs.recruit.breakdown.total} recruited</p>
+            <p>{gs.recruit.breakdown.territories} territories + {gs.recruit.breakdown.population} city population → {gs.recruit.breakdown.fromTerritories} troops</p>
+            <p>Continents: {gs.recruit.breakdown.continents.reduce((sum, c) => sum + c.total, 0)} · Card trade-ins: {gs.recruit.breakdown.tradeIns}</p>
+          </div>
+        )}
       </div>
     </Section>
   );
@@ -134,9 +152,9 @@ function instructionFor(gs: GameState, actor?: string) {
   return "Review the table state.";
 }
 
-function Metric({ label, value, detail }: { label: string; value: string; detail?: string }) {
+function Metric({ label, value, detail, anchor, playerId }: { label: string; value: string; detail?: string; anchor?: string; playerId?: string }) {
   return (
-    <div className="min-w-0">
+    <div data-table-anchor={anchor} data-player-id={playerId} className="min-w-0">
       <div className="text-[11px] uppercase tracking-wider text-muted">{label}</div>
       <div data-metric={label.toLowerCase()} className="text-base font-bold text-text leading-tight">{value}</div>
       {detail && <div className="text-[10px] text-muted truncate">{detail}</div>}

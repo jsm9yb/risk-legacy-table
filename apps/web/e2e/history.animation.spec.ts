@@ -1,0 +1,42 @@
+import { expect, test } from "@playwright/test";
+
+test.use({video: "off"});
+
+test("historical board playback holds real old positions and restores the live board", async ({page}, testInfo) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on("pageerror", e => errors.push(e.message));
+  await page.clock.install();
+  await page.clock.resume();
+  await page.goto("/?table-demo=1&showcase=1");
+  const table = page.locator(".game-table");
+  await expect(table).toHaveAttribute("data-presentation-status", "idle");
+  const board = () => page.evaluate(async () => (await (globalThis as any).__riskTableDiagnostics.capture()).displayedTerritories);
+  const before = await board();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 60_000));
+  await page.getByRole("button", {name: "CONQUEST", exact: true}).dispatchEvent("click");
+  for (let i = 0; i < 8; i++) await page.clock.fastForward(1_000);
+  await expect(table).toHaveAttribute("data-presentation-status", "idle");
+  const after = await board();
+  expect(after.northwest_territory.controller).toBe("u1");
+  expect(before.northwest_territory.controller).toBe("u2");
+  await page.getByRole("button", {name: "BEFORE WORLD", exact: true}).dispatchEvent("click");
+  for (let i = 0; i < 3; i++) await page.clock.fastForward(1_000);
+  await expect(table).toHaveAttribute("data-history-mode", "replay");
+  expect(await board()).toEqual(before);
+  await page.screenshot({path: testInfo.outputPath("historical-before.png")});
+  await page.getByRole("button", {name: "AFTER WORLD", exact: true}).dispatchEvent("click");
+  for (let i = 0; i < 3; i++) await page.clock.fastForward(1_000);
+  expect(await board()).toEqual(after);
+  await page.screenshot({path: testInfo.outputPath("historical-after.png")});
+  await page.getByRole("button", {name: "RETURN LIVE", exact: true}).dispatchEvent("click");
+  await expect(table).toHaveAttribute("data-history-mode", "live");
+  expect(await board()).toEqual(after);
+  expect(await page.locator("canvas[data-table-flight]").count()).toBe(0);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("risk.public-history.v1:presentation-demo")!));
+  expect(saved.frames.length).toBeGreaterThan(0);
+  expect(saved.frames.at(-1).before.territories.northwest_territory.controller).toBe("u2");
+  expect(saved.frames.at(-1).after.territories.northwest_territory.controller).toBe("u1");
+  expect(saved.frames.at(-1).before.players.u1.hand).toBeUndefined();
+  expect(errors).toEqual([]);
+});

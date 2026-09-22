@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 
 const root = process.cwd();
 const pieceRoot = join(root, "apps/web/src/assets/table/pieces");

@@ -86,3 +86,61 @@ describe("transition planning", () => {
     expect(instant.beats.every((beat) => beat.durationMs === 0)).toBe(true);
   });
 });
+
+it("commits casualties before occupation without mutating the authoritative states", () => {
+  const previous = structuredClone(atExpandAttack(105).gs);
+  previous.territories.alaska = {...previous.territories.alaska, troops: 8, controller: "u1"};
+  previous.territories.kamchatka = {...previous.territories.kamchatka, troops: 2, controller: "u2"};
+  const next = structuredClone(previous);
+  next.eventSeq += 2;
+  next.territories.alaska.troops = 4;
+  next.territories.kamchatka = {...next.territories.kamchatka, troops: 3, controller: "u1"};
+  const plan = planTransition({previous, next, source: "local", receivedAt: 0, events: [
+    {type: "battle.resolved", seq: next.eventSeq - 1, from: "alaska", to: "kamchatka", attackerLosses: 1, defenderLosses: 2},
+    {type: "territory.conquered", seq: next.eventSeq, from: "alaska", to: "kamchatka", playerId: "u1", moved: 3, capturedHqFactionId: "die_mechaniker"},
+  ]}, "full");
+  const casualties = plan.beats.find(b => b.commands.some(c => c.type === "army.remove"))!.visualState!;
+  expect(casualties.territories.alaska.troops).toBe(7);
+  expect(casualties.territories.kamchatka.troops).toBe(0);
+  const conquest = plan.beats.find(b => b.commands.some(c => c.type === "territory.conquest"))!.visualState!;
+  expect(conquest.territories.kamchatka).toMatchObject({troops: 3, controller: "u1"});
+  expect(plan.beats.flatMap(b => b.commands).some(c => c.type === "hq.capture")).toBe(true);
+  expect(previous.territories.alaska.troops).toBe(8);
+  expect(next.territories.alaska.troops).toBe(4);
+});
+
+it("shows arrival before fallout and settles expansion ownership", () => {
+  const previous = structuredClone(atExpandAttack(106).gs);
+  previous.territories.alaska = {...previous.territories.alaska, troops: 8, controller: "u1"};
+  previous.territories.kamchatka = {...previous.territories.kamchatka, troops: 0, controller: undefined};
+  const next = structuredClone(previous);
+  next.eventSeq += 2;
+  const plan = planTransition({previous, next, source: "network", receivedAt: 0, events: [
+    {type: "scar.attrition", sourceType: "FalloutLosses", seq: next.eventSeq - 1, territoryId: "kamchatka", playerId: "u1", delta: -2},
+    {type: "territory.expanded", seq: next.eventSeq, from: "alaska", to: "kamchatka", playerId: "u1", moved: 4, losses: 0},
+  ]}, "full");
+  const arrival = plan.beats.findIndex(b => b.commands.some(c => c.type === "army.move"));
+  const fallout = plan.beats.findIndex(b => b.commands.some(c => c.type === "army.remove"));
+  expect(arrival).toBeLessThan(fallout);
+  expect(plan.beats[fallout].visualState?.territories.kamchatka).toMatchObject({troops: 2, controller: "u1"});
+});
+
+it("projects batched recruitment and trades from earned amounts without subtracting placements twice", () => {
+  const previous = structuredClone(atExpandAttack(107).gs);
+  const next = {...previous, eventSeq: previous.eventSeq + 3, recruit: {remaining: 7, breakdown: {territories: 3, fromTerritories: 5, population: 0, continents: [], tradeIns: 4, total: 9}}};
+  const plan = planTransition({previous, next, source: "network", receivedAt: 0, events: [
+    {type: "gameplay.present", seq: next.eventSeq - 2, command: {type: "recruitment.show", playerId: "u1", total: 5, fromTerritories: 5, population: 0, continents: []}},
+    {type: "gameplay.present", seq: next.eventSeq - 1, command: {type: "cards.transfer", playerId: "u1", kind: "trade", count: 2, troops: 4}},
+    {type: "troops.placed", seq: next.eventSeq, playerId: "u1", territoryId: "alaska", count: 2},
+  ]}, "full");
+  expect(plan.beats.map(b => b.visualState?.recruit?.remaining)).toEqual([5, 9, 7]);
+});
+
+it("does not move a later conquest ahead of ordinary start-turn attrition", () => {
+  const previous = atExpandAttack(108).gs;
+  const plan = planTransition({previous, next: {...previous, eventSeq: previous.eventSeq + 2}, source: "network", receivedAt: 0, events: [
+    {type: "scar.attrition", sourceType: "ScarAttrition", seq: previous.eventSeq + 1, territoryId: "kamchatka", playerId: "u2", delta: -1},
+    {type: "territory.conquered", seq: previous.eventSeq + 2, from: "alaska", to: "kamchatka", playerId: "u1", moved: 3},
+  ]}, "full");
+  expect(plan.beats[0].commands[0].type).toBe("army.remove");
+});

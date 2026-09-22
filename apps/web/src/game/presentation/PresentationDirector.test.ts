@@ -8,6 +8,43 @@ import { RecordingTableAudioAdapter } from "./TableAudio.ts";
 const tick = async () => { await Promise.resolve(); await Promise.resolve(); };
 
 describe("Presentation Director", () => {
+  it("never commits an aborted transition over a resync or its successor", async () => {
+    const clock = new ManualPresentationClock();
+    const scene = new RecordingTableSceneAdapter(clock);
+    const director = createPresentationDirector(scene, clock, new RecordingTableAudioAdapter());
+    const previous = atExpandAttack(115).gs;
+    const interrupted = { ...previous, eventSeq: previous.eventSeq + 1 };
+    const resynced = { ...previous, eventSeq: previous.eventSeq + 10 };
+    const newest = { ...previous, eventSeq: previous.eventSeq + 11 };
+    director.mount(previous);
+    director.submit({ previous, next: interrupted, source: "network", receivedAt: 0,
+      events: [{ type: "module.revealed", seq: interrupted.eventSeq, moduleId: "pocket_1", timing: "mid_game" }] });
+    director.settleImmediately(resynced, "reconnect");
+    director.submit({ previous: resynced, next: newest, source: "network", receivedAt: 1,
+      events: [{ type: "module.revealed", seq: newest.eventSeq, moduleId: "pocket_2", timing: "mid_game" }] });
+    for (let i = 0; i < 5; i++) await tick();
+    expect(scene.current?.eventSeq).toBe(resynced.eventSeq);
+    expect(scene.records).not.toContain(`apply seq=${interrupted.eventSeq}`);
+    clock.flush();
+    for (let i = 0; i < 5; i++) await tick();
+    expect(scene.current?.eventSeq).toBe(newest.eventSeq);
+    director.dispose();
+  });
+
+  it("does not apply state after disposal interrupts an animation", async () => {
+    const clock = new ManualPresentationClock();
+    const scene = new RecordingTableSceneAdapter(clock);
+    const director = createPresentationDirector(scene, clock, new RecordingTableAudioAdapter());
+    const previous = atExpandAttack(116).gs;
+    const next = { ...previous, eventSeq: previous.eventSeq + 1 };
+    director.mount(previous);
+    director.submit({ previous, next, source: "local", receivedAt: 0,
+      events: [{ type: "module.revealed", seq: next.eventSeq, moduleId: "pocket_1", timing: "mid_game" }] });
+    director.dispose();
+    for (let i = 0; i < 5; i++) await tick();
+    expect(scene.records).not.toContain(`apply seq=${next.eventSeq}`);
+  });
+
   it("records semantic commands and settles authoritative state", async () => {
     const clock = new ManualPresentationClock();
     const scene = new RecordingTableSceneAdapter(clock);
@@ -89,4 +126,24 @@ describe("Presentation Director", () => {
     director.settleImmediately(next, "reconnect");
     expect(scene.records).toContain("table.resync reconnect");
   });
+});
+
+it("batches queued rapid placements and leaves recruitment input available", async () => {
+  const clock = new ManualPresentationClock();
+  const scene = new RecordingTableSceneAdapter(clock);
+  const director = createPresentationDirector(scene, clock, new RecordingTableAudioAdapter());
+  let previous = atExpandAttack(117).gs;
+  director.mount(previous);
+  const snapshots: boolean[] = [];
+  director.subscribe(s => snapshots.push(s.inputBlocked));
+  for (let i = 0; i < 4; i++) {
+    const next = {...previous, eventSeq: previous.eventSeq + 1};
+    director.submit({previous, next, source: "local", receivedAt: i, events: [{type: "troops.placed", seq: next.eventSeq, playerId: "u1", territoryId: "alaska", count: 1}]});
+    previous = next;
+  }
+  for (let i = 0; i < 12; i++) {clock.flush(); await tick();}
+  expect(scene.records.filter(r => r.startsWith("army.place"))).toEqual(["army.place alaska count=1", "army.place alaska count=3"]);
+  expect(scene.current?.eventSeq).toBe(previous.eventSeq);
+  expect(snapshots.every(blocked => !blocked)).toBe(true);
+  director.dispose();
 });

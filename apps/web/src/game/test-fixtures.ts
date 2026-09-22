@@ -1,4 +1,4 @@
-// new (UI-9): shared test fixtures — real-engine game states for component tests.
+// shared test fixtures — real-engine game states for component tests.
 import { contentPack } from "@risk/content";
 import { applyAction, createGame, isLegalStart, neighborsOf, resourceCardDefinition, waitingOn, type Action, type GameState } from "@risk/rules";
 import { manifest } from "@risk/map";
@@ -44,7 +44,7 @@ export function atExpandAttack(seed: number) {
   return { gs, pid, mine, target, enemy };
 }
 
-/** Greedy bot step (simulator policy) — stops at game_over so reward tests drive the UI. */ // new (UI-12)
+/** Greedy bot step (simulator policy) — stops at game_over so reward tests drive the UI. */
 function pickAction(s: GameState): Action | null {
   const pid = waitingOn(s);
   if (!pid || s.phase === "game_over") return null;
@@ -140,7 +140,7 @@ function pickAction(s: GameState): Action | null {
   }
 }
 
-/** Bot-drive a whole game to game_over with the reward flow still open (deterministic per seed). */ // new (UI-12)
+/** Bot-drive a whole game to game_over with the reward flow still open (deterministic per seed). */
 export function driveToVictory(seed: number): GameState {
   let gs = throughSetup(seed);
   for (let i = 0; i < 8000; i++) {

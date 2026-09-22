@@ -1,4 +1,4 @@
-// new (UI-9): code-drawn card/mat texture — the single swappable seam. To drop in a real
+// code-drawn card/mat texture — the single swappable seam. To drop in a real
 // scanned texture later, replace CARD_TEXTURE_URL with an imported image asset
 // (e.g. `import url from "../../assets/card-texture.png"; export const CARD_TEXTURE_URL = url;`)
 // — no card or mat component needs to change.

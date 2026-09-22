@@ -1,9 +1,9 @@
-// new (1-web-a): LAN campaign flow — register/login, campaign list/create/join (REST),
+// LAN campaign flow — register/login, campaign list/create/join (REST),
 // Socket.IO lobby with presence/ready, host game launch. Networked game screen is 1-web-b.
 import { useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { api, type AuthResult, type CampaignSummary, type ContentRequirement } from "./api.ts";
-import NetworkedGame from "./NetworkedGame.tsx"; // new (1-web-b)
+import NetworkedGame from "./NetworkedGame.tsx";
 import LegacyVault from "../game/LegacyVault.tsx";
 import PrepareWorldScreen from "../game/PrepareWorldScreen.tsx";
 import { campaignPreparationStatus, type CampaignPreparationAction, type CampaignState } from "@risk/rules";
@@ -39,7 +39,7 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignSummary[] | null>(null);
   const [lobby, setLobby] = useState<{ campaign: CampaignSummary; members: LobbyMember[] } | null>(null);
-  const [contentRequired, setContentRequired] = useState<ContentRequirement[]>([]); // new (12)
+  const [contentRequired, setContentRequired] = useState<ContentRequirement[]>([]);
   const [legacyModules, setLegacyModules] = useState<string[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [preparation, setPreparation] = useState<CampaignState | null>(null);
@@ -96,10 +96,10 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
     if (auth) api.campaignLegacy(serverUrl, auth.token, campaign.id).then((legacy) => {
       setContentRequired(legacy.contentRequired);
       setLegacyModules(legacy.unlockedModules);
-    }).catch(fail); // new (12)
+    }).catch(fail);
   };
 
-  // new (1-web-b): a created session takes over the whole screen with the networked game
+  // a created session takes over the whole screen with the networked game
   if (auth && sessionId && socketRef.current) {
     return <NetworkedGame key={sessionId} socket={socketRef.current} sessionId={sessionId} viewerId={auth.user.id}
       onExit={() => { setSessionId(null); setLobby(null); lobbyCampaignRef.current = null; refreshCampaigns(auth); }} />;
@@ -137,7 +137,7 @@ export default function LanApp({ onExit }: { onExit: () => void }) {
 
         {auth && lobby && (
           <>
-            {lobby.campaign.role === "host" && contentRequired.length > 0 && ( // new (12): import wizard for paused unlocks
+            {lobby.campaign.role === "host" && contentRequired.length > 0 && ( // import wizard for paused unlocks
               <ContentWizard key={lobby.campaign.id} serverUrl={serverUrl} auth={auth} campaignId={lobby.campaign.id}
                 entries={contentRequired} onUpdated={setContentRequired} onError={fail} />
             )}
@@ -259,7 +259,7 @@ function CampaignsPanel({ serverUrl, auth, campaigns, onRefresh, onOpen, onResum
   );
 }
 
-// new (12): import wizard — the host types the exact card text for content_required unlock items.
+// import wizard — the host types the exact card text for content_required unlock items.
 function ContentWizard({ serverUrl, auth, campaignId, entries, onUpdated, onError }: {
   serverUrl: string; auth: AuthResult; campaignId: string;
   entries: ContentRequirement[]; onUpdated: (next: ContentRequirement[]) => void; onError: (e: unknown) => void;
@@ -343,7 +343,7 @@ function LobbyPanel({ auth, lobby, preparationStatus, onSeat, onReady, onBeginPr
         )}
         {isHost && !prepared && <Btn tone="primary" onClick={onBeginPreparation} disabled={seatedCount < 3 || seatedCount > 5}>BEGIN PREPARATION ({seatedCount} seated)</Btn>}
         {isHost && prepared && <Btn onClick={onLaunch} disabled={!canLaunch}>LAUNCH GAME ({readyCount} ready)</Btn>}
-      </div>{/* new (1-web-b): game:created now mounts NetworkedGame instead of a banner */}
+      </div>{/* game:created now mounts NetworkedGame instead of a banner */}
       {isHost && prepared && !canLaunch && (
         <p className="font-mono text-xs text-muted mt-3">
           {readyCount < 3 ? `${3 - readyCount} more connected player${3 - readyCount === 1 ? "" : "s"} must ready.` : "At most 5 players may join."}

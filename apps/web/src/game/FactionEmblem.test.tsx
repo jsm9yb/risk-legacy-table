@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// new (UI-10): faction visual identity — distinct emblems across setup, roster, and
+// faction visual identity — distinct emblems across setup, roster, and
 // combat surfaces; complete sealed-faction assets; emblem shields + distinct troop
 // silhouettes on the board.
 import "../test-shims.ts";
@@ -16,11 +16,9 @@ import { atExpandAttack } from "./test-fixtures.ts";
 
 afterEach(cleanup);
 
-let current: GameState;
 function Harness({ initial }: { initial: GameState }) {
   const [gs, setGs] = useState(initial);
-  current = gs;
-  const dispatch = (a: Action) => setGs((s) => (current = applyAction(s, a)));
+  const dispatch = (a: Action) => setGs((s) => applyAction(s, a));
   return <GameScreen gs={gs} dispatch={dispatch} onExit={() => {}} error={null} />;
 }
 

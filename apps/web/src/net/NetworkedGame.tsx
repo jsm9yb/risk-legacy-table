@@ -1,4 +1,4 @@
-// new (1-web-b): networked game screen — renders per-viewer filtered `game:state`
+// networked game screen — renders per-viewer filtered `game:state`
 // payloads and sends `game:action`; the shared GameScreen drives all interaction.
 import { useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
@@ -8,6 +8,7 @@ import type { TransitionSource } from "../game/presentation/types.ts";
 
 /** Minimal socket surface so tests can inject a fake. */
 export interface GameSocket {
+  connected?: boolean;
   emit: Socket["emit"] | ((event: string, payload: unknown, ack?: (res: any) => void) => unknown);
   on: (event: string, handler: (...args: any[]) => void) => unknown;
   off?: (event: string, handler: (...args: any[]) => void) => unknown;
@@ -34,9 +35,15 @@ export default function NetworkedGame({ socket, sessionId, viewerId, onExit }: {
   const errTimer = useRef<number | undefined>(undefined);
   const latestState = useRef<GameState | null>(null);
   const pendingRewind = useRef(false);
+  const synchronized = useRef(false);
+  const [decisionsReady, setDecisionsReady] = useState(false);
   const [presentationSource, setPresentationSource] = useState<TransitionSource>("network");
 
   useEffect(() => {
+    let disposed = false;
+    let joinGeneration = 0;
+    synchronized.current = false;
+    setDecisionsReady(false);
     setGs(null);
     setSeated(false);
     setContentHost(false);
@@ -58,16 +65,31 @@ export default function NetworkedGame({ socket, sessionId, viewerId, onExit }: {
         setRewindStatus(message.rewind);
       }
     };
-    const joinSession = () => socket.emit("game:join", { sessionId }, (res: any) => {
-      if (res?.error) return setError(res.error);
-      latestState.current = res.state as GameState;
-      setGs(res.state as GameState);
-      setSeated(!!res.seated);
-      setContentHost(!!res.contentHost);
-      setRewindStatus(res.rewind);
-      setConnectionMessage(null);
-    });
-    const onDisconnect = () => setConnectionMessage("Connection lost — decisions are paused while the table reconnects.");
+    const joinSession = () => {
+      const generation = ++joinGeneration;
+      synchronized.current = false;
+      setDecisionsReady(false);
+      socket.emit("game:join", { sessionId }, (res: any) => {
+        if (disposed || generation !== joinGeneration || socket.connected === false) return;
+        if (res?.error) return setError(res.error);
+        setPresentationSource(latestState.current ? "reconnect" : "network");
+        latestState.current = res.state as GameState;
+        setGs(res.state as GameState);
+        setSeated(!!res.seated);
+        setContentHost(!!res.contentHost);
+        setRewindStatus(res.rewind);
+        setConnectionMessage(null);
+        synchronized.current = true;
+        setDecisionsReady(true);
+      });
+    };
+    const onDisconnect = () => {
+      ++joinGeneration;
+      synchronized.current = false;
+      pendingRewind.current = false;
+      setDecisionsReady(false);
+      setConnectionMessage("Connection lost — decisions are paused while the table reconnects.");
+    };
     const onConnect = () => {
       setConnectionMessage("Reconnected — synchronizing the latest table state…");
       joinSession();
@@ -75,10 +97,12 @@ export default function NetworkedGame({ socket, sessionId, viewerId, onExit }: {
     socket.on("game:state", onState);
     socket.on("disconnect", onDisconnect);
     socket.on("connect", onConnect);
-    joinSession();
+    if (socket.connected !== false) joinSession();
     return () => {
+      disposed = true;
+      synchronized.current = false;
       window.clearTimeout(errTimer.current);
-      socket.emit("game:leave", { sessionId });
+      if (socket.connected !== false) socket.emit("game:leave", { sessionId });
       socket.off?.("game:state", onState);
       socket.off?.("disconnect", onDisconnect);
       socket.off?.("connect", onConnect);
@@ -86,6 +110,7 @@ export default function NetworkedGame({ socket, sessionId, viewerId, onExit }: {
   }, [socket, sessionId]);
 
   const dispatch = (a: Action) => {
+    if (!synchronized.current || socket.connected === false) return;
     socket.emit("game:action", { sessionId, action: a }, (res: any) => {
       if (res?.error) {
         setError(res.error); // server-side RuleViolation — authoritative rejection
@@ -98,6 +123,7 @@ export default function NetworkedGame({ socket, sessionId, viewerId, onExit }: {
   };
 
   const rewind = (mode: "reset" | "back") => {
+    if (!synchronized.current || socket.connected === false) return;
     pendingRewind.current = true;
     socket.emit("game:rewind", { sessionId, mode }, (res: any) => {
       if (res?.error) { pendingRewind.current = false; setError(res.error); }
@@ -113,10 +139,10 @@ export default function NetworkedGame({ socket, sessionId, viewerId, onExit }: {
     );
   }
   // Spectators get a viewer id that never matches the actor -> view-only.
-  return <GameScreen key={sessionId} gs={gs} dispatch={dispatch} onExit={onExit} error={error ?? connectionMessage} viewer={seated ? viewerId : "__spectator__"}
-    canManageContent={contentHost}
+  return <GameScreen key={sessionId} gs={gs} dispatch={dispatch} onExit={onExit} error={error ?? connectionMessage} viewer={seated && decisionsReady ? viewerId : "__spectator__"}
+    canManageContent={contentHost && decisionsReady}
     presentationSource={presentationSource}
-    rewind={seated && rewindStatus ? {
+    rewind={seated && decisionsReady && rewindStatus ? {
       ...rewindStatus,
       onReset: () => rewind("reset"),
       onBack: () => rewind("back"),

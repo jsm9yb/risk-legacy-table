@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// new (1-web-b): two clients against one authoritative session (real engine + the real
+// two clients against one authoritative session (real engine + the real
 // per-viewer filter) play through to game_over with consistent, hidden-state-correct views.
 import "../test-shims.ts";
 import { describe, it, expect, afterEach } from "vitest";

@@ -14,7 +14,7 @@ export interface PlayerState {
   redStarTokens: number;
   missiles: number;
   hand: CardId[]; // hidden resource cards (filter before sending to other clients)
-  scarHand: { instanceId: string; scarId: string }[]; // new: held starter scars — identity hidden, filter to count for others
+  scarHand: { instanceId: string; scarId: string }[]; // held starter scars — identity hidden, filter to count for others
   scarCardCount: number; // public count (kept in sync with scarHand.length; identity is private)
   knockedOut: boolean;
   eliminated: boolean;
@@ -25,7 +25,7 @@ export interface TerritoryState {
   controller?: PlayerId;
   troops: number;
   hqFaction?: FactionId; // HQ is an independent piece keyed to its ORIGINAL faction
-  city?: { type: "minor" | "major" | "world_capital"; population: number; name?: string; foundedByPlayerId?: PlayerId }; // new: full city model (SPEC §7)
+  city?: { type: "minor" | "major" | "world_capital"; population: number; name?: string; foundedByPlayerId?: PlayerId }; // full city model (SPEC §7)
   ruin?: boolean;
   scars: string[];
   fortification?: { max: number; remaining: number };
@@ -158,17 +158,17 @@ export interface RecruitBreakdown {
   total: number;
 }
 
-/** End-game reward selection (SPEC §7): winner rewards, held-on rewards, or pass. */ // new
-export type RewardChoice = // new
-  | { kind: "name_continent"; continentId: string; name: string } // new
-  | { kind: "found_major_city"; territoryId: TerritoryId; name: string } // new
-  | { kind: "cancel_scar"; territoryId: TerritoryId } // new
-  | { kind: "change_continent_bonus"; continentId: string; delta: 1 | -1 } // new
-  | { kind: "fortify_city"; territoryId: TerritoryId } // new
+/** End-game reward selection (SPEC §7): winner rewards, held-on rewards, or pass. */
+export type RewardChoice =
+  | { kind: "name_continent"; continentId: string; name: string }
+  | { kind: "found_major_city"; territoryId: TerritoryId; name: string }
+  | { kind: "cancel_scar"; territoryId: TerritoryId }
+  | { kind: "change_continent_bonus"; continentId: string; delta: 1 | -1 }
+  | { kind: "fortify_city"; territoryId: TerritoryId }
   | { kind: "destroy_territory_card"; cardId: CardId } // winner permanently removes one Territory card
-  | { kind: "found_minor_city"; territoryId: TerritoryId; name: string } // new
-  | { kind: "upgrade_territory_card"; cardId: CardId } // new
-  | { kind: "pass" }; // new
+  | { kind: "found_minor_city"; territoryId: TerritoryId; name: string }
+  | { kind: "upgrade_territory_card"; cardId: CardId }
+  | { kind: "pass" };
 
 export type { GameEvent } from "./events.ts";
 
@@ -185,7 +185,7 @@ export interface GameState {
   gameId: string;
   seed: number;
   worldName: string;
-  gameNumber: number; // new: campaign game number (1 with no campaign history); rewards stop after 15
+  gameNumber: number; // campaign game number (1 with no campaign history); rewards stop after 15
   rngState: number;
   phase: Phase;
   setup?: SetupState;
@@ -200,7 +200,7 @@ export interface GameState {
   recruit?: { remaining: number; breakdown: RecruitBreakdown };
   startTurnDone: boolean;
   maneuverUsed: boolean;
-  factionPowers: Record<FactionId, string>; // new (9): selected starting power per faction (attaches to faction, not player)
+  factionPowers: Record<FactionId, string>; // selected starting power per faction (attaches to faction, not player)
   comebackPowers: Record<FactionId, LegacyCard>;
   factionMissilePowers: Record<FactionId, string>;
   factionWeaknesses: Record<FactionId, string>;
@@ -225,9 +225,9 @@ export interface GameState {
   };
   comebackQueue: { playerId: PlayerId; factionId: FactionId; resume: "advance_turn" | "game_over" }[];
   factionHistory: Record<FactionId, FactionHistoryEntry[]>; // physical faction-card backs, seeded from campaign history
-  blockedAttackTargets: TerritoryId[]; // new (9): defensive_stand — territories locked for the rest of the active turn
-  intimidation?: { territory: TerritoryId; broken: boolean }; // new (9): lower_die_intimidation — Enclave's first attack target this turn
-  expandedThisTurn: number; // new (9): expansionist_supply — unoccupied territories entered this turn
+  blockedAttackTargets: TerritoryId[]; // defensive_stand — territories locked for the rest of the active turn
+  intimidation?: { territory: TerritoryId; broken: boolean }; // lower_die_intimidation — Enclave's first attack target this turn
+  expandedThisTurn: number; // expansionist_supply — unoccupied territories entered this turn
   expandedIntoCityThisTurn: boolean;
   stealthRecruitTerritory?: TerritoryId;
   mobileHqUsed: boolean;
@@ -236,12 +236,12 @@ export interface GameState {
   winner?: PlayerId;
   winReason?: string;
   results?: Record<FactionId, "won" | "held_on" | "eliminated" | "unused">;
-  signatures: Record<PlayerId, number>; // new: board signatures (winner auto-signs at game end; seeded by 10b)
-  continents: Record<string, { name?: string; namedBy?: PlayerId; bonusMark?: number }>; // new: name_continent / change_continent_bonus rewards
-  inventories: { cancelStickers: number; fortifyMarks: number; majorCities: number; minorCities: number }; // new: finite reward inventories (SPEC §7)
-  cardModifications: Record<CardId, { resources?: number }>; // new: upgrade_territory_card results, overlaid on pack card data
-  unlockedModules: string[]; // new (11): revealed sealed modules (seeded from campaign, extended by in-game reveals)
-  pendingUnlocks: { moduleId: string; timing: "mid_game" | "end_game" }[]; // new (11): triggered but not yet revealed
+  signatures: Record<PlayerId, number>; // board signatures (winner auto-signs at game end; seeded by 10b)
+  continents: Record<string, { name?: string; namedBy?: PlayerId; bonusMark?: number }>; // name_continent / change_continent_bonus rewards
+  inventories: { cancelStickers: number; fortifyMarks: number; majorCities: number; minorCities: number }; // finite reward inventories (SPEC §7)
+  cardModifications: Record<CardId, { resources?: number }>; // upgrade_territory_card results, overlaid on pack card data
+  unlockedModules: string[]; // revealed sealed modules (seeded from campaign, extended by in-game reveals)
+  pendingUnlocks: { moduleId: string; timing: "mid_game" | "end_game" }[]; // triggered but not yet revealed
   contentRequired: { moduleId: string; items: string[] }[];
   hostContent: Record<string, unknown>;
   contentPause?: { resume: "nuclear_resolution" | "failed_join_elimination"; playerId?: PlayerId };
@@ -258,7 +258,7 @@ export interface GameState {
     forcedOccupation: boolean;
     wideBorderAtStart: boolean;
   };
-  rewards?: { order: PlayerId[]; nextIdx: number; committed: boolean }; // new: post-win reward resolution (winner first, held-on clockwise)
+  rewards?: { order: PlayerId[]; nextIdx: number; committed: boolean }; // post-win reward resolution (winner first, held-on clockwise)
   worldCompletion?: { namingPlayerId: PlayerId; name?: string }; // Game 15: most wins (official tie roll) names the completed world
   eventSeq: number;
   log: GameEvent[];
@@ -268,7 +268,7 @@ export type Action =
   | { type: "setup.acknowledgeOrder"; playerId: PlayerId }
   | { type: "draft.pick"; playerId: PlayerId; category: DraftCategory; value: string | number }
   | { type: "draft.takeStartingCoin"; playerId: PlayerId; cardId: CardId }
-  | { type: "setup.choose"; playerId: PlayerId; factionId: FactionId; territoryId: TerritoryId; powerId?: string } // new (9): powerId required the first time a faction is played
+  | { type: "setup.choose"; playerId: PlayerId; factionId: FactionId; territoryId: TerritoryId; powerId?: string } // powerId required the first time a faction is played
   | { type: "start.buyRedStar"; playerId: PlayerId; cardIds: CardId[] }
   | { type: "start.moveHq"; playerId: PlayerId; from: TerritoryId; to: TerritoryId }
   | { type: "missilePower.choose"; playerId: PlayerId; powerId: string }
@@ -292,10 +292,10 @@ export type Action =
   | { type: "phase.endAttacks"; playerId: PlayerId }
   | { type: "maneuver.move"; playerId: PlayerId; from: TerritoryId; to: TerritoryId; count: number }
   | { type: "phase.endManeuver"; playerId: PlayerId }
-  | { type: "end.draw"; playerId: PlayerId; choice: { slot: number } | { coin: true } | { reconSlot: number }; khanReinforce?: boolean; mindshackleTargetPlayerId?: PlayerId } // new (9): territory_card_reinforcement opt-in
-  | { type: "scar.play"; playerId: PlayerId; scarInstanceId: string; territoryId: TerritoryId } // new
+  | { type: "end.draw"; playerId: PlayerId; choice: { slot: number } | { coin: true } | { reconSlot: number }; khanReinforce?: boolean; mindshackleTargetPlayerId?: PlayerId } // territory_card_reinforcement opt-in
+  | { type: "scar.play"; playerId: PlayerId; scarInstanceId: string; territoryId: TerritoryId }
   | { type: "weakness.play"; playerId: PlayerId; scarInstanceId: string; factionId: FactionId }
-  | { type: "reward.choose"; playerId: PlayerId; reward: RewardChoice } // new: end-game reward selection (10a)
+  | { type: "reward.choose"; playerId: PlayerId; reward: RewardChoice } // end-game reward selection (10a)
   | { type: "world.name"; playerId: PlayerId; name: string }
   | { type: "module.supplyContent"; playerId: PlayerId; moduleId: string; item: string; content: unknown }
   | { type: "mission.foundWorldCapital"; playerId: PlayerId; founderPlayerId: PlayerId; territoryId: TerritoryId; name: string }

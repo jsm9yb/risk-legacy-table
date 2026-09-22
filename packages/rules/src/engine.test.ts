@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createGame, applyAction, recruitBreakdown, redStars, waitingOn, isLegalStart, RuleViolation } from "./engine.ts";
 import { endTurnDecision } from "./decisions.ts";
-import { initialCampaign, applyGameToCampaign } from "./campaign.ts"; // new (9)
+import { initialCampaign, applyGameToCampaign } from "./campaign.ts";
 import type { GameState } from "./types.ts";
 import { manifest } from "@risk/map";
 
@@ -11,9 +11,9 @@ const P = [
   { id: "u3", name: "Rex" },
 ];
 
-// Power picks here are deliberately inert for legacy tests (no automatic dice/recruit effects); // new
-// power behaviors get their own describe block below. // new
-const TEST_POWERS: Record<string, string> = { // new
+// Power picks here are deliberately inert for legacy tests (no automatic dice/recruit effects);
+// power behaviors get their own describe block below.
+const TEST_POWERS: Record<string, string> = {
   khan_industries: "territory_card_reinforcement",
   die_mechaniker: "defensive_stand",
   saharan_republic: "unconnected_maneuver",
@@ -29,7 +29,7 @@ function setupGame(seed = 42): GameState {
   for (let i = 0; i < order.length; i++) {
     const pid = order[i];
     const idx = P.findIndex((p) => p.id === pid);
-    s = applyAction(s, { type: "setup.choose", playerId: pid, factionId: factions[idx], territoryId: starts[idx], powerId: TEST_POWERS[factions[idx]] }); // new: first play requires a power pick
+    s = applyAction(s, { type: "setup.choose", playerId: pid, factionId: factions[idx], territoryId: starts[idx], powerId: TEST_POWERS[factions[idx]] }); // first play requires a power pick
   }
   return s;
 }
@@ -60,6 +60,16 @@ function setupCampaignGame(campaign: ReturnType<typeof initialCampaign>, seed = 
 }
 
 describe("setup", () => {
+  it.each(["2", "oops", 1.5, NaN, Infinity, undefined, null])("rejects malformed troop counts (%s) without changing state", (count) => {
+    const setup = setupGame();
+    const playerId = waitingOn(setup)!;
+    const state = applyAction(setup, { type: "start.done", playerId });
+    const territoryId = Object.keys(state.territories).find((id) => state.territories[id].controller === playerId)!;
+    const before = structuredClone(state);
+    expect(() => applyAction(state, { type: "recruit.place", playerId, territoryId, count: count as number })).toThrow(RuleViolation);
+    expect(state).toEqual(before);
+  });
+
   it("rolls chooser order deterministically and seats all players", () => {
     const a = createGame({ gameId: "g", seed: 7, players: P });
     const b = createGame({ gameId: "g", seed: 7, players: P });
@@ -87,20 +97,20 @@ describe("setup", () => {
     expect(() => createGame({ gameId: "g", seed: 1, players: P.slice(0, 2) })).toThrow(RuleViolation); // 2p unsupported
     let s = createGame({ gameId: "g", seed: 3, players: P });
     const first = s.setup!.chooserOrder[0];
-    s = applyAction(s, { type: "setup.choose", playerId: first, factionId: "khan_industries", territoryId: "ural", powerId: TEST_POWERS.khan_industries }); // new
+    s = applyAction(s, { type: "setup.choose", playerId: first, factionId: "khan_industries", territoryId: "ural", powerId: TEST_POWERS.khan_industries });
     const second = s.setup!.chooserOrder[1];
     // siberia is adjacent to ural -> illegal HQ placement
-    expect(() => applyAction(s, { type: "setup.choose", playerId: second, factionId: "die_mechaniker", territoryId: "siberia", powerId: TEST_POWERS.die_mechaniker })).toThrow(/adjacent/); // new
+    expect(() => applyAction(s, { type: "setup.choose", playerId: second, factionId: "die_mechaniker", territoryId: "siberia", powerId: TEST_POWERS.die_mechaniker })).toThrow(/adjacent/);
     expect(isLegalStart(s, "siberia", true, "die_mechaniker")).toBe(false);
     expect(isLegalStart(s, "brazil", true, "die_mechaniker")).toBe(true);
   });
   it("blocks illegal starts and duplicate factions", () => {
     let s = createGame({ gameId: "g", seed: 1, players: P });
     const first = s.setup!.chooserOrder[0];
-    s = applyAction(s, { type: "setup.choose", playerId: first, factionId: "khan_industries", territoryId: "japan", powerId: TEST_POWERS.khan_industries }); // new
+    s = applyAction(s, { type: "setup.choose", playerId: first, factionId: "khan_industries", territoryId: "japan", powerId: TEST_POWERS.khan_industries });
     const second = s.setup!.chooserOrder[1];
-    expect(() => applyAction(s, { type: "setup.choose", playerId: second, factionId: "khan_industries", territoryId: "china", powerId: TEST_POWERS.khan_industries })).toThrow(RuleViolation); // new
-    expect(() => applyAction(s, { type: "setup.choose", playerId: second, factionId: "saharan_republic", territoryId: "japan", powerId: TEST_POWERS.saharan_republic })).toThrow(RuleViolation); // new
+    expect(() => applyAction(s, { type: "setup.choose", playerId: second, factionId: "khan_industries", territoryId: "china", powerId: TEST_POWERS.khan_industries })).toThrow(RuleViolation);
+    expect(() => applyAction(s, { type: "setup.choose", playerId: second, factionId: "saharan_republic", territoryId: "japan", powerId: TEST_POWERS.saharan_republic })).toThrow(RuleViolation);
     expect(isLegalStart(s, "japan")).toBe(false);
   });
   it("sideboard has 4 face-up slots, 38-card deck, 10 coins", () => {
@@ -210,7 +220,7 @@ describe("combat", () => {
     const att = s.turnOrder[0];
     const def = s.turnOrder[1];
     // Defender's ONLY presence is ural with 1 troop and their HQ; give them resource cards.
-    for (const [tid, t] of Object.entries(s.territories)) {
+    for (const t of Object.values(s.territories)) {
       if (t.controller === def) { t.controller = undefined; t.troops = 0; t.hqFaction = undefined; }
     }
     const defFaction = s.players[def].factionId!;
@@ -419,7 +429,7 @@ describe("end turn and sideboard", () => {
   });
 });
 
-describe("scar effects (Slice 8)", () => { // new: whole describe block
+describe("scar effects", () => {
   /** Combat harness: attacker on ukraine(20) vs defender on ural(10); prep mutates before the turn starts. */
   function scarCombat(seed: number, prep: (s: GameState) => void) {
     let s = setupGame(seed);
@@ -486,7 +496,7 @@ describe("scar effects (Slice 8)", () => { // new: whole describe block
 
   it("fortification adds +1 to each defense die; durability marked on 3-attacker rolls only", () => {
     let { s, att, def } = scarCombat(105, (st) => {
-      st.territories["ural"].city = { type: "major", name: "Uralgrad", population: 2 }; // new: full city model
+      st.territories["ural"].city = { type: "major", name: "Uralgrad", population: 2 }; // full city model
       st.territories["ural"].fortification = { max: 10, remaining: 10 };
     });
     s = applyAction(s, { type: "attack.chooseAttackers", playerId: att, count: 3 });
@@ -507,7 +517,7 @@ describe("scar effects (Slice 8)", () => { // new: whole describe block
 
   it("fortification expires when the last durability box is marked", () => {
     let { s, att, def } = scarCombat(107, (st) => {
-      st.territories["ural"].city = { type: "major", population: 2 }; // new: full city model
+      st.territories["ural"].city = { type: "major", population: 2 }; // full city model
       st.territories["ural"].fortification = { max: 10, remaining: 1 };
     });
     s = applyAction(s, { type: "attack.chooseAttackers", playerId: att, count: 3 });
@@ -557,7 +567,7 @@ describe("scar effects (Slice 8)", () => { // new: whole describe block
   });
 });
 
-describe("scar play action (8b)", () => { // new
+describe("scar play action (8b)", () => {
   /** Run the active player's recruit so a combat can be declared from ukraine. */
   function recruitThenAttackReady(s: GameState, att: string): GameState {
     s = applyAction(s, { type: "start.done", playerId: att });
@@ -670,8 +680,8 @@ describe("scar play action (8b)", () => { // new
   });
 });
 
-describe("cities (model & mechanics)", () => { // new: whole describe block (task `city`)
-  it("counts a controlled city's population INSIDE the recruit division (corrected formula)", () => { // new: (territories + population) / 3, floor, min 3
+describe("cities (model & mechanics)", () => {
+  it("counts a controlled city's population INSIDE the recruit division (corrected formula)", () => { // (territories + population) / 3, floor, min 3
     const s = setupGame(301);
     const pid = s.turnOrder[0];
     // Give pid 10 territories so the division dominates the minimum
@@ -720,7 +730,7 @@ describe("cities (model & mechanics)", () => { // new: whole describe block (tas
   });
 });
 
-describe("faction powers (9)", () => { // new: whole describe block
+describe("faction powers (9)", () => {
   /** Run the active player's start+recruit so combat/expansion can begin. */
   function toAttackPhase(s: GameState): GameState {
     const pid = s.turnOrder[s.activeIdx];
@@ -1018,7 +1028,7 @@ describe("faction powers (9)", () => { // new: whole describe block
   });
 });
 
-describe("end-game rewards & signatures (10a)", () => { // new: whole describe block
+describe("end-game rewards & signatures (10a)", () => {
   /** Drive a 3p game to victory via red-star purchase; winner = turnOrder[0], the other two hold on. */
   function wonGame(seed: number, prep?: (s: GameState) => void): { s: GameState; winner: string; heldOn: string[] } {
     let s = setupGame(seed);
@@ -1177,7 +1187,7 @@ describe("end-game rewards & signatures (10a)", () => { // new: whole describe b
   });
 });
 
-import { contentPack, cityPopulation } from "@risk/content"; // new: cityPopulation reads pop from pack data
+import { contentPack, cityPopulation } from "@risk/content"; // cityPopulation reads pop from pack data
 function await_card(id: string): { territoryId?: string } {
   return contentPack.cards.territoryCards.find((c) => c.id === id) ?? {};
 }

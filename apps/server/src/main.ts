@@ -14,19 +14,20 @@ import { createDb } from "./db/connect.ts";
 import {
   applyAction, applyCampaignPreparationAction, applyGameToCampaign, beginCampaignPreparation,
   campaignPreparationStatus, createGame, createUnpreparedCampaign, filterStateFor, initialCampaign,
-  isCampaignPrepared, RuleViolation, supplyModuleContent, waitingOn,
+  isCampaignPrepared, legacyDone, locksRewind, RuleViolation, supplyModuleContent, waitingOn,
   type Action, type CampaignPreparationAction, type CampaignState, type GameState,
-} from "@risk/rules"; // new (10b, 1-web-b, 12)
+} from "@risk/rules";
 import { contentPack, validateContentPack } from "@risk/content";
 import { corsOriginFor, parseCorsOrigins } from "./http.ts";
-import { SessionActionQueue, legacyDone, prepareSessionState } from "./session.ts";
+import { LobbyPresence } from "./lobbyPresence.ts";
+import { SessionActionQueue, prepareSessionState } from "./session.ts";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const ORIGINS = parseCorsOrigins(process.env.CORS_ORIGINS ?? "http://localhost:5173");
 const BACKUP_DIR = process.env.BACKUP_DIR ?? "./backups";
 mkdirSync(BACKUP_DIR, { recursive: true });
 
-// Content validation gates server start (Slice 3): errors block, warnings logged for host acknowledgement.
+// Content validation gates server start: errors block, warnings logged for host acknowledgement.
 const cv = validateContentPack();
 if (cv.errors.length) {
   console.error("Content pack validation failed:\n" + cv.errors.join("\n"));
@@ -42,8 +43,8 @@ app.use((req, res, next) => {
   if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
   if (origin && origin !== "*") res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS"); // new (1-web-a)
-  if (req.method === "OPTIONS") return res.sendStatus(204); // new (1-web-a): answer preflights — browser POSTs with JSON/Authorization were 404ing
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(204); // answer preflights — browser POSTs with JSON/Authorization were 404ing
   next();
 });
 
@@ -159,7 +160,7 @@ app.get("/api/campaigns", async (req, res) => {
   })));
 });
 
-// new (12): campaign legacy summary for members — contentRequired drives the import wizard
+// campaign legacy summary for members — contentRequired drives the import wizard
 app.get("/api/campaigns/:id/state", async (req, res) => {
   const me = await userFromToken(bearer(req));
   if (!me) return res.status(401).json({ error: "auth required" });
@@ -177,7 +178,7 @@ app.get("/api/campaigns/:id/state", async (req, res) => {
   });
 });
 
-// new (12): import wizard — the host supplies card text for a paused content_required item.
+// import wizard — the host supplies card text for a paused content_required item.
 // The supplied text also appends to content_overrides (immutable record of what was entered).
 app.post("/api/campaigns/:id/content", async (req, res) => {
   const me = await userFromToken(bearer(req));
@@ -203,7 +204,7 @@ app.post("/api/campaigns/:id/content", async (req, res) => {
 });
 
 app.get("/api/content/public", (_req, res) => {
-  // Locked modules stay out of normal client payloads; spoiler/admin access is a host-only later slice.
+  // Expose module metadata without revealing locked content.
   const { unlockModules, ...rest } = contentPack;
   res.json({ ...rest, unlockModules: unlockModules.map((m) => ({ id: m.id, name: m.name, locked: m.locked })) });
 });
@@ -221,21 +222,11 @@ interface LiveSession {
   state: GameState;
   campaignId: string;
   players: { id: string; name: string }[];
-  campaign?: CampaignState; // new (10b): the snapshot this session was seeded from
+  campaign?: CampaignState; // the snapshot this session was seeded from
   phaseCheckpoints?: { state: GameState; actionSeq: number }[];
   rewindLocked?: boolean;
 }
 const live = new Map<string, LiveSession>();
-
-function locksRewind(action: Action) {
-  return action.type === "draft.pick" || action.type === "draft.takeStartingCoin"
-    || action.type === "attack.declare" || action.type === "scar.play" || action.type === "end.draw"
-    || action.type === "reward.choose" || action.type === "module.supplyContent" || action.type === "mission.foundWorldCapital"
-    || action.type === "mission.complete" || action.type === "event.resolve"
-    || action.type === "mission.choose"
-    || action.type === "privateMission.capture" || action.type === "privateMission.activate"
-    || action.type === "alien.placeIsland" || action.type === "comeback.choose";
-}
 
 function ensureRewindState(session: LiveSession) {
   session.phaseCheckpoints ??= [{ state: structuredClone(session.state), actionSeq: 0 }];
@@ -267,8 +258,8 @@ async function loadSession(sessionId: string): Promise<LiveSession | null> {
     .select(["users.id", "users.display_name", "game_seats.seat_order"])
     .where("session_id", "=", sessionId).orderBy("seat_order").execute();
   const players = seats.map((s) => ({ id: s.id, name: s.display_name }));
-  const campaign = row.campaign_state ? (JSON.parse(row.campaign_state) as CampaignState) : undefined; // new (10b): replay with the creation-time snapshot
-  let state = createGame({ gameId: sessionId, seed: Number(row.seed), players, campaign }); // new
+  const campaign = row.campaign_state ? (JSON.parse(row.campaign_state) as CampaignState) : undefined; // replay with the creation-time snapshot
+  let state = createGame({ gameId: sessionId, seed: Number(row.seed), players, campaign });
   const rows = await db.selectFrom("game_actions").selectAll()
     .where("session_id", "=", sessionId).orderBy("seq").execute();
   const suppressed = new Set<number>();
@@ -290,7 +281,7 @@ async function loadSession(sessionId: string): Promise<LiveSession | null> {
     } else if (state.phase !== previous.phase) {
       phaseCheckpoints.push({ state: structuredClone(state), actionSeq: row.seq });
     }
-    if (locksRewind(action) || state.phase === "game_over") rewindLocked = true;
+    if (locksRewind(previous, state, action)) rewindLocked = true;
   }
   // Crash recovery: replay may reconstruct a fully resolved game whose final
   // action committed before the campaign fold/status update. Reconcile that
@@ -303,13 +294,10 @@ async function loadSession(sessionId: string): Promise<LiveSession | null> {
     });
     await audit(row.campaign_id, sessionId, null, "CampaignStateFoldRecovered", { gameNumber: folded.gameNumber });
   }
-  const sess = { state, campaignId: row.campaign_id, players, campaign, phaseCheckpoints, rewindLocked }; // new
+  const sess = { state, campaignId: row.campaign_id, players, campaign, phaseCheckpoints, rewindLocked };
   live.set(sessionId, sess);
   return sess;
 }
-
-/** Hidden-information filtering: per-viewer state (spectators get public-only). Policy lives in @risk/rules. */
-const filterState = filterStateFor; // new (1-web-b): moved to packages/rules so client tests share the exact policy
 
 // ---------- Socket.IO lobbies + live play ----------
 
@@ -324,7 +312,7 @@ function broadcastGameState(sessionId: string, session: LiveSession) {
     const seated = session.players.some((player) => player.id === viewer?.id);
     sock?.emit("game:state", {
       sessionId,
-      state: filterState(session.state, seated ? viewer.id : null),
+      state: filterStateFor(session.state, seated ? viewer.id : null),
       rewind: viewer ? rewindStatus(session, viewer.id) : undefined,
     });
   }
@@ -332,6 +320,7 @@ function broadcastGameState(sessionId: string, session: LiveSession) {
 
 interface LobbyMember { userId: string; name: string; role: string; ready: boolean; connected: boolean; seat: number | null }
 const lobbies = new Map<string, Map<string, LobbyMember>>(); // campaignId -> members
+const lobbyPresence = new LobbyPresence();
 const sessionActions = new SessionActionQueue();
 const campaignActions = new SessionActionQueue();
 
@@ -386,6 +375,7 @@ io.on("connection", (socket) => {
 
   const leaveLobby = (campaignId: string) => {
     socket.leave(`lobby:${campaignId}`);
+    if (!lobbyPresence.leave(campaignId, user.id, socket.id)) return;
     const lobby = lobbies.get(campaignId);
     const member = lobby?.get(user.id);
     if (!lobby || !member) return;
@@ -472,6 +462,7 @@ io.on("connection", (socket) => {
       if (room.startsWith("lobby:") && room !== `lobby:${campaignId}`) leaveLobby(room.slice("lobby:".length));
     }
     socket.join(`lobby:${campaignId}`);
+    lobbyPresence.join(campaignId, user.id, socket.id);
     const lobby = lobbies.get(campaignId) ?? new Map();
     lobbies.set(campaignId, lobby);
     lobby.set(user.id, {
@@ -525,7 +516,7 @@ io.on("connection", (socket) => {
     const players = [...(lobby?.values() ?? [])]
       .filter((m) => m.role !== "spectator" && m.connected && m.ready && m.seat !== null)
       .sort((a, b) => a.seat! - b.seat!);
-    if (players.length < 3) return ack?.({ error: "need 3+ ready players (starter rules: 3-5)" }); // new (BUG-1): matches the engine's createGame minimum — a 2p session would crash on replay
+    if (players.length < 3) return ack?.({ error: "need 3+ ready players (starter rules: 3-5)" }); // matches the engine's createGame minimum — a 2p session would crash on replay
     if (players.length > 5) return ack?.({ error: "max 5 players" });
     const active = await db.selectFrom("game_sessions").select("id")
       .where("campaign_id", "=", campaignId).where("status", "=", "active").executeTakeFirst();
@@ -599,7 +590,7 @@ io.on("connection", (socket) => {
     const isSeated = sess.players.some((p) => p.id === user.id);
     ack?.({
       ok: true,
-      state: filterState(sess.state, isSeated ? user.id : null),
+      state: filterStateFor(sess.state, isSeated ? user.id : null),
       seated: isSeated,
       contentHost: member.role === "host",
       rewind: rewindStatus(sess, user.id),
@@ -623,7 +614,7 @@ io.on("connection", (socket) => {
           .where("campaign_id", "=", sess.campaignId).where("user_id", "=", user.id).executeTakeFirst();
         if (membership?.role !== "host") return ack?.({ error: "host only" });
       } else if (a.playerId !== user.id) return ack?.({ error: "cannot act for another player" });
-      const prev = sess.state; // new (10b): pre-action state gates the one-shot completion/fold blocks
+      const prev = sess.state; // pre-action state gates the one-shot completion/fold blocks
       const next = applyAction(prev, a);
       const previousAction = await db.selectFrom("game_actions").select("seq")
         .where("session_id", "=", sessionId).orderBy("seq", "desc").executeTakeFirst();
@@ -665,7 +656,7 @@ io.on("connection", (socket) => {
       } else if (next.phase !== prev.phase) {
         checkpoints.push({ state: structuredClone(next), actionSeq });
       }
-      if (locksRewind(a) || next.phase === "game_over") sess.rewindLocked = true;
+      if (locksRewind(prev, next, a)) sess.rewindLocked = true;
       broadcastGameState(sessionId, sess);
       if (a.type === "module.supplyContent") {
         await audit(sess.campaignId, sessionId, user.id, "ModuleContentSupplied", { moduleId: a.moduleId, item: a.item }).catch(console.error);
@@ -673,10 +664,10 @@ io.on("connection", (socket) => {
       if (wonNow) { // fire once at the winning action (reward.choose actions follow inside game_over)
         await audit(sess.campaignId, sessionId, null, "GameWon", { winner: next.winner, reason: next.winReason, results: next.results }).catch(console.error);
       }
-      // new (10b): once end-game rewards resolve (or none open, post-Game-15), fold the finished
+      // once end-game rewards resolve (or none open, post-Game-15), fold the finished
       // game into the persisted CampaignState and export — the seed for the next game:create.
       if (folded) {
-        await audit(sess.campaignId, sessionId, null, "CampaignStateFolded", { gameNumber: folded.gameNumber, signatures: folded.signatures }).catch(console.error); // new
+        await audit(sess.campaignId, sessionId, null, "CampaignStateFolded", { gameNumber: folded.gameNumber, signatures: folded.signatures }).catch(console.error);
         // Automatic app-level campaign export after completed games (backup direction)
         try {
           writeFileSync(join(BACKUP_DIR, `export-${sess.campaignId}-${sessionId}.json`), JSON.stringify({ campaignId: sess.campaignId, sessionId, finalState: next, campaignState: folded }, null, 2));
@@ -737,6 +728,7 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     for (const [campaignId, lobby] of lobbies) {
+      if (!lobbyPresence.leave(campaignId, user.id, socket.id)) continue;
       const m = lobby.get(user.id);
       if (m) {
         m.connected = false;

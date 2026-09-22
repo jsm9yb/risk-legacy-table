@@ -7,17 +7,18 @@ import FactionCard from "./FactionCard.tsx";
 import SetupDecisionBanner from "./SetupDecisionBanner.tsx";
 import { TakeoverOverlay } from "./overlays.tsx";
 
-export default function SetupTakeover({ gs, ui, setUi, actor, you }: {
+export default function SetupTakeover({ gs, ui, setUi, actor, you, readOnly = false }: {
   gs: GameState;
   ui: UiState;
   setUi: (fn: (u: UiState) => UiState) => void;
   actor: string;
   you?: boolean;
+  readOnly?: boolean;
 }) {
   const player = gs.players[actor];
   const factions = factionDefinitions(gs.unlockedModules);
   const draftedFactionId = gs.advancedDraft?.completed ? gs.advancedDraft.picks[actor]?.factionId : undefined;
-  const pickedId = draftedFactionId ?? ui.pickedFaction;
+  const pickedId = readOnly ? undefined : draftedFactionId ?? ui.pickedFaction;
   const picked = pickedId ? factions.find((f) => f.id === pickedId) : undefined;
   const storedPower = picked ? gs.factionPowers[picked.id] : undefined;
   const bannerAction = !picked
@@ -46,7 +47,7 @@ export default function SetupTakeover({ gs, ui, setUi, actor, you }: {
           actorName={player.name}
           actorColor={picked?.color}
           you={you}
-          action={bannerAction}
+          action={readOnly ? `${player.name} is choosing. Explore the factions while you wait.` : bannerAction}
           factionId={picked?.id}
           factionName={picked?.name}
           powerName={shownPower ? powerName(shownPower) : undefined}
@@ -67,7 +68,7 @@ export default function SetupTakeover({ gs, ui, setUi, actor, you }: {
                   history={gs.factionHistory?.[f.id] ?? []}
                   currentGame={gs.gameNumber}
                   takenBy={takenBy}
-                  onSelect={takenBy ? undefined : () => setUi((u) => ({
+                  onSelect={takenBy || readOnly ? undefined : () => setUi((u) => ({
                     ...u,
                     pickedFaction: f.id,
                     pickedPower: undefined,
@@ -78,7 +79,7 @@ export default function SetupTakeover({ gs, ui, setUi, actor, you }: {
             })}
           </div>
           <p className="mt-5 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
-            Select a card to inherit that faction · flip any card to inspect its campaign record
+            Inherit a faction shaped by earlier wars. Your power choice and campaign victories become its lasting story. Flip any card to inspect its record.
           </p>
         </>
       ) : ui.powerTear ? (

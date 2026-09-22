@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// new (TEST-web): smoke test - the hub renders and a local sandbox game starts against the real engine.
+// smoke test - the hub renders and a local sandbox game starts against the real engine.
 import "./test-shims.ts";
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";

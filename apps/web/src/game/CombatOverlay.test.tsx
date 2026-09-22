@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
-// new (UI-8): the combat overlay drives dice choice → roll → missile window → casualties →
+// the combat overlay drives dice choice → roll → missile window → casualties →
 // move-in through the real action API; turn decisions render in the bottom dock.
 import "../test-shims.ts";
 import { useState } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { applyAction, type Action, type GameState } from "@risk/rules";
 import GameScreen from "./GameScreen.tsx";
+import CombatOverlay from "./CombatOverlay.tsx";
 import { territoryName } from "./labels.ts";
 import { atExpandAttack, throughSetup } from "./test-fixtures.ts";
 
@@ -27,6 +28,52 @@ const attackDiceBtn = () =>
   screen.queryByRole("button", { name: "Attack with 1 die" });
 
 describe("combat overlay (UI-8)", () => {
+  it("holds combat controls while the table director resolves the roll", () => {
+    let { gs, pid, mine, target } = atExpandAttack(44);
+    gs = applyAction(gs, { type: "attack.declare", playerId: pid, from: mine, to: target });
+    const view = render(<CombatOverlay gs={gs} dispatch={() => {}} canActFor={() => true} autoDefend={{}} onAutoDefend={() => {}} presentationBusy />);
+    expect(screen.getByRole("status").textContent).toBe("Resolving on the table…");
+    expect((screen.getByRole("button", { name: "WITHDRAW" }).closest("fieldset") as HTMLFieldSetElement).disabled).toBe(true);
+    view.rerender(<CombatOverlay gs={gs} dispatch={() => {}} canActFor={() => true} autoDefend={{}} onAutoDefend={() => {}} presentationBusy={false} />);
+    expect((screen.getByRole("button", { name: "WITHDRAW" }).closest("fieldset") as HTMLFieldSetElement).disabled).toBe(false);
+  });
+
+  it("keeps animation skip usable while combat controls are held", () => {
+    let { gs, pid, mine, target } = atExpandAttack(44);
+    gs = applyAction(gs, { type: "attack.declare", playerId: pid, from: mine, to: target });
+    const skip = vi.fn();
+    render(<CombatOverlay gs={gs} dispatch={() => {}} canActFor={() => true} autoDefend={{}} onAutoDefend={() => {}}
+      presentationBusy canSkipPresentation onSkipPresentation={skip} />);
+    const button = screen.getByRole("button", { name: "SKIP ANIMATION" });
+    expect(button.closest("fieldset")).toBeNull();
+    fireEvent.click(button);
+    expect(skip).toHaveBeenCalledOnce();
+  });
+
+  it("lets the network defender play a scar before choosing defense dice", () => {
+    let { gs, pid, mine, target, enemy } = atExpandAttack(44);
+    gs.players[enemy].scarHand = [{ instanceId: "defender-bunker", scarId: "bunker" }];
+    gs.players[enemy].scarCardCount = 1;
+    gs = applyAction(gs, { type: "attack.declare", playerId: pid, from: mine, to: target });
+    gs = applyAction(gs, { type: "attack.chooseAttackers", playerId: pid, count: 1 });
+    function Defender() {
+      const [state, setState] = useState(gs);
+      current = state;
+      return <GameScreen gs={state} viewer={enemy} dispatch={(action) => setState((previous) => applyAction(previous, action))} onExit={() => {}} error={null} />;
+    }
+    render(<Defender />);
+    const combat = screen.getByRole("dialog", { name: "Combat" });
+    fireEvent.click(within(combat).getByRole("button", { name: `${gs.players[enemy].name}: Bunker` }));
+    expect(screen.queryByRole("dialog", { name: "Combat" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "CHOOSE TERRITORY" }));
+    fireEvent.click(document.getElementById(target)!);
+    fireEvent.click(screen.getByRole("button", { name: "CONFIRM" }));
+    expect(current.territories[target].scars).toContain("bunker");
+    expect(current.players[enemy].scarHand).toHaveLength(0);
+    expect(current.combat?.natural).toBeUndefined();
+    expect(screen.getByRole("dialog", { name: "Combat" })).toBeTruthy();
+  });
+
   it("drives declare → dice choice → auto-defend roll → attack again → move-in to conquest", () => {
     const { gs, pid, mine, target } = atExpandAttack(41);
     render(<Harness initial={gs} />);
@@ -35,18 +82,22 @@ describe("combat overlay (UI-8)", () => {
     fireEvent.click(document.getElementById(mine)!);
     fireEvent.click(document.getElementById(target)!);
     const dialog = screen.getByRole("dialog", { name: "Combat" });
+    expect(dialog.closest("[data-battle-tray]")).toBeTruthy();
     expect(within(dialog).getByText(new RegExp(territoryName(target)))).toBeTruthy();
     expect(current.combat).toBeTruthy();
 
-    // The attacker count opens at the legal maximum with its number focused and selected.
+    // Each attack starts at zero until the player chooses a legal count.
     // MIN/MAX are quick presets, while Enter submits the highlighted number.
     const attackers = screen.getByRole("spinbutton", { name: "Attacking troops" }) as HTMLInputElement;
-    expect(attackers.value).toBe("3");
+    expect(attackers.value).toBe("0");
+    expect((screen.getByRole("button", { name: "Attack with 0 dice" }) as HTMLButtonElement).disabled).toBe(true);
     expect(document.activeElement).toBe(attackers);
     fireEvent.click(screen.getByRole("button", { name: "Use minimum attackers" }));
     expect(attackers.value).toBe("1");
+    expect(screen.getByLabelText("Selected attack dice").querySelectorAll("[data-table-anchor='die']")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Use maximum attackers" }));
     expect(attackers.value).toBe("3");
+    expect(screen.getByLabelText("Selected attack dice").querySelectorAll("[data-table-anchor='die']")).toHaveLength(3);
     fireEvent.keyDown(attackers, { key: "Enter", code: "Enter" });
 
     // The defender decision then enables auto-defend (max dice), which dispatches
@@ -57,6 +108,9 @@ describe("combat overlay (UI-8)", () => {
     expect(document.querySelectorAll("[data-die-face]").length).toBeGreaterThan(0);
     expect(document.querySelector("[data-casualty-delta='att']")).toBeTruthy();
     expect(document.querySelector("[data-casualty-delta='def']")).toBeTruthy();
+    const comparisons = screen.getByRole("list", { name: "Resolved dice comparisons" });
+    const resolvedRoll = current.log.filter((event) => event.type === "CombatResolved").at(-1)!;
+    expect(within(comparisons).getAllByRole("listitem")).toHaveLength((resolvedRoll.data as { comparisons: unknown[] }).comparisons.length);
 
     // siege loop: ATTACK AGAIN re-arms the same battle until the single defender falls
     for (let i = 0; i < 30; i++) {
@@ -69,6 +123,8 @@ describe("combat overlay (UI-8)", () => {
       }
       const again = screen.queryByRole("button", { name: "ATTACK AGAIN" });
       if (again) { fireEvent.click(again); continue; }
+      const maximum = screen.queryByRole("button", { name: "Use maximum attackers" });
+      if (maximum) fireEvent.click(maximum);
       const dice = attackDiceBtn();
       if (dice) { fireEvent.click(dice); continue; }
       throw new Error("combat overlay offered no next step");
@@ -89,6 +145,7 @@ describe("combat overlay (UI-8)", () => {
 
     fireEvent.click(document.getElementById(mine)!);
     fireEvent.click(document.getElementById(target)!);
+    fireEvent.click(screen.getByRole("button", { name: "Use maximum attackers" }));
     fireEvent.click(screen.getByRole("button", { name: "Attack with 3 dice" }));
     fireEvent.click(screen.getByRole("button", { name: "Defend with 1 die" }));
 
@@ -100,6 +157,8 @@ describe("combat overlay (UI-8)", () => {
     // spend one missile, then pass — the roll resolves with an unmodifiable 6
     fireEvent.click(screen.getAllByRole("button", { name: /^Missile: set attack die/ })[0]);
     expect(current.players[observer].missiles).toBe(1);
+    expect(screen.getByRole("list", { name: "Missile interventions" }).textContent).toContain(`${gs.players[observer].name} intervened`);
+    expect(document.querySelector("[data-die-change]")?.textContent).toContain("→ 6");
     expect(screen.getByText("MISSILE WINDOW")).toBeTruthy(); // still holding a missile — window persists
     fireEvent.click(screen.getByRole("button", { name: "PASS" }));
 

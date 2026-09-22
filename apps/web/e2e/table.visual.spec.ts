@@ -39,7 +39,7 @@ test("populated Pixi table renders generated pieces, permanent marks, and intera
   await keyboardTarget.press("Enter");
   await expect(keyboardTarget).toHaveAttribute("aria-pressed", "true");
 
-  await page.locator("canvas").evaluate((canvas) => {
+  await page.getByTestId("pixi-table-host").locator("canvas").evaluate((canvas) => {
     canvas.dispatchEvent(new Event("webglcontextlost"));
     canvas.dispatchEvent(new Event("webglcontextrestored"));
   });
@@ -138,7 +138,7 @@ test("battle and conquest execute as skippable semantic sequences", async ({ pag
   await expect(skip).toBeHidden();
 
   await page.getByRole("button", { name: "BATTLE", exact: true }).dispatchEvent("click");
-  await page.clock.runFor(1_040);
+  await page.clock.runFor(1_160);
   expect(await page.screenshot()).toMatchSnapshot("table-battle-impact.png", { maxDiffPixelRatio: 0.02, threshold: 0.3 });
   await page.clock.fastForward(1_000);
   await page.clock.fastForward(1_000);
@@ -152,13 +152,13 @@ test("battle and conquest execute as skippable semantic sequences", async ({ pag
 const fullMotionCaptures = [
   ["RECRUIT", 180, "table-recruit-placement.png"],
   ["MANEUVER", 520, "table-maneuver-travel.png"],
-  ["ATTACKER LOSS", 1_160, "table-battle-attacker-loss.png"],
-  ["DEFENDER LOSS", 1_160, "table-battle-defender-loss.png"],
-  ["BATTLE", 1_160, "table-battle-mixed-loss.png"],
-  ["MISSILE", 410, "table-missile-modifier.png"],
+  ["ATTACKER LOSS", 1_280, "table-battle-attacker-loss.png"],
+  ["DEFENDER LOSS", 1_280, "table-battle-defender-loss.png"],
+  ["BATTLE", 1_280, "table-battle-mixed-loss.png"],
+  ["MISSILE", 530, "table-missile-modifier.png"],
   ["NUCLEAR", 420, "table-nuclear-resolution.png"],
   ["MODULE", 420, "table-module-reveal.png"],
-  ["VICTORY", 520, "table-victory.png"],
+  ["VICTORY", 1_520, "table-victory.png"],
   ["SIGNING", 160, "table-signing.png"],
 ] as const;
 
@@ -233,5 +233,12 @@ test("real local campaign enters the production Pixi table", async ({ page }) =>
   await page.getByRole("button", { name: "SEAL PREPARATION" }).click();
   await expectHealthyTable(page);
   await page.getByRole("button", { name: "BEGIN SETUP" }).click();
+  await expect(page.getByText(/Choose a faction/i)).toBeVisible();
+  await page.getByRole("button", { name: "HOW TO PLAY" }).click();
+  const guide = page.getByRole("dialog", { name: "How to play" });
+  await expect(guide).toBeVisible();
+  // A real click verifies the guide sits above the faction takeover, not behind it.
+  await guide.getByRole("button", { name: "BACK TO GAME" }).click();
+  await expect(guide).toBeHidden();
   await expect(page.getByText(/Choose a faction/i)).toBeVisible();
 });

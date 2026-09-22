@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// new (UI-9): rendered Resource cards — component contract (territory face with per-continent
+// rendered Resource cards — component contract (territory face with per-continent
 // silhouette + coin pips incl. upgrades, coin face, card back), the end-of-turn draw flow on
 // card components, and the hidden-hand guarantee against filtered payloads.
 import "../../test-shims.ts";
@@ -100,7 +100,7 @@ describe("card flows (UI-9)", () => {
     const before = gs.territories[match.territoryId].troops;
 
     render(<Harness initial={gs} />);
-    fireEvent.click(screen.getByRole("button", { name: "Take slot 1 and reinforce" }));
+    fireEvent.click(screen.getByRole("button", { name: "Take slot 1" }));
     expect(current.territories[match.territoryId].troops).toBe(before + 1);
   });
 

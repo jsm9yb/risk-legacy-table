@@ -1,4 +1,4 @@
-// new (UI-1): player-facing labels for content ids — the UI never shows raw snake_case ids.
+// player-facing labels for content ids — the UI never shows raw snake_case ids.
 import { contentPack, factionDefinitionById } from "@risk/content";
 import { manifest } from "@risk/map";
 import { resourceCardDefinition, type GameState } from "@risk/rules";

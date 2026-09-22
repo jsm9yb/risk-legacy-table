@@ -38,6 +38,7 @@ export default function Inspector({ gs, tid, actor, canAct, ui }: {
         </div>
         {t.hqFaction && <div className="text-muted">HQ: <span className="text-text">{factionById(t.hqFaction)?.name}</span> (worth a Red Star to its holder)</div>}
         {t.city && <div className="text-muted">{t.city.type === "major" ? "Major" : t.city.type === "minor" ? "Minor" : "World"} City{t.city.name ? ` "${t.city.name}"` : ""} / population {t.city.population}</div>}
+        {t.city && <p className="text-xs text-muted">City population adds to your territory count before dividing by 3 for recruitment. Cities remain on the campaign board between games.</p>}
         {t.scars.map((sid) => (
           <div key={sid} className="text-danger">
             Scar: {scarName(sid)}
@@ -92,7 +93,7 @@ function NextClick({ gs, tid, actor, ui }: { gs: GameState; tid: string; actor: 
       const canAttack = t.troops >= 2;
       targets = neighborsOf(gs, tid).map((n) => {
         const nt = gs.territories[n];
-        if (!nt.controller && nt.troops === 0) return { id: n, verdict: `expand (${ui.expandCount} troops in)`, tone: "expand" as const };
+        if (!nt.controller && nt.troops === 0) return { id: n, verdict: "expand (choose troop count)", tone: "expand" as const };
         if (nt.controller && nt.controller !== actor) {
           if (gs.blockedAttackTargets.includes(n)) return { id: n, verdict: "locked this turn (Defensive Stand)", tone: "muted" as const };
           if (!canAttack) return { id: n, verdict: "cannot attack: needs 2+ troops here", tone: "muted" as const };
@@ -104,7 +105,7 @@ function NextClick({ gs, tid, actor, ui }: { gs: GameState; tid: string; actor: 
     } else if (ui.selected && neighborsOf(gs, ui.selected).includes(tid)) {
       line = t.controller
         ? <>Next click here: <span className="text-danger">declare the attack from {territoryName(ui.selected)}</span>: {t.troops} defending.</>
-        : <>Next click here: <span className="text-ok">expand from {territoryName(ui.selected)}</span> with {ui.expandCount} troops.</>;
+        : <>Next click here: <span className="text-ok">choose troops to expand from {territoryName(ui.selected)}</span>.</>;
     } else {
       line = <>Select one of your territories first to attack or expand.</>;
     }
@@ -118,14 +119,14 @@ function NextClick({ gs, tid, actor, ui }: { gs: GameState; tid: string; actor: 
           ? <>Cannot maneuver from here: <span className="text-danger">source needs 2+ troops</span>.</>
           : <>Next click here: <span className="text-signal">select as your maneuver source</span>.</>;
       targets = t.troops >= 2
-        ? network.map((n) => ({ id: n, verdict: `move ${Math.min(ui.moveCount, Math.max(1, t.troops - 1))} troops${ignoresConnectivity ? " (connectivity ignored)" : ""}`, tone: "move" as const }))
+        ? network.map((n) => ({ id: n, verdict: `choose troop count${ignoresConnectivity ? " (connectivity ignored)" : ""}`, tone: "move" as const }))
         : [];
       if (t.troops >= 2 && network.length === 0) line = <>No legal destination from here.</>;
     } else if (ui.selected) {
       const reachable = maneuverDestinations(gs, actor, ui.selected).includes(tid);
       const ignoresConnectivity = ignoresManeuverConnectivity(gs, actor);
       line = reachable
-        ? <>Next click here: <span className="text-ok">move {ui.moveCount} troops from {territoryName(ui.selected)}</span>.</>
+        ? <>Next click here: <span className="text-ok">choose troops to move from {territoryName(ui.selected)}</span>.</>
         : ignoresConnectivity
           ? <>Not yours: this power ignores connectivity, but the destination must still be owned by you.</>
           : <>Unreachable: maneuvers travel only through territory you control.</>;
