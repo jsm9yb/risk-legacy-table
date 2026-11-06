@@ -86,6 +86,8 @@ describe("expressive table motion", () => {
     expect((scene.marksLayer.children[1].getChildByLabel("legacy:tally") as any).text).toBe("×3");
     scene.renderMarks({...revised,worldName:"   ",signatures:{[playerId]:0}});
     expect(scene.marksLayer.children).toHaveLength(0);
+    scene.renderMarks({...revised,worldName:"An Unnamed World",signatures:{[playerId]:0}});
+    expect(scene.marksLayer.children).toHaveLength(0);
   });
 
   it("restores prior ink when interrupted and settles new ink at the same place in reduced motion", async () => {

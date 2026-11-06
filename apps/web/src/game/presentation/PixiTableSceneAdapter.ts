@@ -531,7 +531,7 @@ export class PixiTableSceneAdapter implements TableScene {
     this.marksLayer.removeChildren().forEach((child) => child.destroy({ children: true, context: true }));
     // Reconstruct legacy ink from authoritative state on every redraw/reconnect.
     // The animation uses the same positions and typography, so its final frame persists.
-    if (state.worldName.trim()) {
+    if (state.worldName.trim() && state.worldName.trim() !== "An Unnamed World") {
       const inscription = this.legacyInscription(state.worldName, true);
       inscription.label = "legacy:world.name";
       inscription.position.set(WORLD_WIDTH / 2, 38);
