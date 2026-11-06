@@ -71,6 +71,8 @@ export default function TableDemo() {
   const playerCount = Math.max(3, Math.min(5, Number(query.get("players")) || 3));
   const fixtureName = query.get("fixture");
   const showcase = query.get("showcase") === "1";
+  const animationShowcase = query.get("animation-showcase") === "1";
+  const [decisionPreview, setDecisionPreview] = useState(false);
   const controls = useRef<TableHistoryControls>();
   const [state, setState] = useState(() => fixture({ players: playerCount, empty: fixtureName === "empty", allMarks: fixtureName === "marks", clutter: fixtureName === "clutter" }));
   const [selected, setSelected] = useState("alaska");
@@ -106,8 +108,15 @@ export default function TableDemo() {
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-ink p-3">
-      <GameTable authoritativeState={state} interaction={interaction} onTerritoryActivate={setSelected} onPresentationReady={value => {controls.current = value;}} source="replay" />
+      <GameTable authoritativeState={state} interaction={interaction} onTerritoryActivate={setSelected} onPresentationReady={value => {controls.current = value;}} source="replay" previewConfiguration={animationShowcase ? {actorId: "u1", placeCount: 3, expandCount: 3, moveCount: 3, destination: decisionPreview ? "northwest_territory" : undefined} : undefined} />
       <div className="absolute bottom-4 left-1/2 z-50 flex max-w-[95vw] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded border border-white/15 bg-black/80 p-2 backdrop-blur">
+        {animationShowcase && <>
+          <DemoButton label="READY ARMIES" onClick={() => transition([{type: "TroopsPlaced", playerId: "u1", data: {territory: "alaska", count: 13}}], next => { next.territories.alaska.troops = 14; })} />
+          <DemoButton label="ARMY ARRIVAL" onClick={() => transition([{type: "Maneuvered", playerId: "u1", data: {from: "alaska", to: "alberta", count: 8}}], next => { next.territories.alaska.troops = Math.max(1, next.territories.alaska.troops - 8); next.territories.alberta.troops += 8; })} />
+          <DemoButton label="DECISION PREVIEW" onClick={() => setDecisionPreview(value => !value)} />
+          <DemoButton label="ELIMINATION" onClick={() => transition([{type: "PlayerEliminated", playerId: "u2", data: {by: "u1"}}], next => { next.players.u2.eliminated = true; })} />
+          <DemoButton label="KNOCKOUT" onClick={() => transition([{type: "PlayerKnockedOut", playerId: "u2", data: {by: "u1"}}], next => { next.players.u2.knockedOut = true; })} />
+        </>}
         {showcase && <>
           <DemoButton label="PLAY WAR" onClick={() => {const api = controls.current; if (api) void api.playHistory(api.history().slice(-5));}} />
           <DemoButton label="BEFORE WORLD" onClick={() => {const api = controls.current, frame = api?.history().at(-1); if (api && frame) void api.playHistory([frame], {hold: true, side: "before"});}} />
@@ -131,7 +140,7 @@ export default function TableDemo() {
           <DemoButton label="POWER" onClick={() => transition([{ type: "FactionPowerApplied", playerId: "u1", data: { powerId: "fortified_hq", territory: "alaska" } }])} />
           <DemoButton label="HANDOFF" onClick={() => transition([{ type: "TurnStarted", playerId: "u2", data: { turn: 2 } }], next => { next.activeIdx = 1; })} />
           <DemoButton label="DESTROY CARD" onClick={() => transition([{ type: "TerritoryCardDestroyed", playerId: "u1", data: { territory: "greenland", cardId: "territory_greenland" } }])} />
-          <DemoButton label="WORLD NAME" onClick={() => transition([{ type: "WorldNamed", playerId: "u1", data: { name: "The Last Republic" } }])} />
+          <DemoButton label="WORLD NAME" onClick={() => transition([{ type: "WorldNamed", playerId: "u1", data: { name: "The Last Republic" } }], next => { next.worldName = "The Last Republic"; })} />
           <DemoButton label="SETUP CLAIM" onClick={() => transition([{ type: "FactionChosen", playerId: "u1", data: { factionId: "die_mechaniker", territory: "alaska", troops: 8 } }])} />
           <DemoButton label="ISLAND" onClick={() => transition([{ type: "AlienIslandPlaced", playerId: "u1", data: { territory: "alien_island", connections: ["indonesia", "eastern_australia"] } }], next => { next.alienIsland = { territoryId: "alien_island", name: "New Eden", connections: ["indonesia", "eastern_australia"] }; next.territories.alien_island = { controller: "u1", troops: 3, scars: [] }; })} />
         </>}
@@ -157,7 +166,7 @@ export default function TableDemo() {
         <DemoButton label="MODULE" onClick={() => transition([{ type: "ModuleRevealed", data: { moduleId: "pocket_demo" } }])} />
         <DemoButton label="NUCLEAR" onClick={() => transition([{ type: "NuclearOpeningResolved", data: { territories: ["alaska", "northwest_territory", "alberta"] } }], (next) => { next.territories.alaska.troops = Math.max(0, next.territories.alaska.troops - 3); next.territories.northwest_territory.troops = 0; })} />
         <DemoButton label="VICTORY" onClick={() => transition([{ type: "GameWon", playerId: "u1", data: { reason: "4 Red Stars" } }], (next) => { next.winner = "u1"; next.winReason = "4 Red Stars"; })} />
-        <DemoButton label="SIGNING" onClick={() => transition([{ type: "BoardSigned", playerId: "u1", data: { signatures: 1 } }])} />
+        <DemoButton label="SIGNING" onClick={() => transition([{ type: "BoardSigned", playerId: "u1", data: { signatures: 1 } }], next => { next.signatures.u1 = (next.signatures.u1 ?? 0) + 1; })} />
       </div>
     </main>
   );

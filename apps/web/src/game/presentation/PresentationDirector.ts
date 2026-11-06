@@ -44,6 +44,9 @@ export function createPresentationDirector(scene: TableScene, clock: Presentatio
   let authoritative: GameState | undefined;
   let replaying = false;
   let interaction: TableInteractionModel = {intents: {}};
+  let feedback: AbortController | undefined;
+  let feedbackKey = "";
+  const stopFeedback = () => { feedback?.abort(); feedback = undefined; feedbackKey = ""; };
   const queue: StateTransition[] = [];
   const listeners = new Set<(snapshot: PresentationSnapshot) => void>();
   let snapshot: PresentationSnapshot = { status: "loading", queuedTransitions: 0, canSkip: false, inputBlocked: true };
@@ -69,6 +72,7 @@ export function createPresentationDirector(scene: TableScene, clock: Presentatio
     const transition = queue.shift();
     if (!transition) { publish({ status: "idle", activeEventSeq: undefined, activeBeat: undefined, canSkip: false, inputBlocked: false }); return; }
     activeTransition = transition;
+    stopFeedback();
     const sequence = planTransition(transition, preference);
     const catchingUp = queue.length >= 8 || sequence.estimatedDurationMs > 12000;
     const scale = catchingUp ? 0.35 : 1;
@@ -138,6 +142,7 @@ export function createPresentationDirector(scene: TableScene, clock: Presentatio
     async playHistory(frames, options = {}) {
       if (!mounted || disposed || !authoritative || activeTransition || !frames.length) return;
       // Replacing a held historical view must not allow its old finally block to restore over us.
+      stopFeedback();
       active?.abort();
       audio.stopTransient();
       const controller = new AbortController();
@@ -185,10 +190,27 @@ export function createPresentationDirector(scene: TableScene, clock: Presentatio
         }
       }
     },
-    setInteractionState(state) { interaction = state; if (!replaying) scene.setInteraction(state); },
-    setMotionPreference(next) { preference = next; },
+    setInteractionState(state) {
+      interaction = state;
+      if (replaying || disposed) return;
+      scene.setInteraction(state);
+      const territoryId = state.preview?.from ?? state.selectedTerritoryId ?? state.preview?.to;
+      const targetId = state.preview?.to;
+      const key = JSON.stringify([territoryId, targetId, state.preview?.kind, state.preview?.count]);
+      if (key === feedbackKey) return;
+      stopFeedback();
+      if (!mounted || activeTransition || state.resourceValues || preference !== "full" || !territoryId) return;
+      feedbackKey = key;
+      const controller = new AbortController();
+      feedback = controller;
+      void scene.execute({type: "decision.feedback", territoryId, targetId, playerId: state.preview?.playerId}, controller.signal, 900)
+        .catch(() => { /* Optional feedback must never block a legal decision. */ })
+        .finally(() => { if (feedback === controller) feedback = undefined; });
+    },
+    setMotionPreference(next) { preference = next; stopFeedback(); },
     skipCurrentSequence() { active?.abort(); audio.stopTransient(); },
     settleImmediately(state, reason) {
+      stopFeedback();
       const wasReplaying = replaying;
       authoritative = state;
       replaying = false;
@@ -204,6 +226,6 @@ export function createPresentationDirector(scene: TableScene, clock: Presentatio
       publish({ status: "idle", activeEventSeq: undefined, activeBeat: undefined, replay: undefined });
     },
     subscribe(listener) { listeners.add(listener); listener(snapshot); return () => listeners.delete(listener); },
-    dispose() { disposed = true; active?.abort(); queue.splice(0); audio.dispose(); scene.dispose(); listeners.clear(); },
+    dispose() { disposed = true; stopFeedback(); active?.abort(); queue.splice(0); audio.dispose(); scene.dispose(); listeners.clear(); },
   };
 }

@@ -5,6 +5,7 @@ import type { SceneCommand, TableInteractionModel, TableRenderModel, TableSceneD
 
 const describe = (command: SceneCommand): string => {
   switch (command.type) {
+    case "decision.feedback": return `decision.feedback ${command.territoryId ?? "none"} -> ${command.targetId ?? "none"}`;
     case "battle.prepare": return `battle.prepare ${command.from} -> ${command.to} att=${command.attackCount ?? "pending"} def=${command.defenseCount ?? "pending"}`;
     case "setup.faction": return `setup.faction ${command.playerId} ${command.factionId}`;
     case "score.change": return `score.change ${command.changes.map(c => `${c.playerId}:${c.before}->${c.after}`).join(",")}`;

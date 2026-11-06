@@ -44,7 +44,7 @@ export type PresentationEvent =
   | { type: "alienIsland.placed"; seq: number; playerId: PlayerId; territoryId: TerritoryId; connections: [TerritoryId, TerritoryId] }
   | { type: "phase.changed"; seq: number; phase: GameState["phase"] }
   | { type: "game.won"; seq: number; playerId: PlayerId; reason: string }
-  | { type: "legacy.ritual"; seq: number; ritual: "board.signed" | "continent.named" | "card.upgraded" | "world.named" | "ruins.placed" | "card.destroyed" | "continent.bonus" | "scar.cancelled"; text?: string; playerId?: PlayerId; territoryId?: TerritoryId; cardId?: string; resources?: number }
+  | { type: "legacy.ritual"; seq: number; continentId?: string; ritual: "board.signed" | "continent.named" | "card.upgraded" | "world.named" | "ruins.placed" | "card.destroyed" | "continent.bonus" | "scar.cancelled"; text?: string; playerId?: PlayerId; territoryId?: TerritoryId; cardId?: string; resources?: number }
   | { type: "presentation.none"; seq: number; sourceType: string }
   | { type: "presentation.unknown"; seq: number; sourceType: string };
 
@@ -100,6 +100,7 @@ export interface TableSceneDiagnostics {
 }
 
 export type SceneCommand = GameplayCommand
+  | { type: "decision.feedback"; territoryId?: TerritoryId; targetId?: TerritoryId; playerId?: PlayerId }
   | { type: "camera.frame"; from?: TerritoryId; to?: TerritoryId }
   | { type: "army.anticipate"; territoryId: TerritoryId }
   | { type: "army.place"; territoryId: TerritoryId; playerId: PlayerId; count: number }
@@ -119,7 +120,7 @@ export type SceneCommand = GameplayCommand
   | { type: "alienIsland.place"; territoryId: TerritoryId; connections: [TerritoryId, TerritoryId] }
   | { type: "phase.change"; phase: GameState["phase"] }
   | { type: "game.victory"; playerId: PlayerId; reason: string }
-  | { type: "legacy.ritual"; ritual: "board.signed" | "continent.named" | "card.upgraded" | "world.named" | "ruins.placed" | "card.destroyed" | "continent.bonus" | "scar.cancelled"; text?: string; territoryId?: TerritoryId; cardId?: string; playerId?: PlayerId; resources?: number }
+  | { type: "legacy.ritual"; continentId?: string; ritual: "board.signed" | "continent.named" | "card.upgraded" | "world.named" | "ruins.placed" | "card.destroyed" | "continent.bonus" | "scar.cancelled"; text?: string; territoryId?: TerritoryId; cardId?: string; playerId?: PlayerId; resources?: number }
   | { type: "table.resync"; reason: string };
 
 export interface VisualBeat {

@@ -127,7 +127,7 @@ function mapEvent(previous: GameState, next: GameState, event: GameEvent): Prese
       if (p) return { type: "game.won", seq: event.seq, playerId: p, reason: str(event, "reason") ?? next.winReason ?? "victory" };
       break;
     case "BoardSigned": return { type: "legacy.ritual", seq: event.seq, ritual: "board.signed", playerId: p };
-    case "ContinentNamed": return { type: "legacy.ritual", seq: event.seq, ritual: "continent.named", playerId: p, text: str(event, "name") };
+    case "ContinentNamed": return { type: "legacy.ritual", seq: event.seq, ritual: "continent.named", continentId: str(event, "continentId"), playerId: p, text: str(event, "name") };
     case "TerritoryCardUpgraded": return { type: "legacy.ritual", seq: event.seq, ritual: "card.upgraded", playerId: p, cardId: str(event, "cardId"), resources: num(event, "resources"), text: `${num(event, "resources") ?? ""} resources`, territoryId: territory };
     case "WorldNamed": return { type: "legacy.ritual", seq: event.seq, ritual: "world.named", playerId: p, text: str(event, "name") };
     case "AlienRuinsPlaced": return { type: "legacy.ritual", seq: event.seq, ritual: "ruins.placed", playerId: p, territoryId: territory };
