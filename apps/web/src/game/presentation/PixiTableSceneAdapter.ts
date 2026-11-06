@@ -11,7 +11,7 @@ import {
   type FederatedPointerEvent,
 } from "pixi.js";
 import { contentPack, factionDefinitionById } from "@risk/content";
-import { manifest, presentationFor, territoryPath } from "@risk/map";
+import { continentPresentationDefinitions, manifest, presentationFor, territoryPath } from "@risk/map";
 import type { FactionId, GameState, TerritoryId } from "@risk/rules";
 import boardSvg from "../../../../../packages/map/assets/board.svg?raw";
 import {
@@ -529,6 +529,24 @@ export class PixiTableSceneAdapter implements TableScene {
 
   private renderMarks(state: GameState) {
     this.marksLayer.removeChildren().forEach((child) => child.destroy({ children: true, context: true }));
+    // Reconstruct legacy ink from authoritative state on every redraw/reconnect.
+    // The animation uses the same positions and typography, so its final frame persists.
+    if (state.worldName.trim() && state.worldName.trim() !== "An Unnamed World") {
+      const inscription = this.legacyInscription(state.worldName, true);
+      inscription.label = "legacy:world.name";
+      inscription.position.set(WORLD_WIDTH / 2, 20);
+      this.marksLayer.addChild(inscription);
+    }
+    for (const [playerId, count] of Object.entries(state.signatures)) {
+      if (count <= 0 || !state.players[playerId]) continue;
+      const maxWidth = Math.min(150, (WORLD_WIDTH - 40) / Math.max(1, Object.keys(state.players).length) - 16);
+      const inscription = this.legacyInscription(state.players[playerId].name, false, maxWidth);
+      inscription.label = `legacy:signature:${playerId}`;
+      inscription.position.set(...this.playerStation(playerId));
+      const tally = this.tableText({text: `×${count}`, style: {fill:0xc8b58c, fontFamily:"monospace", fontSize:6, fontWeight:"700"}});
+      tally.anchor.set(0.5); tally.y = -14; tally.label = "legacy:tally";
+      inscription.addChild(tally); this.marksLayer.addChild(inscription);
+    }
     for (const model of continentMarkModels(state)) {
       if (model.name) {
         const name = this.tableText({
@@ -823,6 +841,7 @@ export class PixiTableSceneAdapter implements TableScene {
     this.anchors?.capture();
     if ((globalThis as any).__riskTableDiagnostics) (globalThis as any).__riskTableDiagnostics.lastCommand = { ...command, durationMs };
     switch (command.type) {
+      case "decision.feedback": return this.animateDecision(command, durationMs, signal);
       case "camera.frame": return this.animateCamera(command.from, command.to, durationMs <= 120 ? 0 : durationMs, signal);
       case "army.place": return this.animatePlacement(command.territoryId, command.playerId, durationMs, signal, command.count);
       case "army.move": return this.animateMove(command.from, command.to, command.count, durationMs, signal, "army", undefined, command.route);
@@ -844,7 +863,7 @@ export class PixiTableSceneAdapter implements TableScene {
       case "game.victory": return this.animateVictory(command.playerId, command.reason, durationMs, signal);
       case "legacy.ritual":
         if (command.playerId && (command.ritual === "card.upgraded" || command.ritual === "card.destroyed")) return this.animateCards({type: "cards.transfer", playerId: command.playerId, kind: command.ritual === "card.upgraded" ? "upgrade" : "destroy", count: 1, cardIds: command.cardId ? [command.cardId] : undefined, resources: command.resources, territoryId: command.territoryId}, durationMs, signal);
-        return this.animateLegacyRitual(command.ritual, command.territoryId, durationMs, signal, command.text);
+        return this.animateLegacyRitual(command, durationMs, signal);
       case "recruitment.show": return this.animateRecruitment(command, durationMs, signal);
       case "cards.transfer": return this.animateCards(command, durationMs, signal);
       case "turn.handoff": return this.animateHandoff(command, durationMs, signal);
@@ -858,7 +877,7 @@ export class PixiTableSceneAdapter implements TableScene {
       case "score.change": return this.animateScore(command, durationMs, signal);
       case "hq.capture": return this.animateAward(command.playerId, command.territoryId, `${command.factionId.replace(/_/g, " ")} HQ CAPTURED`, durationMs, signal);
       case "city.damage": return this.animateFortification(command.territoryId, command.remaining, durationMs, signal, true);
-      case "player.eliminate": return this.animateNotice(`${this.playerName(command.playerId)} ${command.kind === "knocked_out" ? "KNOCKED OUT" : "ELIMINATED"}`, command.by ? [`${this.playerName(command.by)} claimed the final territory`] : [], durationMs, signal);
+      case "player.eliminate": return this.animateElimination(command, durationMs, signal);
       case "campaign.recap": return this.animateNotice(command.title, command.items, durationMs, signal);
       case "continent.control": return Promise.all([
         this.animateNotice(`${command.continentId.replace(/_/g, " ")} · ${command.gained ? "CONTROL SECURED" : "CONTROL BROKEN"}`, [this.playerName(command.playerId)], durationMs, signal),
@@ -973,18 +992,29 @@ export class PixiTableSceneAdapter implements TableScene {
       group.addChild(token);
     }
     group.position.set(...start);
+    const pieceScales = group.children.map(token => token.scale.y);
     this.effectsLayer.addChild(group);
     return this.animate(durationMs, signal, (p) => {
-      const eased = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
-      const position = movementRoutePoint(movement, eased);
-      group.x = position[0];
-      const groundY = position[1];
-      const lift = Math.sin(Math.PI * p);
-      shadow.position.set(group.x, groundY + 4);
-      shadow.scale.set(1 - lift * 0.15);
-      shadow.alpha = 1 - lift * 0.4;
-      group.y = groundY - lift * (kind === "missile" ? 16 : 5);
-      group.rotation = kind === "army" ? lift * 0.025 : 0;
+      group.position.set(0, 0);
+      group.rotation = 0;
+      const reduced = durationMs <= 120;
+      group.children.forEach((token, i) => {
+        const delay = Math.min(0.18, i * 0.035);
+        const t = reduced ? 1 : Math.max(0, Math.min(1, (p - delay) / (1 - delay)));
+        const travel = Math.min(1, t / 0.82);
+        const eased = travel * travel * (3 - 2 * travel);
+        const position = movementRoutePoint(movement, eased);
+        const landing = Math.max(0, (t - 0.82) / 0.18);
+        const hop = Math.sin(Math.PI * travel) * (kind === "missile" ? 16 : 8 + i % 3);
+        token.position.set(position[0] + (i - (group.children.length - 1) / 2) * 9, position[1] + (i % 2) * 3 - hop - Math.sin(landing * Math.PI) * 2);
+        token.scale.y = pieceScales[i] * (1 - Math.sin(landing * Math.PI) * 0.12);
+        if (kind === "army") token.rotation = Math.sin(travel * Math.PI) * (i % 2 ? 0.06 : -0.06);
+      });
+      const position = movementRoutePoint(movement, p);
+      shadow.position.set(position[0], position[1] + 4);
+      shadow.alpha = 0.6 + p * 0.4;
+      path.alpha = Math.min(1, p * 7) * Math.min(1, (1 - p) * 8);
+
     }, () => { path.destroy(); shadow.destroy(); group.destroy({ children: true, context: true }); });
   }
 
@@ -1004,10 +1034,15 @@ export class PixiTableSceneAdapter implements TableScene {
     group.position.set(...point);
     this.effectsLayer.addChild(group);
     return this.animate(durationMs, signal, (p) => {
-      const fall = p * p;
-      group.y = point[1] + fall * 5;
-      group.alpha = 1 - p * p;
-      group.rotation = fall * 0.28;
+      group.children.forEach((token, i) => {
+        const delay = Math.min(0.18, i * 0.035);
+        const t = durationMs <= 120 ? 0.7 : Math.max(0, Math.min(1, (p - delay) / (1 - delay)));
+        const fall = Math.min(1, t / 0.72);
+        token.y = (i % 2) * 3 + fall * fall * 6;
+        token.x = (i - (pieces.length - 1) / 2) * 8 + Math.sin(fall * Math.PI / 2) * (i % 2 ? 4 : -4);
+        token.rotation = durationMs <= 120 ? 0 : fall * fall * (i % 2 ? 1.25 : -1.25);
+        token.alpha = 1 - Math.max(0, (t - 0.5) / 0.5);
+      });
     }, () => group.destroy({ children: true, context: true }));
   }
 
@@ -1090,7 +1125,15 @@ export class PixiTableSceneAdapter implements TableScene {
     const subtitle = this.tableText({ text: moduleId.replace(/_/g, " ").toUpperCase(), style: { fill: 0x5f4a32, fontFamily: "monospace", fontSize: 7, fontWeight: "700", letterSpacing: 1 } });
     subtitle.anchor.set(0.5);
     subtitle.position.set(0, 34);
-    envelope.addChild(paper, flap, seal, title, subtitle);
+    const contents = new Container();
+    const sheet = new Graphics().roundRect(-78, -39, 156, 78, 2).fill(0xf4e8ca).stroke({color: 0x9a8159, width: 1});
+    const contentTitle = this.tableText({text: "A NEW CHAPTER", style: {fill: 0x453526, fontFamily: "monospace", fontSize: 10, fontWeight: "900"}});
+    contentTitle.anchor.set(0.5); contentTitle.y = -20;
+    const writing = new Graphics();
+    for (let row = 0; row < 4; row++) writing.moveTo(-57, row * 9).lineTo(50 - row % 2 * 18, row * 9).stroke({color: 0x957b58, width: 1.5, alpha: 0.7});
+    contents.addChild(sheet, contentTitle, writing);
+    const sealHalf = new Graphics().poly([0,-3,12,2,9,15,0,22,3,12,-2,7]).fill(0x872e2c).stroke({color:0xe1a55d,width:1});
+    envelope.addChild(paper, contents, flap, seal, sealHalf, title, subtitle);
     envelope.position.set(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
     group.addChild(veil, envelope);
     this.effectsLayer.addChild(group);
@@ -1099,8 +1142,13 @@ export class PixiTableSceneAdapter implements TableScene {
       group.alpha = Math.min(1, p * 5) * Math.min(1, (1 - p) * 5);
       envelope.scale.set(0.74 + reveal * 0.26);
       envelope.rotation = (1 - reveal) * -0.04;
-      seal.scale.set(p > 0.45 ? Math.max(0.1, 1 - (p - 0.45) * 3) : 1);
-      flap.y = p > 0.45 ? -(p - 0.45) * 34 : 0;
+      const opening = Math.max(0, Math.min(1, (p - 0.25) / 0.4));
+      seal.x = -opening * 22; seal.rotation = -opening * 0.8; seal.alpha = 1 - opening;
+      sealHalf.x = opening * 24; sealHalf.y = opening * 12; sealHalf.rotation = opening; sealHalf.alpha = 1 - opening;
+      flap.scale.y = 1 - opening * 1.85; flap.y = -opening * 35;
+      contents.y = -opening * 59; contents.rotation = -opening * 0.025;
+      contents.alpha = Math.min(1, opening * 3);
+      title.alpha = 1 - opening; subtitle.y = 34 + opening * 5;
     }, () => group.destroy({ children: true, context: true }));
   }
 
@@ -1151,25 +1199,52 @@ export class PixiTableSceneAdapter implements TableScene {
     }, () => group.destroy({ children: true, context: true }));
   }
 
-  private animateLegacyRitual(ritual: string, territoryId: string | undefined, durationMs: number, signal: AbortSignal, text?: string) {
-    if (territoryId && ritual === "ruins.placed") return this.animateCity(territoryId, "ruin", text ?? "RUINS", durationMs, signal);
-    const group = new Container();
-    const veil = new Graphics().rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT).fill({ color: 0x080a0d, alpha: 0.5 });
-    const card = new Container();
-    const paper = new Graphics().roundRect(-76, -36, 152, 72, 3).fill({ color: 0xe1d2b2 }).stroke({ color: 0xb69b6b, width: 2 });
-    const label = this.tableText({ text: text ?? ritual.replace(/\./g, " ").toUpperCase(), style: { fill: 0x332819, fontFamily: "monospace", fontSize: 9, fontWeight: "900", letterSpacing: 1, wordWrap: true, wordWrapWidth: 140, align: "center" } });
+  private legacyInk(text: string, large = false, maxWidth = 180) {
+    const label = this.tableText({text, style: {fill: 0xffe9b0, fontFamily: '"Segoe Print", "Bradley Hand", cursive', fontSize: large ? 17 : 11, fontWeight: "700", stroke: {color: 0x263029, width: 1.5}}});
     label.anchor.set(0.5);
-    label.position.set(0, -9);
-    const stroke = new Graphics().moveTo(-45, 15).bezierCurveTo(-12, -2, 8, 27, 47, 10).stroke({ color: 0x5c3c27, width: 2.2 });
-    card.addChild(paper, label, stroke);
-    card.position.set(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-    group.addChild(veil, card);
-    this.effectsLayer.addChild(group);
-    return this.animate(durationMs, signal, (p) => {
-      group.alpha = Math.min(1, p * 5) * Math.min(1, (1 - p) * 5);
-      card.scale.set(0.88 + Math.min(1, p * 3) * 0.12);
-      stroke.alpha = Math.min(1, Math.max(0, p - 0.2) * 3);
-    }, () => group.destroy({ children: true, context: true }));
+    if (label.width > maxWidth) label.scale.set(maxWidth / label.width);
+    label.label = "legacy:inscription";
+    return label;
+  }
+
+  private legacyInscription(text: string, large = false, maxWidth = 180) {
+    const group = new Container();
+    const label = this.legacyInk(text, large, maxWidth);
+    const width = label.width + 12;
+    const underline = new Graphics().moveTo(-width / 2,13).quadraticCurveTo(0,17,width / 2,12).stroke({color:0xddbc79,width:1.2});
+    group.addChild(label,underline);
+    return group;
+  }
+
+  private animateLegacyRitual(command: Extract<SceneCommand, {type: "legacy.ritual"}>, durationMs: number, signal: AbortSignal) {
+    const {ritual, territoryId, text} = command;
+    if (territoryId && ritual === "ruins.placed") return this.animateCity(territoryId, "ruin", text ?? "RUINS", durationMs, signal);
+    const continent = continentPresentationDefinitions.find(c => c.continentId === command.continentId);
+    const point = territoryId ? presentationFor(territoryId).cameraFocus : continent?.nameSlot ?? (ritual === "board.signed" && command.playerId ? this.playerStation(command.playerId) : [WORLD_WIDTH / 2, ritual === "world.named" ? 20 : 38]);
+    const group = new Container(); group.position.set(point[0], point[1]);
+    const name = text ?? (ritual === "board.signed" && command.playerId ? this.current?.state.players[command.playerId]?.name : undefined) ?? ritual.replace(/\./g, " ").toUpperCase();
+    const maxWidth = ritual === "board.signed" ? Math.min(150, (WORLD_WIDTH - 40) / Math.max(1, Object.keys(this.current!.state.players).length) - 16) : 180;
+    const label = this.legacyInk(name, ritual === "world.named", maxWidth);
+    const priorMark = this.marksLayer.children.find(mark => mark.label === (ritual === "world.named" ? "legacy:world.name" : ritual === "board.signed" ? `legacy:signature:${command.playerId}` : ""));
+    const priorVisibility = priorMark?.visible;
+    if (priorMark) priorMark.visible = false;
+    const width = label.width + 12;
+    const mask = new Graphics(); label.mask = mask;
+    const underline = new Graphics();
+    const pen = new Graphics().poly([0,0,4,-14,8,-12,2,2]).fill(0xd9ba76).stroke({color:0x3c3025,width:1});
+    group.addChild(label, mask, underline, pen); this.effectsLayer.addChild(group);
+    return this.animate(durationMs, signal, p => {
+      const ink = durationMs <= 120 ? 1 : Math.min(1, p / 0.75);
+      mask.clear().rect(-width / 2, -25, width * ink, 50).fill(0xffffff);
+      pen.position.set(-width / 2 + width * ink, Math.sin(ink * Math.PI * 10) * 3);
+      pen.alpha = p < 0.78 && durationMs > 120 ? 1 : 0;
+      underline.clear();
+      if (p > 0.7 || durationMs <= 120) underline.moveTo(-width / 2, 13).quadraticCurveTo(0, 17, -width / 2 + width * (durationMs <= 120 ? 1 : Math.min(1, (p - 0.7) / 0.3)), 12).stroke({color:0xddbc79,width:1.2});
+      group.alpha = Math.min(1, p * 8);
+    }, () => {
+      if (priorMark && !priorMark.destroyed) priorMark.visible = priorVisibility ?? true;
+      group.destroy({children:true, context:true});
+    });
   }
 
   private playerName(playerId: string) {
@@ -1239,7 +1314,15 @@ export class PixiTableSceneAdapter implements TableScene {
       context.strokeStyle = color; context.lineWidth = 2;
       context.beginPath(); context.moveTo(start.clientX, start.clientY); context.quadraticCurveTo((start.clientX + x) / 2, Math.min(start.clientY, y) - 30, x, y); context.stroke();
       for (let index = 0; index < Math.min(5, Math.max(1, count)); index++) {
-        context.save(); context.translate(x + index * 7, y + index * 3); context.rotate((1 - t) * -0.12);
+        context.save();
+        if (kind === "army" && durationMs > 120) {
+          const delay = index * 0.035;
+          const step = Math.max(0, Math.min(1, (p - delay) / (0.82 - delay)));
+          const eased = step * step * (3 - 2 * step);
+          const land = Math.max(0, Math.min(1, (p - 0.82) / 0.18));
+          context.translate(start.clientX + (end.clientX - start.clientX) * eased + index * 7, start.clientY + (end.clientY - start.clientY) * eased + index * 3 - Math.sin(Math.PI * step) * (40 + index * 3) - Math.sin(Math.PI * land) * 3);
+          context.rotate(Math.sin(step * Math.PI) * (index % 2 ? 0.08 : -0.08));
+        } else { context.translate(x + index * 7, y + index * 3); context.rotate((1 - t) * -0.12); }
         context.fillStyle = kind === "star" ? "#af4337" : kind === "army" ? color : "#e9dab8";
         context.beginPath();
         if (kind === "star") {
@@ -1268,6 +1351,13 @@ export class PixiTableSceneAdapter implements TableScene {
           context.fillStyle = "#34454a"; context.font = "bold 7px monospace"; context.textAlign = "center";
           const words = (face ?? "RISK LEGACY").toUpperCase().split(/\s+/);
           words.slice(0, 4).forEach((word, row) => context.fillText(word, 0, -8 + row * 9, 30));
+          if (label.startsWith("UPGRADE") && p > 0.4) {
+            const stamp = Math.min(1, (p - 0.4) / 0.25);
+            context.save(); context.globalAlpha *= stamp; context.rotate(-0.12);
+            context.fillStyle = "#b54b33"; context.fillRect(-15, 12, 30, 9);
+            context.fillStyle = "#fff0cd"; context.font = "bold 6px monospace"; context.fillText(face ?? "UPGRADED", 0, 19, 28);
+            context.restore();
+          }
         }
         context.restore();
       }
@@ -1367,12 +1457,109 @@ export class PixiTableSceneAdapter implements TableScene {
   }
 
   private animatePower(command: Extract<SceneCommand, {type: "power.activate"}>, durationMs: number, signal: AbortSignal) {
-    const palette = /bunker|defen|fortif/.test(command.powerId) ? "#91cee6" : /mutant|bio|toxic/.test(command.powerId) ? "#c2e071" : /move|mobil|maneuver/.test(command.powerId) ? "#90ded4" : "#ed9d78";
+    const factionId = this.current!.state.players[command.playerId]?.factionId ?? "";
+    const faction = factionDefinitionById(factionId, this.current!.state.unlockedModules);
+    const color = colorNumber(faction?.color);
+    const palette = faction?.color ?? "#ed9d78";
     const source = this.uiAnchor("faction", command.playerId) ?? this.uiAnchor("player", command.playerId) ?? (command.from ? this.boardClient(presentationFor(command.from).cameraFocus) : undefined);
-    const targetId = command.territoryId ?? command.to;
+    const targetId = command.territoryId ?? command.to ?? command.from;
     const target = (command.dieIndex === undefined ? undefined : this.uiDestination("die", undefined, `${command.side ?? "att"}:${command.dieIndex}`)) ?? (targetId ? this.boardClient(presentationFor(targetId).cameraFocus) : this.uiDestination("player", command.playerId));
-    if (source && target) return this.animateScreenFlight(source, target, "power", `${command.powerId.replace(/_/g, " ")}${command.delta === undefined ? "" : ` ${command.delta > 0 ? "+" : ""}${command.delta}`}`, durationMs, signal, 1, palette);
-    return this.animateNotice(this.playerName(command.playerId), [command.powerId.replace(/_/g, " ")], durationMs, signal, targetId);
+    const group = new Container();
+    const point = targetId ? presentationFor(targetId).cameraFocus : this.playerStation(command.playerId);
+    group.position.set(...point);
+    // Each faction has a readable silhouette as well as its own color and motion.
+    const style = factionId === "die_mechaniker" ? "gear" : factionId === "enclave_of_the_bear" ? "claws" : factionId === "imperial_balkania" ? "ranks" : factionId === "khan_industries" ? "forge" : factionId === "saharan_republic" ? "wind" : "ripple";
+    const marks: Graphics[] = [];
+    for (let i = 0; i < (style === "gear" ? 8 : 3); i++) {
+      const mark = new Graphics();
+      if (style === "gear") mark.roundRect(-3, -27, 6, 12, 1).fill({color, alpha:0.9});
+      else if (style === "claws") mark.moveTo(-12 + i * 10, -22).lineTo(-6 + i * 10, 19).stroke({color, width:3.5});
+      else if (style === "ranks") mark.moveTo(-22, i * 9 - 12).lineTo(0, i * 9 - 20).lineTo(22, i * 9 - 12).stroke({color, width:2.5});
+      else if (style === "forge") mark.roundRect(-24 + i * 17, -18, 12, 32, 1).stroke({color,width:2});
+      else if (style === "wind") mark.moveTo(-30, i * 9 - 12).bezierCurveTo(-7, i * 9 - 26, 4, i * 9 + 2, 30, i * 9 - 15).stroke({color,width:2});
+      else mark.ellipse(0,0,12 + i * 9,8 + i * 6).stroke({color,width:1.5});
+      if (style === "gear") mark.rotation = i * Math.PI / 4;
+      group.addChild(mark); marks.push(mark);
+    }
+    const label = this.effectLabel(command.powerId.replace(/_/g, " ").toUpperCase(), color);
+    label.y = 39; group.addChild(label); this.effectsLayer.addChild(group);
+    const motif = this.animate(durationMs, signal, p => {
+      const reduced = durationMs <= 120;
+      const strike = reduced ? 1 : Math.min(1, p / 0.38);
+      const settle = 1 - Math.pow(1 - strike, 3);
+      group.alpha = Math.min(1, p * 8) * Math.min(1, (1 - p) * 5);
+      marks.forEach((mark, i) => {
+        if (style === "gear") { mark.rotation = i * Math.PI / 4 + (reduced ? 0 : (1 - settle) * 0.65); mark.scale.set(1.5 - settle * 0.5); }
+        else if (style === "claws") { mark.scale.y = Math.max(0.01, settle); mark.y = (1 - settle) * -15; }
+        else if (style === "ranks") mark.x = (1 - settle) * (i % 2 ? -28 : 28);
+        else if (style === "forge") { mark.y = -(1 - settle) * (32 + i * 8); mark.scale.y = 1 - Math.sin(strike * Math.PI) * 0.15; }
+        else if (style === "wind") { mark.x = (1 - settle) * -35; mark.scale.x = 0.6 + settle * 0.4; }
+        else mark.scale.set(reduced ? 1 : 0.5 + p * (0.7 + i * 0.15));
+      });
+    }, () => group.destroy({children:true, context:true}));
+    const flight = source && target ? this.animateScreenFlight(source, target, "power", `${command.powerId.replace(/_/g, " ")}${command.delta === undefined ? "" : ` ${command.delta > 0 ? "+" : ""}${command.delta}`}`, durationMs, signal, 1, palette) : Promise.resolve();
+    return Promise.all([motif, flight]).then(() => undefined);
+  }
+
+  private animateDecision(command: Extract<SceneCommand, {type: "decision.feedback"}>, durationMs: number, signal: AbortSignal) {
+    const territoryId = command.territoryId ?? (command.playerId ? Object.entries(this.current!.state.territories).find(([,t]) => t.hqFaction === this.current!.state.players[command.playerId!]?.factionId)?.[0] : undefined);
+    if (!territoryId) return Promise.resolve();
+    const origin = presentationFor(territoryId).cameraFocus;
+    const movement = command.targetId ? printedMovementRoute(boardSvg, territoryId, command.targetId) : undefined;
+    const segments = movement?.flatMap(part => part.slice(1).map((end, i) => ({start:part[i], end, length:Math.hypot(end[0]-part[i][0],end[1]-part[i][1])}))) ?? [];
+    const length = segments.reduce((sum, segment) => sum + segment.length, 0);
+    const pieces = this.armyLayer.children.filter(token => token.label === `army:${territoryId}`).map(token => ({token, y:token.y, rotation:token.rotation}));
+    const group = new Container();
+    const ring = new Graphics().ellipse(0,0,18,10).stroke({color:0xa8e9da,width:1.4,alpha:0.8}); ring.position.set(...origin);
+    const route = new Graphics();
+    const marker = new Graphics().poly([0,-4,4,0,0,4,-4,0]).fill(0xe3f6d8);
+    group.addChild(ring, route, marker); this.effectsLayer.addChild(group);
+    return this.animate(durationMs, signal, p => {
+      const reduced = durationMs <= 120;
+      const t = reduced ? 1 : Math.min(1,p / 0.7);
+      const lift = reduced ? 0 : Math.sin(p * Math.PI);
+      pieces.forEach(({token,y,rotation},i) => { if (!token.destroyed) { token.y = y - lift * (2.5 + i % 2); token.rotation = rotation + lift * (i % 2 ? 0.025 : -0.025); } });
+      ring.scale.set(1 + lift * 0.16);
+      group.alpha = Math.min(1,p * 8) * Math.min(1,(1 - p) * 5);
+      if (movement) {
+        let remaining = length * t;
+        route.clear();
+        for (const segment of segments) {
+          const fraction = segment.length ? Math.min(1,remaining / segment.length) : 1;
+          route.moveTo(...segment.start).lineTo(segment.start[0] + (segment.end[0] - segment.start[0]) * fraction,segment.start[1] + (segment.end[1] - segment.start[1]) * fraction);
+          remaining -= segment.length;
+          if (remaining <= 0) break;
+        }
+        route.stroke({color:0xa8e9da,width:1.2,alpha:0.6});
+        marker.position.set(...movementRoutePoint(movement,t));
+      } else { marker.position.set(origin[0],origin[1] - 15 - lift * 3); }
+    }, () => {
+      pieces.forEach(({token,y,rotation}) => { if (!token.destroyed) { token.y = y; token.rotation = rotation; } });
+      group.destroy({children:true,context:true});
+    });
+  }
+
+  private animateElimination(command: Extract<SceneCommand, {type: "player.eliminate"}>, durationMs: number, signal: AbortSignal) {
+    const player = this.current!.state.players[command.playerId];
+    const knockedOut = command.kind === "knocked_out";
+    const group = new Container(); group.position.set(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+    const paper = new Graphics().roundRect(-110,-56,220,112,4).fill({color:0x182327,alpha:0.95}).stroke({color:0xa89370,width:1.5});
+    const emblem = this.atlasSprite(player?.factionId, "hq", 43) ?? pieceGraphic(3, 0xb9946c, 1.5);
+    emblem.y = -19;
+    const name = this.effectLabel(player?.name ?? this.playerName(command.playerId),0xf0dfbb); name.y = -43;
+    const stamp = this.effectLabel(knockedOut ? "KNOCKED OUT" : "ELIMINATED", knockedOut ? 0xe3c981 : 0xf0937d); stamp.y = 25;
+    const line = new Graphics().moveTo(-63,0).lineTo(63,0).stroke({color:knockedOut ? 0xe3c981 : 0xd26f60,width:2}); line.y = 25;
+    const credit = this.effectLabel(command.by ? `${this.playerName(command.by)} CLAIMED THE FINAL TERRITORY` : knockedOut ? "THE FACTION MAY RETURN" : "THIS WAR IS OVER",0xc2c8bc); credit.y = 45;
+    group.addChild(paper,emblem,name,stamp,line,credit); this.effectsLayer.addChild(group);
+    return this.animate(durationMs,signal,p => {
+      const t = durationMs <= 120 ? 1 : Math.min(1,p / 0.55);
+      group.alpha = Math.min(1,p * 8) * Math.min(1,(1 - p) * 6);
+      emblem.alpha = 1 - t * (knockedOut ? 0.45 : 0.8);
+      emblem.rotation = knockedOut ? 0 : t * -0.14;
+      stamp.scale.set(1 + (1 - t) * 0.55); stamp.alpha = Math.min(1,t * 2);
+      line.scale.x = knockedOut ? 0 : t; line.alpha = knockedOut ? 0 : 0.75;
+      credit.alpha = Math.max(0,(p - 0.35) / 0.3);
+    },() => group.destroy({children:true,context:true}));
   }
 
   private animateScore(command: Extract<SceneCommand, {type: "score.change"}>, durationMs: number, signal: AbortSignal) {

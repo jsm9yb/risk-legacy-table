@@ -26,7 +26,7 @@ function commandsFor(event: PresentationEvent): SceneCommand[][] {
     case "alienIsland.placed": return [[{ type: "alienIsland.place", territoryId: event.territoryId, connections: event.connections }]];
     case "phase.changed": return [[{ type: "phase.change", phase: event.phase }]];
     case "game.won": return [[{ type: "game.victory", playerId: event.playerId, reason: event.reason }]];
-    case "legacy.ritual": return [[{ type: "legacy.ritual", ritual: event.ritual, territoryId: event.territoryId, text: event.text, cardId: event.cardId, playerId: event.playerId, resources: event.resources }]];
+    case "legacy.ritual": return [[{ type: "legacy.ritual", ritual: event.ritual, continentId: event.continentId, territoryId: event.territoryId, text: event.text, cardId: event.cardId, playerId: event.playerId, resources: event.resources }]];
     case "presentation.none": return [];
     case "presentation.unknown": return [];
   }
@@ -48,6 +48,7 @@ const timingFor = (command: SceneCommand) => {
     case "cards.transfer": return 520;
     case "turn.handoff": return 400;
     case "power.activate": return 420;
+    case "player.eliminate": return 1100;
     case "continent.control": return 600;
     case "camera.frame": return 220;
     case "army.place": return 360;
