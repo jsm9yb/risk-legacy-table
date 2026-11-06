@@ -75,6 +75,8 @@ describe("expressive table motion", () => {
     const world = scene.marksLayer.children.find((mark: Container) => mark.label === "legacy:world.name") as Container;
     const signature = scene.marksLayer.children.find((mark: Container) => mark.label === `legacy:signature:${playerId}`) as Container;
     expect((world.getChildByLabel("legacy:inscription") as any).text).toBe("The Last Republic");
+    // Keep the world-name underline above Europe's permanent name/bonus box.
+    expect(world.y + 17).toBeLessThan(44);
     expect((signature.getChildByLabel("legacy:inscription") as any).text).toBe(state.players[playerId].name);
     expect((signature.getChildByLabel("legacy:tally") as any).text).toBe("×2");
     expect(signature.getChildByLabel("legacy:tally")!.y).toBeLessThan(0);

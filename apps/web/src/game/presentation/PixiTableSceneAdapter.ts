@@ -534,7 +534,7 @@ export class PixiTableSceneAdapter implements TableScene {
     if (state.worldName.trim() && state.worldName.trim() !== "An Unnamed World") {
       const inscription = this.legacyInscription(state.worldName, true);
       inscription.label = "legacy:world.name";
-      inscription.position.set(WORLD_WIDTH / 2, 38);
+      inscription.position.set(WORLD_WIDTH / 2, 20);
       this.marksLayer.addChild(inscription);
     }
     for (const [playerId, count] of Object.entries(state.signatures)) {
@@ -1220,7 +1220,7 @@ export class PixiTableSceneAdapter implements TableScene {
     const {ritual, territoryId, text} = command;
     if (territoryId && ritual === "ruins.placed") return this.animateCity(territoryId, "ruin", text ?? "RUINS", durationMs, signal);
     const continent = continentPresentationDefinitions.find(c => c.continentId === command.continentId);
-    const point = territoryId ? presentationFor(territoryId).cameraFocus : continent?.nameSlot ?? (ritual === "board.signed" && command.playerId ? this.playerStation(command.playerId) : [WORLD_WIDTH / 2, 38]);
+    const point = territoryId ? presentationFor(territoryId).cameraFocus : continent?.nameSlot ?? (ritual === "board.signed" && command.playerId ? this.playerStation(command.playerId) : [WORLD_WIDTH / 2, ritual === "world.named" ? 20 : 38]);
     const group = new Container(); group.position.set(point[0], point[1]);
     const name = text ?? (ritual === "board.signed" && command.playerId ? this.current?.state.players[command.playerId]?.name : undefined) ?? ritual.replace(/\./g, " ").toUpperCase();
     const maxWidth = ritual === "board.signed" ? Math.min(150, (WORLD_WIDTH - 40) / Math.max(1, Object.keys(this.current!.state.players).length) - 16) : 180;
