@@ -11,12 +11,13 @@ const examples = [
   {id: '01-armies', label: 'Army arrival and casualties', buttons: ['ARMY ARRIVAL', 'DEFENDER LOSS'], durations: [1400, 2200]},
   {id: '02-decisions', label: 'Decision feedback', buttons: ['DECISION PREVIEW'], durations: [1700]},
   {id: '03-faction-power', label: 'Faction power', buttons: ['POWER'], durations: [1500]},
-  {id: '04-legacy', label: 'Permanent legacy marking', buttons: ['WORLD NAME'], durations: [2400]},
+  {id: '04-legacy', label: 'Permanent legacy marking', buttons: ['WORLD NAME', 'SIGNING'], durations: [2400, 2400]},
   {id: '05-elimination', label: 'Player elimination', buttons: ['ELIMINATION'], durations: [2200]},
   {id: '06-envelope', label: 'Sealed envelope reveal', buttons: ['MODULE'], durations: [2800]},
 ];
 try {
   for (const example of examples) {
+    if (process.argv[3] && example.id !== process.argv[3]) continue;
     const context = await browser.newContext({viewport: {width: 1100, height: 760}, deviceScaleFactor: 1});
     const page = await context.newPage();
     const errors = [];

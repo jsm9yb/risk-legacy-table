@@ -529,6 +529,24 @@ export class PixiTableSceneAdapter implements TableScene {
 
   private renderMarks(state: GameState) {
     this.marksLayer.removeChildren().forEach((child) => child.destroy({ children: true, context: true }));
+    // Reconstruct legacy ink from authoritative state on every redraw/reconnect.
+    // The animation uses the same positions and typography, so its final frame persists.
+    if (state.worldName.trim()) {
+      const inscription = this.legacyInscription(state.worldName, true);
+      inscription.label = "legacy:world.name";
+      inscription.position.set(WORLD_WIDTH / 2, 38);
+      this.marksLayer.addChild(inscription);
+    }
+    for (const [playerId, count] of Object.entries(state.signatures)) {
+      if (count <= 0 || !state.players[playerId]) continue;
+      const maxWidth = Math.min(150, (WORLD_WIDTH - 40) / Math.max(1, Object.keys(state.players).length) - 16);
+      const inscription = this.legacyInscription(state.players[playerId].name, false, maxWidth);
+      inscription.label = `legacy:signature:${playerId}`;
+      inscription.position.set(...this.playerStation(playerId));
+      const tally = this.tableText({text: `×${count}`, style: {fill:0xc8b58c, fontFamily:"monospace", fontSize:6, fontWeight:"700"}});
+      tally.anchor.set(0.5); tally.y = -14; tally.label = "legacy:tally";
+      inscription.addChild(tally); this.marksLayer.addChild(inscription);
+    }
     for (const model of continentMarkModels(state)) {
       if (model.name) {
         const name = this.tableText({
@@ -1181,6 +1199,23 @@ export class PixiTableSceneAdapter implements TableScene {
     }, () => group.destroy({ children: true, context: true }));
   }
 
+  private legacyInk(text: string, large = false, maxWidth = 180) {
+    const label = this.tableText({text, style: {fill: 0xffe9b0, fontFamily: '"Segoe Print", "Bradley Hand", cursive', fontSize: large ? 17 : 11, fontWeight: "700", stroke: {color: 0x263029, width: 1.5}}});
+    label.anchor.set(0.5);
+    if (label.width > maxWidth) label.scale.set(maxWidth / label.width);
+    label.label = "legacy:inscription";
+    return label;
+  }
+
+  private legacyInscription(text: string, large = false, maxWidth = 180) {
+    const group = new Container();
+    const label = this.legacyInk(text, large, maxWidth);
+    const width = label.width + 12;
+    const underline = new Graphics().moveTo(-width / 2,13).quadraticCurveTo(0,17,width / 2,12).stroke({color:0xddbc79,width:1.2});
+    group.addChild(label,underline);
+    return group;
+  }
+
   private animateLegacyRitual(command: Extract<SceneCommand, {type: "legacy.ritual"}>, durationMs: number, signal: AbortSignal) {
     const {ritual, territoryId, text} = command;
     if (territoryId && ritual === "ruins.placed") return this.animateCity(territoryId, "ruin", text ?? "RUINS", durationMs, signal);
@@ -1188,8 +1223,11 @@ export class PixiTableSceneAdapter implements TableScene {
     const point = territoryId ? presentationFor(territoryId).cameraFocus : continent?.nameSlot ?? (ritual === "board.signed" && command.playerId ? this.playerStation(command.playerId) : [WORLD_WIDTH / 2, 38]);
     const group = new Container(); group.position.set(point[0], point[1]);
     const name = text ?? (ritual === "board.signed" && command.playerId ? this.current?.state.players[command.playerId]?.name : undefined) ?? ritual.replace(/\./g, " ").toUpperCase();
-    const label = this.tableText({text: name, style: {fill: 0xffe9b0, fontFamily: '"Segoe Print", "Bradley Hand", cursive', fontSize: ritual === "world.named" ? 17 : 11, fontWeight: "700", stroke: {color: 0x263029, width: 1.5}}});
-    label.anchor.set(0.5); if (label.width > 180) label.scale.set(180 / label.width);
+    const maxWidth = ritual === "board.signed" ? Math.min(150, (WORLD_WIDTH - 40) / Math.max(1, Object.keys(this.current!.state.players).length) - 16) : 180;
+    const label = this.legacyInk(name, ritual === "world.named", maxWidth);
+    const priorMark = this.marksLayer.children.find(mark => mark.label === (ritual === "world.named" ? "legacy:world.name" : ritual === "board.signed" ? `legacy:signature:${command.playerId}` : ""));
+    const priorVisibility = priorMark?.visible;
+    if (priorMark) priorMark.visible = false;
     const width = label.width + 12;
     const mask = new Graphics(); label.mask = mask;
     const underline = new Graphics();
@@ -1200,9 +1238,13 @@ export class PixiTableSceneAdapter implements TableScene {
       mask.clear().rect(-width / 2, -25, width * ink, 50).fill(0xffffff);
       pen.position.set(-width / 2 + width * ink, Math.sin(ink * Math.PI * 10) * 3);
       pen.alpha = p < 0.78 && durationMs > 120 ? 1 : 0;
-      underline.clear().moveTo(-width / 2, 13).quadraticCurveTo(0, 17, -width / 2 + width * Math.max(0, (p - 0.7) / 0.3), 12).stroke({color:0xddbc79,width:1.2});
+      underline.clear();
+      if (p > 0.7 || durationMs <= 120) underline.moveTo(-width / 2, 13).quadraticCurveTo(0, 17, -width / 2 + width * (durationMs <= 120 ? 1 : Math.min(1, (p - 0.7) / 0.3)), 12).stroke({color:0xddbc79,width:1.2});
       group.alpha = Math.min(1, p * 8);
-    }, () => group.destroy({children:true, context:true}));
+    }, () => {
+      if (priorMark && !priorMark.destroyed) priorMark.visible = priorVisibility ?? true;
+      group.destroy({children:true, context:true});
+    });
   }
 
   private playerName(playerId: string) {

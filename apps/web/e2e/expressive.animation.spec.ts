@@ -15,6 +15,7 @@ test("expressive animation examples visibly progress and release their objects",
   await expect(table).toHaveAttribute("data-presentation-status", "idle");
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 3000));
   for (const name of ["ARMY ARRIVAL", "DEFENDER LOSS", "DECISION PREVIEW", "POWER", "WORLD NAME", "ELIMINATION", "MODULE"]) {
+    const beforeLegacy = name === "WORLD NAME" ? await table.screenshot() : undefined;
     await page.getByRole("button", {name, exact: true}).dispatchEvent("click");
     await page.clock.runFor(name === "ARMY ARRIVAL" ? 280 : 80);
     const first = await table.screenshot();
@@ -27,6 +28,7 @@ test("expressive animation examples visibly progress and release their objects",
     const health = await page.evaluate(() => (globalThis as any).__riskTableDiagnostics.capture());
     expect(health.activeParticles, name).toBe(0);
     expect(health.contextLosses, name).toBe(0);
+    if (beforeLegacy) expect(beforeLegacy.equals(await table.screenshot()), "the world name remains visible after the ink effect settles").toBe(false);
   }
   expect(errors).toEqual([]);
 });
